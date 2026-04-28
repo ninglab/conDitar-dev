@@ -1,0 +1,106 @@
+data:
+  dataset: crossdocked
+  path: /fs/ess/PCON0041/Ziqi/ProteinPocket/data/crossdocked_pocket10/ # Path to raw data
+  processed_path: /fs/scratch/PCON0041/gruoxi/crossdocked_processed/ 
+  split: ./split/split_by_name.pt        # train test
+  split_val: ./split/crossdocked_trainval_split.pt # train validation
+  datasize: 300
+  noise_type: uniform
+  noise : 1.
+  mask_prob: 0.2
+  unmask_prob: 0.0
+  mask_mode: atom
+  hydrogen: False
+  pocket_config_path: ./configs/pretrain_pocket.yml
+  pocket_checkpoint: ./checkpoints/PocketAE.pt
+  transform:
+    ligand_atom_mode: add_aromatic
+    random_rot: False
+
+model:
+  denoise_type: diffusion
+  model_mean_type: C0
+  gt_noise_type: origin
+  schedule_pos:
+    beta_schedule: sigmoid
+    beta_start: 1.e-7
+    beta_end: 0.01
+    s: 6
+  schedule_v:
+    beta_schedule: cosine
+    s: 0.01
+  num_diffusion_timesteps: 1000
+  loss_v_weight: 200.0
+  v_mode: uniform
+  v_net_type: mlp
+  pred_bond_type: True
+  loss_bond_weight: 0.1
+  loss_pos_type: mse
+  use_bond_dist_loss: True
+  loss_bond_dist_weight: 0.1
+  use_bond_angle_loss: True
+  loss_bond_angle_weight: 0.1
+  use_torsion_angle_loss: True
+  loss_torsion_angle_weight: 0.01
+  loss_torsion_angle_type: one
+  sample_time_method: symmetric
+  loss_weight_type: noise_level
+  loss_pos_min_weight: 0
+  loss_pos_max_weight: 10
+  time_emb_dim: 8
+  time_emb_mode: simple
+  center_pos_mode: none
+  atom_enc_mode: add_aromatic
+  node_indicator: True
+  num_blocks: 1
+  num_layers: 10
+  scalar_hidden_dim: 128
+  vec_hidden_dim: 32
+  n_heads: 16
+  edge_feat_dim: 5
+  edge_feat: covalent_bond
+  num_r_gaussian: 20
+  knn: 8
+  pocket_knn: 32
+  residue_knn: 4
+  num_node_types: 8
+  act_fn: relu
+  norm: True
+  cutoff_mode: knn
+  r_feat_mode: sparse
+  energy_h_mode: basic
+  r_max: 10.0
+  x2h_out_fc: False
+  sync_twoup: False
+  shape_dim: 128
+  shape_latent_dim: 128
+  cond_mask_prob: 0.1
+  use_shape_vec_mul: False
+  use_residue: True
+  residue_pooling: False
+
+train:
+  seed: 2023
+  batch_size: 32
+  num_workers: 0
+  max_iters: 10000000
+  val_freq: 2000
+  pos_noise_std: 0.1
+  max_grad_norm: 8.0
+  bond_loss_weight: 1.0
+  optimizer:
+    type: adam
+    lr: 0.001
+    weight_decay: 0
+    beta1: 0.95
+    beta2: 0.999
+  scheduler:
+    type: plateau
+    factor: 0.6
+    patience: 10
+    min_lr: 3e-05
+  n_acc_batch: 1
+  train_report_iter: 100
+  epoch: 100
+  sample_freq: 6000
+

@@ -1,0 +1,54 @@
+data:
+  dataset: crossdocked
+  path: /fs/ess/PCON0041/Ziqi/ProteinPocket/data/crossdocked_pocket10/
+  processed_path: /fs/scratch/PCON0041/gruoxi/crossdocked_processed/
+  split: ./split/split_by_name.pt
+  split_val: ./split/crossdocked_trainval_split.pt
+  datasize: 300
+  transform: True
+  noise_type: uniform
+  noise : 1.
+  mask_prob: 0.2
+  unmask_prob: 0.0
+  mask_mode: atom
+  hydrogen: False
+  backbone: True
+
+model:
+  model_type: denoiser
+  encoder: GVP
+  embedding_dim: 32
+  hidden_size: 128
+  output_size: 128
+  point_dim: 3
+  pocket_layer_num: 3
+  layer_num: 3
+  num_k: 16
+  num_k_residue: 8
+  loss_type_weight: 0.5
+  residue_center: mean
+  noise : 1.
+  noise_type: uniform
+
+train:
+  seed: 42
+  batch_size: 16
+  point_batch_size: 1024
+  num_workers: 10
+  max_iters: 1000000
+  epoch: 120
+  pos_noise_std: 0.1
+  max_grad_norm: 8.0
+  bond_loss_weight: 1.0
+  optimizer:
+    type: adam
+    lr: 1.e-3
+    weight_decay: 0
+    beta1: 0.95
+    beta2: 0.999
+  scheduler:
+    type: plateau
+    factor: 0.6
+    patience: 5
+    min_lr: 1.e-6
+  n_acc_batch: 1

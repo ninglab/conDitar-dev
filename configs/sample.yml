@@ -1,0 +1,27 @@
+data:
+  hydrogen: False
+  transform: False
+
+pocket:
+  embedding_dim: 32
+  hidden_size: 128
+  output_size: 128
+  point_dim: 3
+  pocket_layer_num: 3
+  layer_num: 3
+  num_k: 16
+  num_k_residue: 8
+  loss_type_weight: 0.5
+  noise : 1.
+  noise_type: uniform
+  residue_center: mean
+
+model:
+  checkpoint_pocket: /fs/ess/PCON0041/gruoxi/P2Diff/checkpoints/PocketAE.pt
+  checkpoint: /fs/ess/PCON0041/gruoxi/P2Diff/checkpoints/Diff.pt 
+
+sample:
+  seed: 2023
+  num_steps: 1000
+  center_pos_mode: none
+  sample_num_atoms: pocket
