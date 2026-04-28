@@ -17,3 +17,9 @@ baselines_results/
 *.ckpt
 *.lmdb
 *.lmdb-lock
+
+__pycache__/
+*.pyc
+
+__pycache__/
+*.pyc
