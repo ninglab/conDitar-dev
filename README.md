@@ -1,6 +1,5 @@
 ## Environment Setup
 
-### Create Conda Environment
 ```bash
 conda create -n conDitar-dev python=3.10 -y
 conda activate conDitar-dev
