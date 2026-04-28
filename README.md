@@ -4,35 +4,14 @@
 ```bash
 conda create -n conDitar-dev python=3.10 -y
 conda activate conDitar-dev
-```
 
-### Install PyTorch
-```bash
 pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124
-```
-
-### Install PyG
-```bash
 pip install torch-geometric==2.7.0
-```
-
-```bash
 pip install torch-scatter==2.1.2 torch-sparse==0.6.18 torch-cluster==1.6.3 torch-spline-conv==1.2.2 -f https://data.pyg.org/whl/torch-2.5.1+cu124.html
-```
-
-### Install Chemistry and Utility Libraries
-```bash
 conda install -c conda-forge rdkit openbabel tensorboard pyyaml easydict python-lmdb
+pip install meeko==0.1.dev3 pdb2pqr tqdm vina cvxpy admet-ai
+pip install git+https://github.com/Valdes-Tresanco-MS/AutoDockTools_py3  
 ```
-
-```bash
-pip install meeko==0.1.dev3 pdb2pqr tqdm vina cvxpy admet-ai 
-```
-
-```bash
-pip install git+https://github.com/Valdes-Tresanco-MS/AutoDockTools_py3 
-```
-
 
 ---
 
