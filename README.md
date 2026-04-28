@@ -24,8 +24,9 @@ pip install git+https://github.com/Valdes-Tresanco-MS/AutoDockTools_py3
 [`test_data/`](./test_data/)
 
 ---
+## Training
 
-## Pocket Encoder Pretraining
+### Pocket Encoder Pretraining
 
 ```bash
 python -m scripts.train_pocketAE configs/pretrain_pocket.yml
@@ -33,11 +34,14 @@ python -m scripts.train_pocketAE configs/pretrain_pocket.yml
 
 ---
 
-## Diffusion Model Training
+### Diffusion Model Training
 
 ```bash
 python -m scripts.train_diffusion configs/train_diffusion.yml
 ```
+
+### Trained Model Checkpoints
+[https://drive.google.com/drive/folders/158A-cQKIF-x_-ewrf7jPGdFew005I3W0?usp=drive_link](https://drive.google.com/drive/folders/158A-cQKIF-x_-ewrf7jPGdFew005I3W0?usp=drive_link)
 
 ---
 
@@ -63,6 +67,6 @@ python -m scripts.evaluate_mol
 
 ---
 
-### Trained Model Checkpoints and Generation Results
+### Generation Results
 
 [https://drive.google.com/drive/folders/158A-cQKIF-x_-ewrf7jPGdFew005I3W0?usp=drive_link](https://drive.google.com/drive/folders/158A-cQKIF-x_-ewrf7jPGdFew005I3W0?usp=drive_link)
