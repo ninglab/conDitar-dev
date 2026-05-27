@@ -17,8 +17,8 @@ pocket:
   residue_center: mean
 
 model:
-  checkpoint_pocket: checkpoints/PocketAE.pt
-  checkpoint: checkpoints/Diff.pt 
+  checkpoint_pocket: ./checkpoints/PocketAE.pt
+  checkpoint: ./checkpoints/Diff.pt 
 
 sample:
   seed: 2026
