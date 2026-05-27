@@ -736,92 +736,7 @@ class UniTransformerO2TwoUpdateGeneralWeightedPoolDynamicUpdateGVPLateBiLevelSep
             return bool(layer_mask[l_idx].item())
         return bool((layer_mask == l_idx).any().item())
 
-    def _apply_pca_perturbation(self, h, pca_perturb, l_idx):
-        if pca_perturb is None or not pca_perturb.get('enabled', True):
-            return h
-        if pca_perturb.get('skip_last', True) and l_idx >= len(self.base_block) - 1:
-            return h
-        if not self._layer_is_selected_for_pca_perturb(pca_perturb, l_idx):
-            return h
-
-        basis = torch.as_tensor(pca_perturb['basis'], device=h.device, dtype=h.dtype)
-        if basis.dim() == 1:
-            basis = basis.unsqueeze(0)
-        if basis.size(-1) != h.size(-1):
-            raise ValueError(
-                f"PCA basis hidden dim mismatch: got {basis.size(-1)}, expected {h.size(-1)}"
-            )
-
-        coeffs = pca_perturb.get('coeffs')
-        if coeffs is None:
-            coeffs = torch.randn(basis.size(0), device=h.device, dtype=h.dtype)
-            component_scales = pca_perturb.get('component_scales', pca_perturb.get('std'))
-            if component_scales is not None:
-                component_scales = torch.as_tensor(component_scales, device=h.device, dtype=h.dtype).view(-1)
-                if component_scales.numel() == 1:
-                    coeffs = coeffs * component_scales[0]
-                elif component_scales.numel() == basis.size(0):
-                    coeffs = coeffs * component_scales
-                else:
-                    raise ValueError(
-                        f"component_scales size mismatch: got {component_scales.numel()}, expected 1 or {basis.size(0)}"
-                    )
-        else:
-            coeffs = torch.as_tensor(coeffs, device=h.device, dtype=h.dtype).view(-1)
-
-        if coeffs.numel() != basis.size(0):
-            raise ValueError(
-                f"PCA coeff count mismatch: got {coeffs.numel()}, expected {basis.size(0)}"
-            )
-
-        delta_h = torch.matmul(coeffs, basis)
-        node_mask = pca_perturb.get('node_mask')
-        if node_mask is None:
-            node_mask = torch.ones(h.size(0), dtype=torch.bool, device=h.device)
-        else:
-            node_mask = torch.as_tensor(node_mask, device=h.device).view(-1)
-            if node_mask.numel() != h.size(0):
-                raise ValueError(
-                    f"node_mask size mismatch: got {node_mask.numel()}, expected {h.size(0)}"
-                )
-            if node_mask.dtype != torch.bool:
-                node_mask = node_mask != 0
-
-        if not torch.any(node_mask):
-            return h
-
-        delta_norm = delta_h.norm(p=2).clamp_min(EPS)
-        h_selected = h[node_mask]
-        h_scale_mode = pca_perturb.get('h_scale_mode', 'std')
-        if h_scale_mode == 'norm':
-            h_scale = h_selected.norm(dim=-1).mean()
-        elif h_scale_mode == 'std':
-            h_scale = h_selected.std()
-        else:
-            raise ValueError(f"Unsupported h_scale_mode: {h_scale_mode}")
-        h_scale = h_scale.clamp_min(EPS)
-
-        relative_scale = float(pca_perturb.get('strength', pca_perturb.get('relative_scale', 1.0)))
-        delta_h = delta_h / delta_norm * h_scale * relative_scale
-
-        alpha = float(pca_perturb.get('alpha', 1.0))
-        per_layer_alpha = pca_perturb.get('per_layer_alpha')
-        if per_layer_alpha is not None:
-            per_layer_alpha = torch.as_tensor(per_layer_alpha, device=h.device, dtype=h.dtype).view(-1)
-            if l_idx >= per_layer_alpha.numel():
-                raise ValueError(
-                    f"per_layer_alpha missing entry for layer {l_idx}: only {per_layer_alpha.numel()} values provided"
-                )
-            alpha = alpha * float(per_layer_alpha[l_idx].item())
-
-        h = h.clone()
-        h[node_mask] = h[node_mask] + alpha * delta_h.unsqueeze(0)
-        return h
-
-    def forward(self, v, h, x, batch_ligand, pocket_data=None, ligand_shape=None, mask_shape_emb=None, pred_bond=False, ligand_bond_index=None, ligand_bond_type=None, if_test=False, return_all=None, pca_perturb=None):
-
-        pca_perturb = None
-
+    def forward(self, v, h, x, batch_ligand, pocket_data=None, ligand_shape=None, mask_shape_emb=None, pred_bond=False, ligand_bond_index=None, ligand_bond_type=None, if_test=False, return_all=None):
         all_vec = [x]
         all_h = [h]
         all_bond_loss = []
@@ -888,10 +803,6 @@ class UniTransformerO2TwoUpdateGeneralWeightedPoolDynamicUpdateGVPLateBiLevelSep
                                    pocket_scalar_emb, pocket_vec_emb, \
                                    pocket_residue_scalar_emb, pocket_residue_vec_emb, residue_pos, residue_edge_index, pocket_scalar_emb_residue, pocket_vec_emb_residue, if_test=if_test)
                     bond_gt = None
-
-                # h = self._apply_pca_perturbation(h, pca_perturb, l_idx)
-
-                #ligand_emb = h
 
             # print(f'connect edge time: {t2 - t1}, edge type compute time: {t3 - t2}, forward time: {t4 - t3}')
             vec = vec.squeeze(1)
