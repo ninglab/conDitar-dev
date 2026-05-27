@@ -321,8 +321,7 @@ class ScorePosNet3D(nn.Module):
 
     def forward(self, ligand_pos_perturbed, ligand_v_perturbed, 
                 batch_ligand, pocket_data, time_step=None, ligand_bond_index=None, ligand_shape=None,
-                mask_shape_emb=None, ligand_bond_type=None, pred_bond=True, if_test=False, return_all=False,
-                pca_perturb=None):
+                mask_shape_emb=None, ligand_bond_type=None, pred_bond=True, if_test=False, return_all=False):
         """
         f(x0, v0 | xt, vt): predicts the original position and atom type from noisy samples at step t
         """
@@ -342,8 +341,7 @@ class ScorePosNet3D(nn.Module):
         
         outputs = self.refine_net(ligand_v_perturbed, ligand_emb, ligand_pos_perturbed, batch_ligand, 
                                   pocket_data, ligand_bond_index=ligand_bond_index, ligand_shape=ligand_shape, mask_shape_emb=mask_shape_emb,
-                                  ligand_bond_type=ligand_bond_type, pred_bond=pred_bond, if_test=if_test, return_all=return_all,
-                                  pca_perturb=pca_perturb)
+                                  ligand_bond_type=ligand_bond_type, pred_bond=pred_bond, if_test=if_test, return_all=return_all)
         final_pos, final_h = outputs['x'], outputs['h']
         final_v = self.v_inference(final_h)
 
