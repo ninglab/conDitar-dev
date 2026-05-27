@@ -41,7 +41,7 @@ def is_vina_compatible(mol):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--sample_path', type=str, default='test_DPS')
+    parser.add_argument('--sample_path', type=str, default='test')
     parser.add_argument('--verbose', type=eval, default=True)
     parser.add_argument('--eval_id', type=int, default=None)
     parser.add_argument('--save', type=eval, default=True)
@@ -119,11 +119,11 @@ if __name__ == '__main__':
                 vina_results = {
                     'score_only': score_only_results,
                 }
-                # minimize_results = vina_task.run(mode='minimize', exhaustiveness=args.exhaustiveness, cpu=10)
-                # vina_results = {
-                #     'score_only': score_only_results,
-                #     'minimize': minimize_results
-                # }
+                minimize_results = vina_task.run(mode='minimize', exhaustiveness=args.exhaustiveness, cpu=10)
+                vina_results = {
+                    'score_only': score_only_results,
+                    'minimize': minimize_results
+                }
                 if args.docking_mode == 'vina_dock':
                     docking_results = vina_task.run(mode='dock', exhaustiveness=args.exhaustiveness)
                     vina_results['dock'] = docking_results
