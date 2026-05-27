@@ -1,7 +1,7 @@
 data:
   dataset: crossdocked
-  path: /fs/ess/PCON0041/Ziqi/ProteinPocket/data/crossdocked_pocket10/ # Path to raw data
-  processed_path: /fs/scratch/PCON0041/gruoxi/crossdocked_processed/ 
+  path: ./crossdocked_pocket10/ # Path to raw data
+  processed_path: ./crossdocked_processed/ 
   split: ./split/split_by_name.pt        # train test
   split_val: ./split/crossdocked_trainval_split.pt # train validation
   datasize: 300
