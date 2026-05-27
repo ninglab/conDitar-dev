@@ -1,6 +1,3 @@
-"""
-the newest version about how to incorporate shape embedding with electrostatic features.
-"""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
