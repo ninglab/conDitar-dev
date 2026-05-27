@@ -719,23 +719,6 @@ class UniTransformerO2TwoUpdateGeneralWeightedPoolDynamicUpdateGVPLateBiLevelSep
         e_w = torch.sigmoid(logits)
         return e_w
 
-    def _layer_is_selected_for_pca_perturb(self, pca_perturb, l_idx):
-        layer_mask = pca_perturb.get('layer_mask')
-        if layer_mask is None:
-            return True
-
-        if isinstance(layer_mask, (list, tuple, set)):
-            return l_idx in layer_mask
-
-        layer_mask = torch.as_tensor(layer_mask)
-        if layer_mask.dim() == 0:
-            return bool(layer_mask.item())
-        if layer_mask.dtype == torch.bool:
-            if l_idx >= layer_mask.numel():
-                return False
-            return bool(layer_mask[l_idx].item())
-        return bool((layer_mask == l_idx).any().item())
-
     def forward(self, v, h, x, batch_ligand, pocket_data=None, ligand_shape=None, mask_shape_emb=None, pred_bond=False, ligand_bond_index=None, ligand_bond_type=None, if_test=False, return_all=None):
         all_vec = [x]
         all_h = [h]
