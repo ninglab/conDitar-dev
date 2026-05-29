@@ -1,9 +1,3 @@
-"""
-https://github.com/mattragoza/liGAN/blob/master/fitting.py
-
-License: GNU General Public License v2.0
-https://github.com/mattragoza/liGAN/blob/master/LICENSE
-"""
 import itertools
 
 import numpy as np

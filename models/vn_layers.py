@@ -1,3 +1,8 @@
+# =============================================================================
+# From: https://github.com/FlyingGiraffe/vnn
+# License: MIT License, Copyright (c) 2021 Congyue Deng
+# =============================================================================
+
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn

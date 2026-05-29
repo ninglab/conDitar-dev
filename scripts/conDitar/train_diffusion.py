@@ -1,3 +1,12 @@
+# =============================================================================
+# Copyright (c) The Ohio State University. All rights reserved.
+# Licensed under the terms in LICENCE.txt.
+#
+# Extends: https://github.com/guanjq/targetdiff  (MIT License, © 2023 Jiaqi Guan)
+# The training loop structure follows TargetDiff's train_diffusion.py and is
+# extended with pocket AE conditioning and bond/angle losses.
+# =============================================================================
+
 import pdb
 import os
 import shutil

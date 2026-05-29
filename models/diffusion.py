@@ -1,3 +1,8 @@
+# =============================================================================
+# From: https://github.com/guanjq/targetdiff
+# License: MIT License, Copyright (c) 2023 Jiaqi Guan
+# =============================================================================
+
 import numpy as np
 
 

@@ -1,3 +1,23 @@
+# =============================================================================
+# This file extends the TargetDiff codebase:
+#   https://github.com/guanjq/targetdiff
+#   MIT License, Copyright (c) 2023 Jiaqi Guan
+#
+# The following functions are taken from TargetDiff with minimal
+# or no modification:
+#   get_distance, to_torch_const, extract, center_pos,
+#   index_to_log_onehot, log_onehot_to_index, categorical_kl,
+#   log_categorical, normal_kl, log_normal, log_1_min_a, log_add_exp,
+#   SinusoidalPosEmb,
+#   ScorePosNet3D.q_v_pred_one_timestep, ScorePosNet3D.q_v_pred,
+#   ScorePosNet3D.q_v_sample, ScorePosNet3D.q_v_posterior,
+#   ScorePosNet3D.kl_v_prior, ScorePosNet3D._predict_x0_from_eps,
+#   ScorePosNet3D.q_pos_posterior, ScorePosNet3D.kl_pos_prior,
+#   ScorePosNet3D.sample_time, ScorePosNet3D.compute_pos_Lt,
+#   ScorePosNet3D.compute_v_Lt
+# =============================================================================
+
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

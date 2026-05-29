@@ -1,14 +1,3 @@
-"""
-change the pooling layer from average pooling to attention pooling to calculate pocket embeddings
-
-learn the interactions between pocket and ligand atom embeddings
-
-aggregate interaction embeddings with dynamic attention weights
-
-use the pocket context embeddings learned from previous layer to update the current pocket context embeddings
-
-combine pocket context embeddings with ligand embeddings in the late stage, instead of before message passing.
-"""
 import numpy as np
 import torch
 import torch.nn as nn

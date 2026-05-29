@@ -1,3 +1,12 @@
+# =============================================================================
+# Copyright (c) The Ohio State University. All rights reserved.
+# Licensed under the terms in LICENCE.txt.
+#
+# Adapted from: https://github.com/guanjq/targetdiff  (MIT License, © 2023 Jiaqi Guan)
+# Inference entry point follows TargetDiff's scripts/sample_for_pocket.py,
+# extended for conDitar's pocket AE conditioning.
+# =============================================================================
+
 import pdb
 import os
 import argparse

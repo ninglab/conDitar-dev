@@ -1,3 +1,12 @@
+# =============================================================================
+# Largely from: https://github.com/guanjq/targetdiff
+# License: MIT License, Copyright (c) 2023 Jiaqi Guan
+#
+# Portions of this file (_norm_no_nan) taken from:
+#   https://github.com/drorlab/gvp-pytorch
+#   MIT License, Copyright (c) 2020 Bowen Jing et al.
+# =============================================================================
+
 import pdb
 import math
 import numpy as np

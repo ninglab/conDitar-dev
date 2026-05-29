@@ -1,3 +1,12 @@
+# =============================================================================
+# Copyright (c) The Ohio State University. All rights reserved.
+# Licensed under the terms in LICENCE.txt.
+#
+# Adapted from: https://github.com/guanjq/targetdiff  (MIT License, © 2023 Jiaqi Guan)
+# Core evaluation logic follows TargetDiff's scripts/evaluate_diffusion.py,
+# extended with additional docking modes and conDitar-specific output paths.
+# =============================================================================
+
 import argparse
 import os
 import re

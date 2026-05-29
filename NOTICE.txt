@@ -1,0 +1,63 @@
+================================================================================
+NOTICE
+================================================================================
+
+This repository contains two components, conDitar and paOPT, each
+governed by a separate license. Please review both notices below before use.
+
+
+================================================================================
+Part I: conDitar
+================================================================================
+
+conDitar is a structure-based drug design model for pocket-conditioned 3D
+molecule generation. It is built upon the TargetDiff codebase:
+
+    TargetDiff: 3D Equivariant Diffusion for Target-Aware Molecule Generation
+    and Affinity Prediction (ICLR 2023)
+    Jiaqi Guan et al. | https://github.com/guanjq/targetdiff
+    Licensed under the MIT License, Copyright (c) 2023 Jiaqi Guan
+
+Portions of the code are also adapted from:
+
+    Vector Neurons: A General Framework for SO(3)-Equivariant Networks
+    Congyue Deng et al. | https://github.com/FlyingGiraffe/vnn
+    Licensed under the MIT License, Copyright (c) 2021 Congyue Deng
+
+    GVP-PyTorch | https://github.com/drorlab/gvp-pytorch
+    Licensed under the MIT License, Copyright (c) 2020 Bowen Jing et al.
+
+    liGAN | https://github.com/mattragoza/liGAN
+    Licensed under the GNU General Public License v2.0
+
+LICENSE FOR conDitar
+
+conDitar is copyrighted by the Ohio State University and covered by
+US patent application 64/023,113.
+
+conDitar may be licensed solely for educational and research purposes by
+non-profit institutions and US government agencies only. For other proposed
+uses, contact tlcip@osu.edu. The software may not be sold or redistributed
+without prior approval.
+
+See scripts/conDitar/LICENCE.txt for the full license terms.
+
+
+================================================================================
+Part II: paOPT
+================================================================================
+
+paOPT is a post-generation optimization component.
+
+LICENSE FOR paOPT
+
+paOPT is copyrighted by Regents of the University of Minnesota and covered by
+US patent application 64/072,275.
+
+paOPT may be licensed solely for educational and research purposes by
+non-profit institutions and US government agencies only. For other proposed
+uses, contact umotc@umn.edu. The software may not be sold or redistributed
+without prior approval.
+
+See scripts/paOPT/LICENCE.txt for the full license terms.
+

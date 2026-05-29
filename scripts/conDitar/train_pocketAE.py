@@ -1,3 +1,8 @@
+# =============================================================================
+# Copyright (c) The Ohio State University. All rights reserved.
+# Licensed under the terms in LICENSE.txt.
+# =============================================================================
+
 import pdb
 import os
 import shutil
