@@ -1,3 +1,13 @@
+# Copyright (c) 2026 Regents of the University of Minnesota.
+# All rights reserved.
+#
+# paOPT is source-available research software covered by
+# U.S. Patent Application Serial No. 64/072,275.
+#
+# Use, copying, redistribution, and other activities are governed by the
+# license terms in LICENSE.txt. This software is provided "as is" without
+# warranty of any kind.
+
 import pdb
 import os, sys
 import argparse
@@ -18,11 +28,10 @@ import cvxpy as cp
 from models.molopt_score_model import ScorePosNet3D, ScorePosNet3D_opt, log_sample_categorical, extract, index_to_log_onehot, center_pos
 from rdkit import Chem
 from utils import eval_atom_type, scoring_func, analyze, eval_bond_length
-from scripts.sample_diffusion import *
+from sample_diffusion_opt import *
 import json
 from admet_ai import ADMETModel
 from contextlib import contextmanager
-
 
 def get_admet_ai(smiles_path):
     with open(smiles_path, 'r') as f:
@@ -136,7 +145,7 @@ def get_descent_dir(grads):
 
 def sample_wrapper(model, data, num_samples, batch_size, device, num_steps, center_pos_mode, sample_num_atoms, init_ligand_pos, init_ligand_v, gaussian_noise_traj, gumbel_noise_traj, ligand_num_atoms, ligand_cum_atoms, batch_ligand, i, args):
     print(f'gradient estimation run {i} sample started')
-        # Load checkpoint
+    # Load checkpoint
 
     init_ligand_pos = init_ligand_pos.to(device)
     init_ligand_v = init_ligand_v.to(device)
