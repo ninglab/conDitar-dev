@@ -1,13 +1,30 @@
 # =============================================================================
-# This file extends the TargetDiff codebase:
-#   https://github.com/guanjq/targetdiff
-#   MIT License, Copyright (c) 2023 Jiaqi Guan
-#
-# The following functions are taken from TargetDiff with minimal
-# or no modification:
+# Extends: https://github.com/guanjq/targetdiff  (MIT License, © 2023 Jiaqi Guan)
+
+# Copyright (c) 2023 Jiaqi Guan
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# From TargetDiff (minimal or no modification):
 #   get_distance, to_torch_const, extract, center_pos,
 #   index_to_log_onehot, log_onehot_to_index, categorical_kl,
-#   log_categorical, normal_kl, log_normal, log_1_min_a, log_add_exp,
+#   log_categorical, normal_kl, log_normal, log_sample_categorical, log_1_min_a, log_add_exp,
 #   SinusoidalPosEmb,
 #   ScorePosNet3D.q_v_pred_one_timestep, ScorePosNet3D.q_v_pred,
 #   ScorePosNet3D.q_v_sample, ScorePosNet3D.q_v_posterior,
@@ -15,6 +32,37 @@
 #   ScorePosNet3D.q_pos_posterior, ScorePosNet3D.kl_pos_prior,
 #   ScorePosNet3D.sample_time, ScorePosNet3D.compute_pos_Lt,
 #   ScorePosNet3D.compute_v_Lt
+
+# conDitar is copyrighted by the Ohio State University and covered by US 64/023,113.
+
+# conDitar may be licensed solely for educational and research purposes by
+# non-profit institutions and US government agencies only. For other proposed
+# uses, contact tlcip@osu.edu. The software may not be sold or redistributed
+# without prior approval.
+
+# You may not use the software to train or process or input the software into
+# or make it accessible to: automated software, services or tools, including,
+# but not limited to, artificial intelligence solutions, algorithms, machine
+# learning, large language models, robots, spiders, crawlers, search engines,
+# text or data mining or any other aggregation functionality.
+
+# One may make copies of the software for their use provided that the copies
+# are not sold or distributed and are used under the same terms and conditions.
+# As unestablished research software, this code is provided on an "as is" basis
+# without warranty of any kind, either expressed or implied. The downloading or
+# executing any part of this software constitutes an implicit agreement to these
+# terms. These terms and conditions are subject to change at any time without
+# prior notice.
+
+# conDitar:
+#   get_refine_net,
+#   ScorePosNet3D.__init__,
+#   ScorePosNet3D.forward,
+#   ScorePosNet3D.compute_bond_angle_loss,
+#   ScorePosNet3D.compute_torsion_angle_loss,
+#   ScorePosNet3D.get_diffusion_loss,
+#   ScorePosNet3D.sample_diffusion,
+#   ScorePosNet3D_opt
 # =============================================================================
 
 
@@ -148,43 +196,6 @@ def log_add_exp(a, b):
     maximum = torch.max(a, b)
     return maximum + torch.log(torch.exp(a - maximum) + torch.exp(b - maximum))
 
-# %%
-
-def dynamic_threshold(x0, p):
-    s = torch.quantile(x0, p)
-    x0 = torch.clip(x0, min=-s, max=s)
-    return x0
-
-def reference_threshold(x0, x0_cond, p):
-    s = torch.max(torch.abs(x0_cond)) * p
-    x0 = torch.clip(x0, min=-s, max=s)
-    return x0
-
-def rescale(x0, x0_cond, p):
-    std_x0 = torch.std(x0)
-    std_x0_cond = torch.std(x0_cond)
-    rescale_ratio = std_x0_cond / std_x0
-    x0_rescale = x0 * rescale_ratio
-    x0 = p * x0_rescale + (1-p) * x0
-    return x0
-
-def threshold_CFG(x0, x0_cond, threshold_type, threshold_args, bounds=None):
-    if threshold_type == 'reference_threshold':
-        p = threshold_args.get('p', 1.1)
-        x0 = reference_threshold(x0, x0_cond, p)
-    elif threshold_type == 'dynamic_threshold':
-        p = threshold_args.get('p', 0.995)
-        x0 = dynamic_threshold(x0, p)
-    elif threshold_type == 'rescale':
-        p = threshold_args.get('p', 0.7)
-        x0 = rescale(x0, x0_cond, p)
-    elif threshold_type is not None:
-        raise ValueError("undefined thresholding strategy: expect one of (reference_threshold, dynamic_threshold, rescale, none) " + \
-                         "but get %s" % (threshold_type))
-    
-    if bounds is not None:
-        x0 = torch.clamp(x0, min=bounds[:,0], max=bounds[:, 1])
-    return x0
 
 # Time embedding
 class SinusoidalPosEmb(nn.Module):

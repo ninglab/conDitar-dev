@@ -1,45 +1,13 @@
-conDitar is copyrighted by the Ohio State University and covered by
-US patent application 64/023,113.
+conDitar is copyrighted by the Ohio State University and covered by US 64/023,113. 
 
+conDitar may be licensed solely for educational and research purposes by non-profit institutions and US government agencies only. 
 
-PERMITTED USE
+For other proposed uses, contact tlcip@osu.edu. 
 
-conDitar may be licensed solely for educational and research purposes by
-non-profit institutions and US government agencies only.
+The software may not be sold or redistributed without prior approval. 
 
-For other proposed uses, contact: tlcip@osu.edu
+You may not use the software to train or process or input the software into or make it accessible to: automated software, services or tools, including, but not limited to, artificial intelligence solutions, algorithms, machine learning, large language models, robots, spiders, crawlers, search engines, text or data mining or any other aggregation functionality.   
 
+One may make copies of the software for their use provided that the copies, are not sold or distributed, are used under the same terms and conditions. As unestablished research software, this code is provided on an "as is'' basis without warranty of any kind, either expressed or implied. The downloading, or executing any part of this software constitutes an implicit agreement to these terms. 
 
-RESTRICTIONS
-
-The software may not be sold or redistributed without prior approval.
-
-You may not use the software to train, process, or input the software into,
-or make it accessible to, any of the following:
-
-  - Automated software, services, or tools
-  - Artificial intelligence solutions or algorithms
-  - Machine learning systems
-  - Large language models
-  - Robots, spiders, or crawlers
-  - Search engines
-  - Text or data mining tools
-  - Any other aggregation functionality
-
-
-COPYING
-
-Copies of the software may be made for personal use, provided that the copies:
-
-  - Are not sold or distributed
-  - Are used under the same terms and conditions as this license
-
-
-DISCLAIMER
-
-As unestablished research software, this code is provided on an "as is" basis
-without warranty of any kind, either expressed or implied.
-
-Downloading or executing any part of this software constitutes an implicit
-agreement to these terms. These terms and conditions are subject to change
-at any time without prior notice.
+These terms and conditions are subject to change at any time without prior notice.

@@ -1,10 +1,25 @@
 # =============================================================================
-# Largely from: https://github.com/guanjq/targetdiff
-# License: MIT License, Copyright (c) 2023 Jiaqi Guan
-#
-# Portions of this file (_norm_no_nan) taken from:
-#   https://github.com/drorlab/gvp-pytorch
-#   MIT License, Copyright (c) 2020 Bowen Jing et al.
+# From: https://github.com/guanjq/targetdiff, except _norm_no_nan
+
+# Copyright (c) 2023 Jiaqi Guan
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 # =============================================================================
 
 import pdb
@@ -20,48 +35,35 @@ from torch_scatter import scatter_min
 VERY_SMALL_NUMBER = 1e-16
 VERY_LARGE_NUMBER = 1e+16
 
-def noise_like(tensor, noise_type, noise, label_slices=None):
-    if noise_type == 'expand':
-        noise_tensor = randn_like_expand(tensor, label_slices, sigma1=noise)
-    elif noise_type == 'const':
-        noise_tensor = randn_like_with_clamp(tensor) * noise
-    else:
-        raise NotImplementedError
-    return noise_tensor
-
-
-def randn_like_with_clamp(tensor, clamp_std=3):
-    noise_tensor = torch.randn_like(tensor)
-    return torch.clamp(noise_tensor, min=-clamp_std, max=clamp_std)
-
 
 def _norm_no_nan(x, axis=-1, keepdims=False, eps=1e-8, sqrt=True):
     '''
-    L2 norm of tensor clamped above a minimum value `eps`.
-    
-    :param sqrt: if `False`, returns the square of the L2 norm
-
     copy from https://github.com/drorlab/gvp-pytorch/blob/main/gvp/__init__.py#L79
+
+    Copyright (c) 2020 Bowen Jing, Stephan Eismann, Pratham Soni,
+                    Patricia Suriana, Raphael Townshend, Ron Dror
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
     '''
     out = torch.clamp(torch.sum(torch.square(x), axis, keepdims), min=eps, max=VERY_LARGE_NUMBER)
     #if torch.isnan(out).any(): pdb.set_trace()
     return torch.sqrt(out) if sqrt else out
-
-def randn_like_expand(tensor, label_slices, sigma0=0.01, sigma1=10, num_sigma=50):
-    # max_noise_std = 20 if noise >= 0.5 else 5
-    # noise_std_list = np.linspace(0, 1, 11)[:-1].tolist() + np.linspace(1, max_noise_std, 20).tolist()
-    # idx = np.random.randint(0, len(noise_std_list))
-    # noise_tensor = torch.randn_like(tensor) * noise_std_list[idx]
-    sigmas = np.exp(np.linspace(np.log(sigma0), np.log(sigma1), num_sigma))
-    batch_noise_std = np.random.choice(sigmas, len(label_slices))
-    batch_noise_std = torch.tensor(batch_noise_std, dtype=torch.float32)
-    batch_noise_std = torch.repeat_interleave(batch_noise_std, torch.tensor(label_slices))
-    # print('noise tensor shape: ', tensor.shape, 'noise std shape: ', batch_noise_std.shape)
-    # print('label slices: ', label_slices)
-    # print('batch noise std: ', batch_noise_std)
-    noise_tensor = torch.randn_like(tensor) * batch_noise_std.unsqueeze(-1).to(tensor)
-    # print('noise tensor: ', noise_tensor.shape)
-    return noise_tensor
 
 
 class GaussianSmearing(nn.Module):
