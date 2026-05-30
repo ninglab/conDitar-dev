@@ -42,6 +42,8 @@ def _norm_no_nan(x, axis=-1, keepdims=False, eps=1e-8, sqrt=True):
     '''
     copy from https://github.com/drorlab/gvp-pytorch/blob/main/gvp/__init__.py
 
+    MIT License
+    
     Copyright (c) 2020 Bowen Jing, Stephan Eismann, Pratham Soni,
                     Patricia Suriana, Raphael Townshend, Ron Dror
 
