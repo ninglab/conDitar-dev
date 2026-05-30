@@ -1,5 +1,7 @@
 # =============================================================================
-# From: https://github.com/guanjq/targetdiff
+# From: https://github.com/guanjq/targetdiff with minor modifications
+
+# MIT License
 
 # Copyright (c) 2023 Jiaqi Guan
 

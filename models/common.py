@@ -1,6 +1,8 @@
 # =============================================================================
 # From: https://github.com/guanjq/targetdiff, except _norm_no_nan
 
+# MIT License
+
 # Copyright (c) 2023 Jiaqi Guan
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -38,7 +40,7 @@ VERY_LARGE_NUMBER = 1e+16
 
 def _norm_no_nan(x, axis=-1, keepdims=False, eps=1e-8, sqrt=True):
     '''
-    copy from https://github.com/drorlab/gvp-pytorch/blob/main/gvp/__init__.py#L79
+    copy from https://github.com/drorlab/gvp-pytorch/blob/main/gvp/__init__.py
 
     Copyright (c) 2020 Bowen Jing, Stephan Eismann, Pratham Soni,
                     Patricia Suriana, Raphael Townshend, Ron Dror

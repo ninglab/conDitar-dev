@@ -1,6 +1,8 @@
 # =============================================================================
 # Extends: https://github.com/guanjq/targetdiff  (MIT License, © 2023 Jiaqi Guan)
 
+# MIT License
+
 # Copyright (c) 2023 Jiaqi Guan
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -21,7 +23,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-# From TargetDiff (minimal or no modification):
+# From TargetDiff with minimal or no modification:
 #   get_atomic_number_from_index, is_aromatic_from_index,
 #   get_hybridization_from_index, get_index,
 #   FeaturizeProteinAtom, FeaturizeLigandAtom, FeaturizeLigandBond, RandomRotation
@@ -48,7 +50,7 @@
 # terms. These terms and conditions are subject to change at any time without
 # prior notice.
 
-# conDitar:
+# From conDitar:
 #   MAP_ATOM_TYPE_ONLY_TO_INDEX, MAP_ATOM_TYPE_AROMATIC_TO_INDEX,
 #   MAP_INDEX_TO_BOND_TYPE, RESIDUE_INDEX_DICT, AUTODOCK, ATOM_INDEX_DICT,
 #   PocketRandomMask      

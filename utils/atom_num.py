@@ -1,6 +1,8 @@
 # =============================================================================
 # Extends: https://github.com/guanjq/targetdiff  (MIT License, © 2023 Jiaqi Guan)
 
+# MIT License
+
 # Copyright (c) 2023 Jiaqi Guan
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -21,7 +23,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-# From TargetDiff (minimal or no modification):
+# From TargetDiff with minimal or no modification:
 #   get_space_size, _get_bin_idx, sample_atom_num
 
 # conDitar is copyrighted by the Ohio State University and covered by US 64/023,113.
@@ -45,7 +47,7 @@
 # terms. These terms and conditions are subject to change at any time without
 # prior notice.
 
-# conDitar:
+# From conDitar:
 #   get_interaction_size
 # =============================================================================
 

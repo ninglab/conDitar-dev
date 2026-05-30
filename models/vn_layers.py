@@ -1,5 +1,8 @@
 # =============================================================================
-# From: https://github.com/FlyingGiraffe/vnn
+# From: https://github.com/FlyingGiraffe/vnn with minor modifications
+
+# MIT License
+
 # Copyright (c) 2021 Congyue Deng
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -132,53 +135,6 @@ class VNLinearLeakyReLU(nn.Module):
         x_out = self.negative_slope * p + (1-self.negative_slope) * (mask*p + (1-mask)*(p-(dotprod/(d_norm_sq+EPS))*d))
         return x_out
 
-# Resnet Blocks
-class VNResnetBlockFC(nn.Module):
-    ''' Fully connected ResNet Block class.
-
-    Args:
-        size_in (int): input dimension
-        size_out (int): output dimension
-        size_h (int): hidden dimension
-    '''
-
-    def __init__(self, size_in, size_out=None, size_h=None):
-        super().__init__()
-        # Attributes
-        if size_out is None:
-            size_out = size_in
-
-        if size_h is None:
-            size_h = min(size_in, size_out)
-
-        self.size_in = size_in
-        self.size_h = size_h
-        self.size_out = size_out
-        # Submodules
-        self.fc_0 = VNLinear(size_in, size_h)
-        self.fc_1 = VNLinear(size_h, size_out)
-        self.actvn_0 = VNLeakyReLU(size_in, negative_slope=0.0, share_nonlinearity=False)
-        self.actvn_1 = VNLeakyReLU(size_h, negative_slope=0.0, share_nonlinearity=False)
-
-        if size_in == size_out:
-            self.shortcut = None
-        else:
-            self.shortcut = VNLinear(size_in, size_out)
-        # Initialization
-        nn.init.zeros_(self.fc_1.map_to_feat.weight)
-
-    def forward(self, x):
-        net = self.fc_0(self.actvn_0(x))
-        dx = self.fc_1(self.actvn_1(net))
-
-        if self.shortcut is not None:
-            x_s = self.shortcut(x)
-        else:
-            x_s = x
-
-        return x_s + dx
-
-
 class VNStdFeature(nn.Module):
     def __init__(self, in_channels, dim=4, normalize_frame=False, share_nonlinearity=False, negative_slope=0.2):
         super(VNStdFeature, self).__init__()
@@ -227,89 +183,3 @@ class VNStdFeature(nn.Module):
             x_std = torch.einsum('bijmn,bjkmn->bikmn', x, z0)
         
         return x_std, z0
-    
-    
-# Resnet Blocks
-class ResnetBlockFC(nn.Module):
-    ''' Fully connected ResNet Block class.
-
-    Args:
-        size_in (int): input dimension
-        size_out (int): output dimension
-        size_h (int): hidden dimension
-    '''
-
-    def __init__(self, size_in, size_out=None, size_h=None):
-        super().__init__()
-        # Attributes
-        if size_out is None:
-            size_out = size_in
-
-        if size_h is None:
-            size_h = min(size_in, size_out)
-
-        self.size_in = size_in
-        self.size_h = size_h
-        self.size_out = size_out
-        # Submodules
-        self.fc_0 = nn.Linear(size_in, size_h)
-        self.fc_1 = nn.Linear(size_h, size_out)
-        self.actvn = nn.ReLU()
-
-        if size_in == size_out:
-            self.shortcut = None
-        else:
-            self.shortcut = nn.Linear(size_in, size_out, bias=False)
-        # Initialization
-        nn.init.zeros_(self.fc_1.weight)
-
-    def forward(self, x):
-        net = self.fc_0(self.actvn(x))
-        dx = self.fc_1(self.actvn(net))
-
-        if self.shortcut is not None:
-            x_s = self.shortcut(x)
-        else:
-            x_s = x
-
-        return x_s + dx
-
-def mean_pool(x, dim=-1, keepdim=False):
-    return x.mean(dim=dim, keepdim=keepdim)
-
-def get_graph_feature_cross(x, k=20, idx=None, if_cross=False):
-    batch_size = x.size(0)
-    num_points = x.size(3)
-    
-    x = x.view(batch_size, -1, num_points)
-    if idx is None:
-        idx = knn(x, k=k)
-
-    idx_base = torch.arange(0, batch_size).to(x).view(-1, 1, 1) * num_points
-    
-    idx = idx + idx_base
-
-    idx = idx.view(-1).long()
- 
-    _, num_dims, _ = x.size()
-    num_dims = num_dims // 3
-
-    x = x.transpose(2, 1).contiguous()
-    feature = x.view(batch_size*num_points, -1)[idx, :]
-    feature = feature.view(batch_size, num_points, k, num_dims, 3) 
-    x = x.view(batch_size, num_points, 1, num_dims, 3).repeat(1, 1, k, 1, 1)
-    if if_cross:
-        cross = torch.cross(feature, x, dim=-1)
-        feature = torch.cat((feature-x, x, cross), dim=3).permute(0, 3, 4, 1, 2).contiguous()
-    else:
-        feature = torch.cat((feature-x, x), dim=3).permute(0, 3, 4, 1, 2).contiguous()
-    
-    return feature
-
-def knn(x, k):
-    inner = -2*torch.matmul(x.transpose(2, 1), x)
-    xx = torch.sum(x**2, dim=1, keepdim=True)
-    pairwise_distance = -xx - inner - xx.transpose(2, 1)
-    
-    idx = pairwise_distance.topk(k=k, dim=-1)[1]   # (batch_size, num_points, k)
-    return idx

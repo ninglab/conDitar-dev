@@ -25,7 +25,8 @@ import utils.data as utils_data
 import numpy as np
 import pdb
 import cvxpy as cp
-from models.molopt_score_model import ScorePosNet3D, ScorePosNet3D_opt, log_sample_categorical, extract, index_to_log_onehot, center_pos
+from models.molopt_score_model import ScorePosNet3D, log_sample_categorical, extract, index_to_log_onehot, center_pos
+from models.molopt_score_model_opt import ScorePosNet3D_opt
 from rdkit import Chem
 from utils import eval_atom_type, scoring_func, analyze, eval_bond_length
 from sample_diffusion_opt import *
