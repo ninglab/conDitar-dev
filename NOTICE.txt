@@ -4,7 +4,6 @@ license:
 1. conDitar
    License: scripts/conDitar/LICENCE.txt
 
-
 2. paOPT
    License: scripts/paOPT/LICENCE.txt
 
