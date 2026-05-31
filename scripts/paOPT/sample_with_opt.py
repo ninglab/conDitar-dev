@@ -1,14 +1,13 @@
-#################################################################
+# =============================================================================
 # Copyright (c) 2026 Regents of the University of Minnesota.
 # All rights reserved.
 #
-# paOPT is source-available research software covered by
-# U.S. Patent Application Serial No. 64/072,275.
+# paOPT is copyrighted by Regents of the University of Minnesota and covered by US 64/072,275. Regents of the University of Minnesota will license the use of paOPT solely for educational and research purposes by non-profit institutions and US government agencies only. For other proposed uses, contact umotc@umn.edu. The software may not be sold or redistributed without prior approval. 
 #
-# Use, copying, redistribution, and other activities are governed by the
-# license terms in LICENSE.txt. This software is provided "as is" without
-# warranty of any kind.
-#################################################################
+# You may not use the software to train or process or input the software into or make it accessible to: automated software, services or tools, including, but not limited to, artificial intelligence solutions, algorithms, machine learning, large language models, robots, spiders, crawlers, search engines, text or data mining or any other aggregation functionality. 
+#
+# One may make copies of the software for their use provided that the copies, are not sold or distributed, are used under the same terms and conditions. As unestablished research software, this code is provided on an "as is'' basis without warranty of any kind, either expressed or implied. The downloading, or executing any part of this software constitutes an implicit agreement to these terms. These terms and conditions are subject to change at any time without prior notice. (from https://research.umn.edu/units/techcomm/university-inventors/releasing-software)
+# =============================================================================
 
 import pdb
 import os, sys
