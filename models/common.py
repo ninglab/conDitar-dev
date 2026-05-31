@@ -40,7 +40,7 @@ VERY_LARGE_NUMBER = 1e+16
 
 def _norm_no_nan(x, axis=-1, keepdims=False, eps=1e-8, sqrt=True):
     '''
-    From: https://github.com/drorlab/gvp-pytorch/blob/main/gvp/__init__.py
+    From: https://github.com/drorlab/gvp-pytorch
 
     MIT License
     
