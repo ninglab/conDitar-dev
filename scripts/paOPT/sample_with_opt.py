@@ -1,3 +1,4 @@
+#################################################################
 # Copyright (c) 2026 Regents of the University of Minnesota.
 # All rights reserved.
 #
@@ -7,6 +8,7 @@
 # Use, copying, redistribution, and other activities are governed by the
 # license terms in LICENSE.txt. This software is provided "as is" without
 # warranty of any kind.
+#################################################################
 
 import pdb
 import os, sys
