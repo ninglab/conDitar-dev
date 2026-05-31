@@ -1,4 +1,6 @@
 # =============================================================================
+# From: https://github.com/ildoonet/pytorch-gradual-warmup-lr
+#
 # MIT License
 #
 # Copyright (c) 2019 Ildoo Kim

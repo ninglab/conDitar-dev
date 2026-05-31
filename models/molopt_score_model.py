@@ -1,5 +1,5 @@
 # =============================================================================
-# Extends: https://github.com/guanjq/targetdiff  (MIT License, © 2023 Jiaqi Guan)
+# From: https://github.com/guanjq/targetdiff  with minor modifications
 #
 # MIT License
 #
@@ -11,10 +11,10 @@
 # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
-
+#
 # The above copyright notice and this permission notice shall be included in all
 # copies or substantial portions of the Software.
-
+#
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -22,51 +22,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
-# From TargetDiff with minimal or no modification:
-#   get_distance, to_torch_const, extract, center_pos,
-#   index_to_log_onehot, log_onehot_to_index, categorical_kl,
-#   log_categorical, normal_kl, log_normal, log_sample_categorical, log_1_min_a, log_add_exp,
-#   SinusoidalPosEmb,
-#   ScorePosNet3D.q_v_pred_one_timestep, ScorePosNet3D.q_v_pred,
-#   ScorePosNet3D.q_v_sample, ScorePosNet3D.q_v_posterior,
-#   ScorePosNet3D.kl_v_prior, ScorePosNet3D._predict_x0_from_eps,
-#   ScorePosNet3D.q_pos_posterior, ScorePosNet3D.kl_pos_prior,
-#   ScorePosNet3D.sample_time, ScorePosNet3D.compute_pos_Lt,
-#   ScorePosNet3D.compute_v_Lt
-
-# conDitar is copyrighted by the Ohio State University and covered by US 64/023,113.
-
-# conDitar may be licensed solely for educational and research purposes by
-# non-profit institutions and US government agencies only. For other proposed
-# uses, contact tlcip@osu.edu. The software may not be sold or redistributed
-# without prior approval.
-
-# You may not use the software to train or process or input the software into
-# or make it accessible to: automated software, services or tools, including,
-# but not limited to, artificial intelligence solutions, algorithms, machine
-# learning, large language models, robots, spiders, crawlers, search engines,
-# text or data mining or any other aggregation functionality.
-
-# One may make copies of the software for their use provided that the copies
-# are not sold or distributed and are used under the same terms and conditions.
-# As unestablished research software, this code is provided on an "as is" basis
-# without warranty of any kind, either expressed or implied. The downloading or
-# executing any part of this software constitutes an implicit agreement to these
-# terms. These terms and conditions are subject to change at any time without
-# prior notice.
-
-# From conDitar:
-#   get_refine_net,
-#   dynamic_threshold, reference_threshold, rescale, threshold_CFG,
-#   ScorePosNet3D.__init__,
-#   ScorePosNet3D.forward,
-#   ScorePosNet3D.compute_bond_angle_loss,
-#   ScorePosNet3D.compute_torsion_angle_loss,
-#   ScorePosNet3D.get_diffusion_loss,
-#   ScorePosNet3D.sample_diffusion
 # =============================================================================
-
 
 import torch
 import torch.nn as nn
@@ -89,38 +45,6 @@ from utils import misc, reconstruct
 from scipy.optimize import linear_sum_assignment
 
 
-def get_refine_net(config):
-    refine_net = UniTransformerO2TwoUpdateGeneralWeightedPoolDynamicUpdateGVPLateBiLevelSeperate
-    
-    refine_net = refine_net(
-            num_blocks=config.num_blocks,
-            num_layers=config.num_layers,
-            scalar_hidden_dim=config.scalar_hidden_dim,
-            vec_hidden_dim=config.vec_hidden_dim,
-            shape_dim=config.shape_dim,
-            shape_latent_dim=config.shape_latent_dim,
-            n_heads=config.n_heads,
-            k=config.knn,
-            pocket_k=config.pocket_knn,
-            residue_k=config.residue_knn,
-            edge_feat_dim=config.edge_feat_dim,
-            num_r_gaussian=config.num_r_gaussian,
-            num_node_types=config.num_node_types,
-            act_fn=config.act_fn,
-            norm=config.norm,
-            cutoff_mode=config.cutoff_mode,
-            r_feat_mode=config.r_feat_mode,
-            r_max=config.r_max,
-            x2h_out_fc=config.x2h_out_fc,
-            atom_enc_mode=config.atom_enc_mode,
-            sync_twoup=config.sync_twoup,
-            pred_bond_type=config.pred_bond_type,
-            use_shape_vec_mul=config.use_shape_vec_mul,
-            use_residue=config.use_residue,
-            time_emb_dim=config.time_emb_dim,
-            residue_pooling=config.residue_pooling
-    )
-    return refine_net
 
 def get_distance(pos, edge_index):
     return (pos[edge_index[0]] - pos[edge_index[1]]).norm(dim=-1)
@@ -215,11 +139,9 @@ class SinusoidalPosEmb(nn.Module):
         return emb
         
 
-# Model
-class ScorePosNet3D(nn.Module):
+class ScorePosNet3DBase(nn.Module):
 
-    def __init__(self, config, ligand_atom_feature_dim, ligand_bond_feature_dim):
-        # super().__init__(config.train)
+    def __init__(self, config, ligand_atom_feature_dim):
         super().__init__()
         self.config = config.model
 
@@ -237,18 +159,6 @@ class ScorePosNet3D(nn.Module):
             self.loss_bond_type = nn.CrossEntropyLoss(reduce=False)
             self.loss_bond_weight = self.config.loss_bond_weight
 
-        self.use_bond_dist_loss = self.config.use_bond_dist_loss
-        self.loss_bond_dist_weight = self.config.loss_bond_dist_weight
-        self.use_bond_angle_loss = self.config.use_bond_angle_loss
-        self.loss_bond_angle_weight = self.config.loss_bond_angle_weight
-        self.use_torsion_angle_loss = self.config.use_torsion_angle_loss
-        self.loss_torsion_angle_weight = self.config.loss_torsion_angle_weight
-        self.loss_torsion_angle_type = self.config.loss_torsion_angle_type
-
-        self.sample_time_method = self.config.sample_time_method  # ['importance', 'symmetric']
-        self.loss_pos_type = self.config.loss_pos_type  # ['mse', 'kl']
-        # print(f'Loss pos mode {self.loss_pos_type} applied!')
-
         betas = get_beta_schedule(
             num_diffusion_timesteps=self.config.num_diffusion_timesteps,
             **self.config.schedule_pos
@@ -256,10 +166,6 @@ class ScorePosNet3D(nn.Module):
         alphas = 1. - betas
         alphas_cumprod = np.cumprod(alphas, axis=0)
         alphas_cumprod_prev = np.append(1., alphas_cumprod[:-1])
-
-        if self.loss_weight_type == 'noise_level':
-            snr_values = alphas_cumprod / (1-alphas_cumprod)
-            self.loss_pos_step_weight = to_torch_const(np.clip(self.config.loss_pos_min_weight + snr_values, None, self.config.loss_pos_max_weight))
 
         self.betas = to_torch_const(betas)
         self.num_timesteps = self.betas.size(0)
@@ -277,7 +183,7 @@ class ScorePosNet3D(nn.Module):
         self.posterior_mean_c0_coef = to_torch_const(betas * np.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod))
         self.posterior_mean_ct_coef = to_torch_const(
             (1. - alphas_cumprod_prev) * np.sqrt(alphas) / (1. - alphas_cumprod))
-        
+
         # log calculation clipped because the posterior variance is 0 at the beginning of the diffusion chain
         self.posterior_var = to_torch_const(posterior_variance)
         # self.posterior_logvar = to_torch_const(np.log(np.maximum(posterior_variance, 1e-10)))
@@ -291,17 +197,223 @@ class ScorePosNet3D(nn.Module):
 
         log_alphas_v = np.log(alphas_v)
         log_alphas_cumprod_v = np.cumsum(log_alphas_v)
-        
+
         self.log_alphas_v = to_torch_const(log_alphas_v)
         self.log_one_minus_alphas_v = to_torch_const(log_1_min_a(log_alphas_v))
         self.log_alphas_cumprod_v = to_torch_const(log_alphas_cumprod_v)
         self.log_one_minus_alphas_cumprod_v = to_torch_const(log_1_min_a(log_alphas_cumprod_v))
 
+        self.num_classes = ligand_atom_feature_dim
+
+    def q_v_pred_one_timestep(self, log_vt_1, t, batch):
+        """
+        forward diffusion process: q(vt | vt-1)
+        """
+        log_alpha_t = extract(self.log_alphas_v, t, batch)
+        log_1_min_alpha_t = extract(self.log_one_minus_alphas_v, t, batch)
+
+        if self.v_mode == 'uniform':
+            # alpha_t * vt-1 + (1 - alpha_t) 1 / K
+            log_probs = log_add_exp(
+                log_vt_1 + log_alpha_t,
+                log_1_min_alpha_t - np.log(self.num_classes)
+            )
+        elif self.v_mode == 'tomask':
+            # alpha_t * vt for category at step t and (1 - alpha_t) for mask
+            log_probs = log_vt_1 + log_alpha_t
+            log_probs[:, -1] = log_1_min_alpha_t.squeeze(1)
+        else:
+            raise ValueError("undefined v_mode: %s (expect uniform or tomask)" % (self.v_mode))
+        return log_probs
+
+    def q_v_pred(self, log_v0, t, batch):
+        """
+        forward diffusion process: q(vt | v0)
+        """
+        log_cumprod_alpha_t = extract(self.log_alphas_cumprod_v, t, batch)
+        log_1_min_cumprod_alpha = extract(self.log_one_minus_alphas_cumprod_v, t, batch)
+
+        if self.v_mode == 'uniform':
+            # cum_alpha_t * v0 + (1 - cum_alpha_t) 1 / K
+            log_probs = log_add_exp(
+                log_v0 + log_cumprod_alpha_t,
+                log_1_min_cumprod_alpha - np.log(self.num_classes)
+            )
+        elif self.v_mode == 'tomask':
+            # cum_alpha_t * v0
+            # (1 - cum_alpha_t) for mask
+            log_probs = log_v0 + log_cumprod_alpha_t
+            log_probs[:, -1] = log_1_min_cumprod_alpha.squeeze(1)
+        else:
+            raise ValueError("undefined v_mode: %s (expect uniform or tomask)" % (self.v_mode))
+        return log_probs
+
+    def q_v_sample(self, log_v0, t, batch, num_classes):
+        """
+        backward generative process q(vt)
+        """
+        log_qvt_v0 = self.q_v_pred(log_v0, t, batch)
+        sample_index = log_sample_categorical(log_qvt_v0)
+        log_sample = index_to_log_onehot(sample_index, num_classes)
+
+        return sample_index, log_sample
+
+    # atom type generative process
+    def q_v_posterior(self, log_v0, log_vt, t, batch):
+        # q(vt-1 | vt, v0) = q(vt | vt-1, x0) * q(vt-1 | x0) / q(vt | x0)
+        t_minus_1 = t - 1
+        # Remove negative values, will not be used anyway for final decoder
+        t_minus_1 = torch.where(t_minus_1 < 0, torch.zeros_like(t_minus_1), t_minus_1)
+        log_qvt1_v0 = self.q_v_pred(log_v0, t_minus_1, batch)
+        unnormed_logprobs = log_qvt1_v0 + self.q_v_pred_one_timestep(log_vt, t, batch)
+        log_vt1_given_vt_v0 = unnormed_logprobs - torch.logsumexp(unnormed_logprobs, dim=-1, keepdim=True)
+        return log_vt1_given_vt_v0
+
+    def kl_v_prior(self, log_x_start, batch):
+        num_graphs = batch.max().item() + 1
+        log_qxT_prob = self.q_v_pred(log_x_start, t=[self.num_timesteps - 1] * num_graphs, batch=batch)
+        log_half_prob = -torch.log(self.num_classes * torch.ones_like(log_qxT_prob))
+        kl_prior = categorical_kl(log_qxT_prob, log_half_prob)
+        kl_prior = scatter_mean(kl_prior, batch, dim=0)
+        return kl_prior
+
+    def _predict_x0_from_eps(self, xt, eps, t, batch):
+        pos0_from_e = extract(self.sqrt_recip_alphas_cumprod, t, batch) * xt - \
+                      extract(self.sqrt_recipm1_alphas_cumprod, t, batch) * eps
+        return pos0_from_e
+
+    def q_pos_posterior(self, x0, xt, t, batch):
+        # Compute the mean and variance of the diffusion posterior q(x_{t-1} | x_t, x_0)
+        pos_model_mean = extract(self.posterior_mean_c0_coef, t, batch) * x0 + \
+                         extract(self.posterior_mean_ct_coef, t, batch) * xt
+        return pos_model_mean
+
+    def kl_pos_prior(self, pos0, batch):
+        num_graphs = batch.max().item() + 1
+        a_pos = extract(self.alphas_cumprod, [self.num_timesteps - 1] * num_graphs, batch)  # (num_ligand_atoms, 1)
+        pos_noise = torch.zeros_like(pos0)
+        pos_noise.normal_()
+        pos_perturbed = a_pos.sqrt() * pos0 + (1.0 - a_pos).sqrt() * pos_noise
+        pos_prior = torch.randn_like(pos_perturbed)
+        kl_prior = torch.mean((pos_perturbed - pos_prior) ** 2)
+        return kl_prior
+
+    def sample_time(self, num_graphs, device):
+        time_step = torch.randint(
+            0, self.num_timesteps, size=(num_graphs // 2 + 1,), device=device)
+        time_step = torch.cat(
+            [time_step, self.num_timesteps - time_step - 1], dim=0)[:num_graphs]
+        pt = torch.ones_like(time_step).float() / self.num_timesteps
+        return time_step, pt
+
+    def compute_pos_Lt(self, pos_model_mean, x0, xt, t, batch):
+        # fixed pos variance
+        pos_log_variance = extract(self.posterior_logvar, t, batch)
+        pos_true_mean = self.q_pos_posterior(x0=x0, xt=xt, t=t, batch=batch)
+        kl_pos = normal_kl(pos_true_mean, pos_log_variance, pos_model_mean, pos_log_variance)
+        kl_pos = kl_pos / np.log(2.)
+
+        decoder_nll_pos = -log_normal(x0, means=pos_model_mean, log_scales=0.5 * pos_log_variance)
+        assert kl_pos.shape == decoder_nll_pos.shape
+        mask = (t == 0).float()[batch]
+        loss_pos = scatter_mean(mask * decoder_nll_pos + (1. - mask) * kl_pos, batch, dim=0)
+        # print('kl pos: ', kl_pos, 'nll pos: ', decoder_nll_pos, 'loss pos: ', loss_pos)
+        return loss_pos
+
+    def compute_v_Lt(self, log_v_model_prob, log_v0, log_v_true_prob, t, batch):
+        kl_v = categorical_kl(log_v_true_prob, log_v_model_prob)  # [num_atoms, ]
+        decoder_nll_v = -log_categorical(log_v0, log_v_model_prob)  # L0
+        assert kl_v.shape == decoder_nll_v.shape
+        mask = (t == 0).float()[batch]
+        loss_v = scatter_mean(mask * decoder_nll_v + (1. - mask) * kl_v, batch, dim=0)
+        # print('kl v: ', kl_v, 'nll v: ', decoder_nll_v, 'loss v: ', loss_v)
+        return loss_v
+
+
+# =============================================================================
+# conDitar is copyrighted by the Ohio State University and covered by US 64/023,113.
+#
+# conDitar may be licensed solely for educational and research purposes by
+# non-profit institutions and US government agencies only. For other proposed
+# uses, contact tlcip@osu.edu. The software may not be sold or redistributed
+# without prior approval.
+#
+# You may not use the software to train or process or input the software into
+# or make it accessible to: automated software, services or tools, including,
+# but not limited to, artificial intelligence solutions, algorithms, machine
+# learning, large language models, robots, spiders, crawlers, search engines,
+# text or data mining or any other aggregation functionality.
+#
+# One may make copies of the software for their use provided that the copies
+# are not sold or distributed and are used under the same terms and conditions.
+# As unestablished research software, this code is provided on an "as is" basis
+# without warranty of any kind, either expressed or implied. The downloading or
+# executing any part of this software constitutes an implicit agreement to these
+# terms. These terms and conditions are subject to change at any time without
+# prior notice.
+# =============================================================================
+
+
+def get_refine_net(config):
+    refine_net = UniTransformerO2TwoUpdateGeneralWeightedPoolDynamicUpdateGVPLateBiLevelSeperate
+    
+    refine_net = refine_net(
+            num_blocks=config.num_blocks,
+            num_layers=config.num_layers,
+            scalar_hidden_dim=config.scalar_hidden_dim,
+            vec_hidden_dim=config.vec_hidden_dim,
+            shape_dim=config.shape_dim,
+            shape_latent_dim=config.shape_latent_dim,
+            n_heads=config.n_heads,
+            k=config.knn,
+            pocket_k=config.pocket_knn,
+            residue_k=config.residue_knn,
+            edge_feat_dim=config.edge_feat_dim,
+            num_r_gaussian=config.num_r_gaussian,
+            num_node_types=config.num_node_types,
+            act_fn=config.act_fn,
+            norm=config.norm,
+            cutoff_mode=config.cutoff_mode,
+            r_feat_mode=config.r_feat_mode,
+            r_max=config.r_max,
+            x2h_out_fc=config.x2h_out_fc,
+            atom_enc_mode=config.atom_enc_mode,
+            sync_twoup=config.sync_twoup,
+            pred_bond_type=config.pred_bond_type,
+            use_shape_vec_mul=config.use_shape_vec_mul,
+            use_residue=config.use_residue,
+            time_emb_dim=config.time_emb_dim,
+            residue_pooling=config.residue_pooling
+    )
+    return refine_net
+
+
+class ScorePosNet3D(ScorePosNet3DBase):
+
+    def __init__(self, config, ligand_atom_feature_dim, ligand_bond_feature_dim):
+        super().__init__(config, ligand_atom_feature_dim)
+
+        self.use_bond_dist_loss = self.config.use_bond_dist_loss
+        self.loss_bond_dist_weight = self.config.loss_bond_dist_weight
+        self.use_bond_angle_loss = self.config.use_bond_angle_loss
+        self.loss_bond_angle_weight = self.config.loss_bond_angle_weight
+        self.use_torsion_angle_loss = self.config.use_torsion_angle_loss
+        self.loss_torsion_angle_weight = self.config.loss_torsion_angle_weight
+        self.loss_torsion_angle_type = self.config.loss_torsion_angle_type
+
+        self.sample_time_method = self.config.sample_time_method  # ['importance', 'symmetric']
+        self.loss_pos_type = self.config.loss_pos_type  # ['mse', 'kl']
+        # print(f'Loss pos mode {self.loss_pos_type} applied!')
+
+        if self.loss_weight_type == 'noise_level':
+            alphas_cumprod = self.alphas_cumprod.cpu().numpy()
+            snr_values = alphas_cumprod / (1 - alphas_cumprod)
+            self.loss_pos_step_weight = to_torch_const(np.clip(self.config.loss_pos_min_weight + snr_values, None, self.config.loss_pos_max_weight))
+
         # model definition
         self.scalar_hidden_dim = self.config.scalar_hidden_dim
         self.vec_hidden_dim = self.config.vec_hidden_dim
-        self.num_classes = ligand_atom_feature_dim
-        
+
         ###### to test ######
         # center pos
         self.center_pos_mode = self.config.center_pos_mode  # ['none', 'center']
@@ -318,7 +430,7 @@ class ScorePosNet3D(nn.Module):
             self.ligand_atom_emb = nn.Linear(ligand_atom_feature_dim + self.time_emb_dim + int(self.v_mode=='tomask'), self.scalar_hidden_dim)
         else:
             self.ligand_atom_emb = nn.Linear(ligand_atom_feature_dim + int(self.v_mode=='tomask'), self.scalar_hidden_dim)
-            
+
         self.refine_net = get_refine_net(self.config)
 
         # print(f'v net type: {self.v_net_type}')
@@ -398,130 +510,6 @@ class ScorePosNet3D(nn.Module):
             })
         return preds
 
-
-    def q_v_pred_one_timestep(self, log_vt_1, t, batch):
-        """
-        forward diffusion process: q(vt | vt-1)
-        """
-        log_alpha_t = extract(self.log_alphas_v, t, batch)
-        log_1_min_alpha_t = extract(self.log_one_minus_alphas_v, t, batch)
-
-        if self.v_mode == 'uniform':
-            # alpha_t * vt-1 + (1 - alpha_t) 1 / K
-            log_probs = log_add_exp(
-                log_vt_1 + log_alpha_t,
-                log_1_min_alpha_t - np.log(self.num_classes)
-            )
-        elif self.v_mode == 'tomask':
-            # alpha_t * vt for category at step t and (1 - alpha_t) for mask
-            log_probs = log_vt_1 + log_alpha_t
-            log_probs[:, -1] = log_1_min_alpha_t.squeeze(1)
-        else:
-            raise ValueError("undefined v_mode: %s (expect uniform or tomask)" % (self.v_mode))  
-        return log_probs
-
-    def q_v_pred(self, log_v0, t, batch):
-        """
-        forward diffusion process: q(vt | v0)
-        """
-        log_cumprod_alpha_t = extract(self.log_alphas_cumprod_v, t, batch)
-        log_1_min_cumprod_alpha = extract(self.log_one_minus_alphas_cumprod_v, t, batch)
-
-        if self.v_mode == 'uniform':
-            # cum_alpha_t * v0 + (1 - cum_alpha_t) 1 / K
-            log_probs = log_add_exp(
-                log_v0 + log_cumprod_alpha_t,
-                log_1_min_cumprod_alpha - np.log(self.num_classes)
-            )
-        elif self.v_mode == 'tomask':
-            # cum_alpha_t * v0 
-            # (1 - cum_alpha_t) for mask
-            log_probs = log_v0 + log_cumprod_alpha_t
-            log_probs[:, -1] = log_1_min_cumprod_alpha.squeeze(1)
-        else:
-            raise ValueError("undefined v_mode: %s (expect uniform or tomask)" % (self.v_mode))
-        return log_probs
-
-    def q_v_sample(self, log_v0, t, batch, num_classes):
-        """
-        backward generative process q(vt)
-        """
-        log_qvt_v0 = self.q_v_pred(log_v0, t, batch)
-        sample_index = log_sample_categorical(log_qvt_v0)
-        log_sample = index_to_log_onehot(sample_index, num_classes)
-        
-        return sample_index, log_sample
-
-    # atom type generative process
-    def q_v_posterior(self, log_v0, log_vt, t, batch):
-        # q(vt-1 | vt, v0) = q(vt | vt-1, x0) * q(vt-1 | x0) / q(vt | x0)
-        t_minus_1 = t - 1
-        # Remove negative values, will not be used anyway for final decoder
-        t_minus_1 = torch.where(t_minus_1 < 0, torch.zeros_like(t_minus_1), t_minus_1)
-        log_qvt1_v0 = self.q_v_pred(log_v0, t_minus_1, batch)
-        unnormed_logprobs = log_qvt1_v0 + self.q_v_pred_one_timestep(log_vt, t, batch)
-        log_vt1_given_vt_v0 = unnormed_logprobs - torch.logsumexp(unnormed_logprobs, dim=-1, keepdim=True)
-        return log_vt1_given_vt_v0
-
-    def kl_v_prior(self, log_x_start, batch):
-        num_graphs = batch.max().item() + 1
-        log_qxT_prob = self.q_v_pred(log_x_start, t=[self.num_timesteps - 1] * num_graphs, batch=batch)
-        log_half_prob = -torch.log(self.num_classes * torch.ones_like(log_qxT_prob))
-        kl_prior = categorical_kl(log_qxT_prob, log_half_prob)
-        kl_prior = scatter_mean(kl_prior, batch, dim=0)
-        return kl_prior
-
-    def _predict_x0_from_eps(self, xt, eps, t, batch):
-        pos0_from_e = extract(self.sqrt_recip_alphas_cumprod, t, batch) * xt - \
-                      extract(self.sqrt_recipm1_alphas_cumprod, t, batch) * eps
-        return pos0_from_e
-
-    def q_pos_posterior(self, x0, xt, t, batch):
-        # Compute the mean and variance of the diffusion posterior q(x_{t-1} | x_t, x_0)
-        pos_model_mean = extract(self.posterior_mean_c0_coef, t, batch) * x0 + \
-                         extract(self.posterior_mean_ct_coef, t, batch) * xt
-        return pos_model_mean
-
-    def kl_pos_prior(self, pos0, batch):
-        num_graphs = batch.max().item() + 1
-        a_pos = extract(self.alphas_cumprod, [self.num_timesteps - 1] * num_graphs, batch)  # (num_ligand_atoms, 1)
-        pos_noise = torch.zeros_like(pos0)
-        pos_noise.normal_()
-        pos_perturbed = a_pos.sqrt() * pos0 + (1.0 - a_pos).sqrt() * pos_noise
-        pos_prior = torch.randn_like(pos_perturbed)
-        kl_prior = torch.mean((pos_perturbed - pos_prior) ** 2)
-        return kl_prior
-
-    def sample_time(self, num_graphs, device):
-        time_step = torch.randint(
-            0, self.num_timesteps, size=(num_graphs // 2 + 1,), device=device)
-        time_step = torch.cat(
-            [time_step, self.num_timesteps - time_step - 1], dim=0)[:num_graphs]
-        pt = torch.ones_like(time_step).float() / self.num_timesteps
-        return time_step, pt
-
-    def compute_pos_Lt(self, pos_model_mean, x0, xt, t, batch):
-        # fixed pos variance
-        pos_log_variance = extract(self.posterior_logvar, t, batch)
-        pos_true_mean = self.q_pos_posterior(x0=x0, xt=xt, t=t, batch=batch)
-        kl_pos = normal_kl(pos_true_mean, pos_log_variance, pos_model_mean, pos_log_variance)
-        kl_pos = kl_pos / np.log(2.)
-
-        decoder_nll_pos = -log_normal(x0, means=pos_model_mean, log_scales=0.5 * pos_log_variance)
-        assert kl_pos.shape == decoder_nll_pos.shape
-        mask = (t == 0).float()[batch]
-        loss_pos = scatter_mean(mask * decoder_nll_pos + (1. - mask) * kl_pos, batch, dim=0)
-        # print('kl pos: ', kl_pos, 'nll pos: ', decoder_nll_pos, 'loss pos: ', loss_pos)
-        return loss_pos
-
-    def compute_v_Lt(self, log_v_model_prob, log_v0, log_v_true_prob, t, batch):
-        kl_v = categorical_kl(log_v_true_prob, log_v_model_prob)  # [num_atoms, ]
-        decoder_nll_v = -log_categorical(log_v0, log_v_model_prob)  # L0
-        assert kl_v.shape == decoder_nll_v.shape
-        mask = (t == 0).float()[batch]
-        loss_v = scatter_mean(mask * decoder_nll_v + (1. - mask) * kl_v, batch, dim=0)
-        # print('kl v: ', kl_v, 'nll v: ', decoder_nll_v, 'loss v: ', loss_v)
-        return loss_v
 
     def compute_bond_angle_loss(self, n0_dst, pred_pos, gt_pos, bond_index, batch_bond):
         src, dst = bond_index

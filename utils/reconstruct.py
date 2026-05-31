@@ -1,8 +1,5 @@
 # =============================================================================
-# https://github.com/mattragoza/liGAN
-#
-# License: GNU General Public License v2.0
-# https://github.com/mattragoza/liGAN/blob/master/LICENSE
+# From: https://github.com/mattragoza/liGAN
 #
 #                     GNU GENERAL PUBLIC LICENSE
 #                        Version 2, June 1991

@@ -162,58 +162,6 @@ def bond_distance_from_mol(mol):
     return all_distances
 
 
-import torch
-from tqdm import tqdm
-
-if __name__ == '__main__':
-    # TargetDiff_path = '/fs/ess/PCON0041/Ziqi/ShapeGeneration/baselines/pocket_baseline_results/targetdiff/targetdiff_vina_docked.pt'
-    # TargetDiff_result = torch.load(TargetDiff_path)
-
-    # results = {
-    #     'bond_length': [],
-    #     'all_results': [],
-    # }
-
-    # for i, pocket_result in tqdm(enumerate(TargetDiff_result)):
-    #     for j, ligand_result in enumerate(pocket_result):
-    #         bond_dist = bond_distance_from_mol(ligand_result['mol'])
-    #         results['all_results'].append(TargetDiff_result[i][j])
-    #         results['bond_length'] += bond_dist
-
-    # TargetDiff_path
-
-    # print(results.keys())
-    # print(results['all_results'][0].keys())
-    # print(len(results['all_results']))
-    # print(len(results['bond_length']))
-
-    # torch.save(results, '/fs/scratch/PCON0041/gruoxi/TargetDiff/results/eval_results/metrics_-1.pt')
-
-
-
-    import os
-    from rdkit import Chem
-    from tqdm import tqdm
-
-    split = torch.load('/fs/ess/PCON0041/gruoxi/split_by_name.pt')
-
-    parent_dir = "/fs/scratch/PCON0041/gruoxi/crossdocked_pocket10/"
-
-    all_bond_dist = []
-
-    proteins = []
-    ligands = []
-    for complex in tqdm(split['train']):
-        file_path = complex[1]
-        rdmol = next(iter(Chem.SDMolSupplier(parent_dir+file_path, removeHs=True)))
-        if rdmol != None:
-            # smiles = Chem.MolToSmiles(rdmol)
-            bond_dist = bond_distance_from_mol(rdmol)
-            all_bond_dist += bond_dist
-            # proteins.append(os.path.basename(file_path)[:10])
-            # ligands.append(smiles)
-    torch.save(all_bond_dist, '/fs/scratch/PCON0041/gruoxi/TargetDiff/results/train_bond_length.pt')
-    print(all_bond_dist)
 
 
 
