@@ -1,5 +1,5 @@
 # =============================================================================
-# From: https://github.com/guanjq/targetdiff  with minor modifications
+# From: https://github.com/guanjq/targetdiff with minor modifications
 #
 # MIT License
 #
