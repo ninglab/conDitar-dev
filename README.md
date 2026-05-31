@@ -53,7 +53,7 @@ python -m scripts.conDitar.sample configs/sample.yml
 
 ### Sampling with Optimization
 ```bash
-python -m scripts.poOPT.sample_with_opt configs/sample.yml
+python -m scripts.paOPT.sample_with_opt configs/sample.yml
 ```
 
 ---
