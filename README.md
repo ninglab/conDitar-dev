@@ -28,7 +28,7 @@ pip install git+https://github.com/Valdes-Tresanco-MS/AutoDockTools_py3
 ### Pocket Encoder Pretraining
 
 ```bash
-python -m scripts.train_pocketAE configs/pretrain_pocket.yml
+python -m scripts.conDitar.train_pocketAE configs/pretrain_pocket.yml
 ```
 
 ---
@@ -36,7 +36,7 @@ python -m scripts.train_pocketAE configs/pretrain_pocket.yml
 ### Diffusion Model Training
 
 ```bash
-python -m scripts.train_diffusion configs/train_diffusion.yml
+python -m scripts.conDitar.train_diffusion configs/train_diffusion.yml
 ```
 
 ### Trained Model Checkpoints
@@ -48,12 +48,12 @@ python -m scripts.train_diffusion configs/train_diffusion.yml
 
 ### Sampling without Optimization
 ```bash
-python -m scripts.sample configs/sample.yml
+python -m scripts.conDitar.sample configs/sample.yml
 ```
 
 ### Sampling with Optimization
 ```bash
-python -m scripts.sample_with_opt configs/sample.yml
+python -m scripts.poOPT.sample_with_opt configs/sample.yml
 ```
 
 ---
@@ -61,7 +61,7 @@ python -m scripts.sample_with_opt configs/sample.yml
 ## Evaluation
 
 ```bash
-python -m scripts.evaluate_mol
+python -m scripts.conDitar.evaluate_mol
 ```
 
 ---
