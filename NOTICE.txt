@@ -1,0 +1,19 @@
+This repository contains two components, each governed by its own
+license:
+
+1. conDitar
+   License: scripts/conDitar/LICENCE.txt
+
+
+2. paOPT
+   License: scripts/paOPT/LICENCE.txt
+
+This repository does not claim ownership of the data included in this repository.
+
+The test data are derived from:
+
+1. CrossDocked2020 dataset
+   https://github.com/gnina/models/tree/master/data/CrossDocked2020
+
+2. RCSB Protein Data Bank (PDB)
+   https://www.rcsb.org/
