@@ -17,8 +17,9 @@
 # As unestablished research software, this code is provided on an "as is" basis
 # without warranty of any kind, either expressed or implied. The downloading or
 # executing any part of this software constitutes an implicit agreement to these
-# terms. These terms and conditions are subject to change at any time without
-# prior notice.
+# terms. 
+# 
+# These terms and conditions are subject to change at any time without prior notice.
 # =============================================================================
 
 import torch

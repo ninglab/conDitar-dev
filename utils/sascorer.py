@@ -193,7 +193,7 @@ if __name__ == '__main__':
 
 def compute_sa_score(rdmol):
     """
-    copy from https://github.com/guanjq/targetdiff
+    From: https://github.com/guanjq/targetdiff
 
     Copyright (c) 2013, Novartis Institutes for BioMedical Research Inc.
     All rights reserved.

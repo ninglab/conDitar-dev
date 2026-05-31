@@ -71,8 +71,9 @@ def sample_atom_num(space_size):
 # As unestablished research software, this code is provided on an "as is" basis
 # without warranty of any kind, either expressed or implied. The downloading or
 # executing any part of this software constitutes an implicit agreement to these
-# terms. These terms and conditions are subject to change at any time without
-# prior notice.
+# terms. 
+# 
+# These terms and conditions are subject to change at any time without prior notice.
 # =============================================================================
 
 def get_interaction_size(pocket_3d_pos, ligand_3d_pos):
