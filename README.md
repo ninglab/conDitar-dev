@@ -20,7 +20,7 @@ pip install git+https://github.com/Valdes-Tresanco-MS/AutoDockTools_py3
 [https://drive.google.com/drive/folders/158A-cQKIF-x_-ewrf7jPGdFew005I3W0?usp=drive_link](https://drive.google.com/drive/folders/158A-cQKIF-x_-ewrf7jPGdFew005I3W0?usp=drive_link)
 
 - **Curated test data**:
-[`test_data/`](./test_data/)
+[`test_data/`](.data/test_data/)
 
 ---
 ## Training
