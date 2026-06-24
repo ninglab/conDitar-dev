@@ -32,7 +32,7 @@ from models.molopt_score_model import ScorePosNet3D, log_sample_categorical
 from utils import atom_num
 from utils.scoring_func import *
 from rdkit import Chem
-from scripts.sample_diffusion import sample_diffusion_ligand
+from scripts.conDitar.sample_diffusion import sample_diffusion_ligand
 
 
 if __name__ == '__main__':
@@ -42,14 +42,19 @@ if __name__ == '__main__':
     parser.add_argument('--exhaustiveness', type=int, default=16)
     parser.add_argument('--atom_enc_mode', type=str, default='add_aromatic')
     parser.add_argument('--batch_size', type=int, default=100)
+    # Number of molecules to be generated
     parser.add_argument('--num_samples', type=int, default=100)
-    parser.add_argument('--result_path', type=str, default='test')
+    # Radius
+    parser.add_argument('--pocket_radius', type=int, default=10)
+    parser.add_argument('--result_path', type=str, default='results')
     parser.add_argument('--tmp_dir', type=str, default='../tmp')
-    parser.add_argument('--protein_root', type=str, default='test_data')
-    # Protein Target
-    parser.add_argument('--pdb_filename', type=str, default='xxx1/xxx1_protein.pdb')
-    # Reference Ligand
-    parser.add_argument('--sdf_filename', type=str, default='xxx1/xxx1_ligand.sdf')
+    parser.add_argument('--protein_root', type=str, default='examples')
+    # With reference ligand
+    # parser.add_argument('--pdb_filename', type=str, default='4aua/4aua_protein.pdb')
+    # parser.add_argument('--sdf_filename', type=str, default='4aua/4aua_ligand.sdf')
+    # Without reference ligand
+    parser.add_argument('--pdb_filename', type=str, default='xxxx/xxxx_pocket.pdb')
+    parser.add_argument('--sdf_filename', type=str, default=None)
 
 
     args = parser.parse_args()
@@ -83,8 +88,11 @@ if __name__ == '__main__':
     os.makedirs(mol_path, exist_ok=True)
 
     pdb_path = os.path.join(args.protein_root, args.pdb_filename)
-    sdf_path = os.path.join(args.protein_root, args.sdf_filename)
-    test_set = get_dataset(config=config, name='test', files=[(pdb_path, sdf_path)], ligand_transform=transform)
+    if args.sdf_filename != None:
+        sdf_path = os.path.join(args.protein_root, args.sdf_filename)
+    else:
+        sdf_path = None
+    test_set = get_dataset(config=config, name='test', files=[(pdb_path, sdf_path)], radius=args.pocket_radius, ligand_transform=transform)
 
     print(pdb_path)
     print(sdf_path)
@@ -143,7 +151,7 @@ if __name__ == '__main__':
 
         print(smiles)
 
-        writer = Chem.SDWriter(os.path.join(mol_path, f"{os.path.basename(args.sdf_filename)}_generated_{sample_idx}.sdf"))
+        writer = Chem.SDWriter(os.path.join(mol_path, f"{os.path.basename(args.pdb_filename)}_generated_{sample_idx}.sdf"))
         writer.write(mol)
         writer.close()
 

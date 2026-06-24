@@ -216,7 +216,7 @@ class PDBProteinBase(object):
         block += "END\n"
         return block
     
-    def query_residues_ligand(self, ligand_pos, radius=RADIUS, criterion='center_of_mass'):
+    def query_residues_ligand(self, ligand_pos, radius=10, criterion='center_of_mass'):
         selected = []
         sel_idx = set()
         # The time-complexity is O(mn).
@@ -384,14 +384,15 @@ class PDBProtein(PDBProteinBase):
         }
 
 
-def parse_pdb(protein_path, ligand_path):
+def parse_pdb(protein_path, ligand_path, radius):
     protein = PDBProtein(protein_path)
     if ligand_path == None:
         pocket_dict = protein.residues_to_atom_dict(protein.residues)
+        ligand_dict = None
     else:
         ligand_dict, rdmol = parse_sdf_file(ligand_path, center_ligand=True)
         # pocket_dict = protein.residues_to_atom_dict(protein.residues)
-        pocket_residues = protein.query_residues_ligand(ligand_dict['pos'] + ligand_dict['center'])
+        pocket_residues = protein.query_residues_ligand(ligand_dict['pos'] + ligand_dict['center'], radius=radius)
         pocket_dict = protein.residues_to_atom_dict(pocket_residues)
     return pocket_dict, ligand_dict
 

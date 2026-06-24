@@ -52,10 +52,11 @@ class AbstractRawDataset(Dataset):
 
 
 class RawDataset(AbstractRawDataset):
-    def __init__(self, config, files, ligand_transform):
+    def __init__(self, config, files, radius, ligand_transform):
         super().__init__(config.data, files)
         self.ckpt_path = config.model.checkpoint_pocket
         self.config = config
+        self.radius = radius
         self.ligand_transform = ligand_transform
         self._build_model()
 
@@ -74,14 +75,17 @@ class RawDataset(AbstractRawDataset):
         return len(self.files)
     
     def __getitem__(self, idx):
-        data, data_ligand = parse_pdb(self.files[idx][0], self.files[idx][1])
+        data, data_ligand = parse_pdb(self.files[idx][0], self.files[idx][1], self.radius)
         data = ComplexData.from_ligand_dicts(
                         ligand_dict=torchify_dict(data_ligand),
                         protein_dict=torchify_dict(data)
                     ).to_dict()
         pocket_mean = data['protein_pos'].mean(0)
         data_pocket = parse_protein_pocket(data, hydrogen=self.hydrogen)
-        data_ligand = parse_ligand_pocket(data)
+        if data_ligand != None:
+            data_ligand = parse_ligand_pocket(data)
+        else:
+            data_ligand = {}
         
         pocket_data = PocketData.from_pocket_dicts(
             torchify_dict(data_pocket)
@@ -103,7 +107,7 @@ class RawDataset(AbstractRawDataset):
             torchify_dict(data_ligand)
             )
         
-        if self.ligand_transform is not None:
+        if self.ligand_transform is not None and self.files[idx][1] is not None:
             ligand_data = self.ligand_transform(ligand_data)
 
         pocket_data.id = idx

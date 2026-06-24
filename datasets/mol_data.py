@@ -26,6 +26,8 @@ FOLLOW_BATCH = ('protein_element', 'ligand_element', 'ligand_bond_type', 'id')
 
 
 def torchify_dict(data):
+    if data == None:
+        return None
     output = {}
     for k, v in data.items():
         if isinstance(v, np.ndarray):

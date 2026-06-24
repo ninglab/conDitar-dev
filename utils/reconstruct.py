@@ -412,7 +412,7 @@ def make_obmol(xyzs, atomic_numbers):
         atom = mol.NewAtom()
         atom.SetAtomicNum(t)
         try:
-            atom.SetVector(x, y, z)
+            atom.SetVector(float(x), float(y), float(z))
         except Exception as e:
             print(e)
         atoms.append(atom)

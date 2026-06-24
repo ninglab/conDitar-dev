@@ -52,7 +52,7 @@ def sample_diffusion_ligand(model, data, num_samples, batch_size=16, device='cud
     time_list = []
     num_batch = int(np.ceil(num_samples / batch_size))
     
-    current_i = data['ligand'].ligand_element.shape[0]
+    # current_i = data['ligand'].ligand_element.shape[0]
     
     for i in tqdm(range(num_batch)):
         n_data = batch_size if i < num_batch - 1 else num_samples - batch_size * (num_batch - 1)
@@ -68,13 +68,16 @@ def sample_diffusion_ligand(model, data, num_samples, batch_size=16, device='cud
                 batch_ligand = ligand_batch.ligand_element_batch
                 ligand_num_atoms = scatter_sum(torch.ones_like(batch_ligand), batch_ligand, dim=0).tolist()
             elif sample_num_atoms == 'pocket':
-                batch_ligand = ligand_batch.ligand_element_batch
-                pocket_size_lp = atom_num.get_interaction_size(data['pocket'].pocket_coordinate.detach().cpu().numpy(), data['ligand'].ligand_coordinate.detach().cpu().numpy())
-                pocket_size_p = atom_num.get_space_size(data['pocket'].pocket_coordinate.detach().cpu().numpy())
-                if sample_num_atoms_average:
-                    pocket_size = (pocket_size_lp + pocket_size_p) / 2
+                if hasattr(ligand_batch, "ligand_element_batch"):
+                    batch_ligand = ligand_batch.ligand_element_batch
+                    pocket_size_lp = atom_num.get_interaction_size(data['pocket'].pocket_coordinate.detach().cpu().numpy(), data['ligand'].ligand_coordinate.detach().cpu().numpy())
+                    pocket_size_p = atom_num.get_space_size(data['pocket'].pocket_coordinate.detach().cpu().numpy())
+                    if sample_num_atoms_average:
+                        pocket_size = (pocket_size_lp + pocket_size_p) / 2
+                    else:
+                        pocket_size = pocket_size_lp
                 else:
-                    pocket_size = pocket_size_lp
+                    pocket_size = atom_num.get_space_size(data['pocket'].pocket_coordinate.detach().cpu().numpy())
                 ligand_num_atoms = [atom_num.sample_atom_num(pocket_size) for _ in range(n_data)]
                 batch_ligand = torch.repeat_interleave(torch.arange(n_data), torch.tensor(ligand_num_atoms)).to(device)
                 print(ligand_num_atoms)
@@ -169,6 +172,6 @@ def sample_diffusion_ligand(model, data, num_samples, batch_size=16, device='cud
             all_pred_vt_traj += [v for v in all_step_vt]
         t2 = time.time()
         time_list.append(t2 - t1)
-        current_i += n_data
+        # current_i += n_data
     return all_pred_pos, all_pred_v, all_pred_pos_traj, all_pred_v_traj, all_pred_v0_traj, all_pred_vt_traj, time_list, \
         all_pred_pos_cond_traj, all_pred_v_cond_traj
