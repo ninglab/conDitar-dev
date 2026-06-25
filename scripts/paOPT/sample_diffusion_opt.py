@@ -43,7 +43,7 @@ def sample_diffusion_ligand_opt(model, data, num_samples, batch_size=16, device=
                             ligand_num_atoms=None,
                             ligand_cum_atoms=None,
                             batch_ligand=None,
-                            sample_num_atoms_average=False):
+                            sample_num_atoms_average=True):
     all_pred_pos, all_pred_v = [], []
     all_pred_pos_traj, all_pred_v_traj = [], []
     all_pred_pos_cond_traj, all_pred_v_cond_traj = [], []

@@ -17,6 +17,7 @@
 import argparse
 import os
 import re
+from pathlib import Path
 from utils import misc, reconstruct, transforms
 import numpy as np
 from rdkit import Chem
@@ -86,16 +87,14 @@ if __name__ == '__main__':
     results = []
 
     for example_idx, r_name in enumerate(tqdm(all_sdf_files, desc='Eval')):
-        if '8jfl' in r_name:
-            continue
-
         folder = os.path.basename(os.path.dirname(r_name))   
-        file_base = os.path.basename(r_name).split("_generated_")[0]  
-        ligand_filename = os.path.join(folder, file_base)
-        if 'crossdocked' in args.protein_root:
-            protein_filename = os.path.join(folder, file_base[:10] + '.pdb')
-        else:
-            protein_filename = os.path.join(folder, file_base[:4] + '_protein.pdb')
+        file_base = os.path.basename(r_name).split("_generated_")[0]
+        if ".pdb" in file_base:
+            protein_filename = os.path.join(folder, file_base)
+            ligand_filename = os.path.join(folder, file_base.split(".pdb")[0] + ".sdf")
+        elif ".sdf" in file_base:
+            ligand_filename = os.path.join(folder, file_base)
+            protein_filename = os.path.join(folder, file_base.split(".sdf")[0] + ".pdb")
 
         logger.info(str(os.path.basename(r_name)))
  

@@ -39,7 +39,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('config', type=str)
     parser.add_argument('--device', type=str, default='cuda:0')
-    parser.add_argument('--exhaustiveness', type=int, default=16)
     parser.add_argument('--atom_enc_mode', type=str, default='add_aromatic')
     parser.add_argument('--batch_size', type=int, default=100)
     # Number of molecules to be generated
@@ -84,7 +83,8 @@ if __name__ == '__main__':
         trans.FeaturizeLigandBond(),
     ])
 
-    mol_path = os.path.join(args.result_path, os.path.dirname(args.pdb_filename))
+    # mol_path = os.path.join(args.result_path, os.path.dirname(args.pdb_filename))
+    mol_path = args.result_path
     os.makedirs(mol_path, exist_ok=True)
 
     pdb_path = os.path.join(args.protein_root, args.pdb_filename)
@@ -114,7 +114,7 @@ if __name__ == '__main__':
         batch_size=args.batch_size, device=args.device,
         num_steps=config.sample.num_steps,
         center_pos_mode=config.sample.center_pos_mode,
-        sample_num_atoms='pocket'
+        sample_num_atoms=config.sample_num_atoms
     )
 
     r = {
