@@ -15,6 +15,7 @@ baselines_results/
 *.pt
 *.pth
 *.ckpt
+*.sif
 *.lmdb
 *.lmdb-lock
 

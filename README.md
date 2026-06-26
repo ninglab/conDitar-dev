@@ -56,6 +56,16 @@ python -m scripts.conDitar.sample configs/sample.yml
 python -m scripts.paOPT.sample_with_opt configs/sample.yml
 ```
 
+### Apptainer / Singularity Container
+
+The `container_dev` branch includes an Apptainer definition that packages the conda environment, conDitar-dev code, and trained checkpoints into a single image. See [`apptainer/README.md`](apptainer/README.md).
+
+```bash
+apptainer build conditar-dev.sif apptainer/conditar.def
+apptainer run --nv conditar-dev.sif --pdb /path/to/pocket.pdb --out /path/to/results
+apptainer run --nv conditar-dev.sif --pdb /path/to/protein.pdb --sdf /path/to/ligand.sdf --out /path/to/results
+```
+
 ---
 
 ## Evaluation
