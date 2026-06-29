@@ -11,7 +11,7 @@ Options:
   --sdf, --ligand FILE       Optional reference ligand SDF.
   --out DIR                  Output directory. Default: ./results
   --config FILE              Sample config. Default: $CONDITAR_CONFIG
-  --device DEVICE            PyTorch device. Default: cuda:0
+  --device DEVICE            PyTorch device. Default: ${CONDITAR_DEVICE:-auto}
   --num-samples N            Number of molecules to generate. Default: sample.py default
   --batch-size N             Batch size. Default: sample.py default
   --pocket-radius N          Pocket radius. Default: sample.py default
@@ -24,7 +24,7 @@ EOF
 
 config="${CONDITAR_CONFIG:-/opt/conditar/app/configs/sample_container.yml}"
 out_dir="./results"
-device="cuda:0"
+device="${CONDITAR_DEVICE:-auto}"
 tmp_dir="/tmp/conditar"
 pdb_file=""
 sdf_file=""
@@ -110,6 +110,8 @@ python_args=(
     --result_path "$out_dir"
     --tmp_dir "$tmp_dir"
 )
+
+export CONDITAR_DEVICE="$device"
 
 if [[ -n "$sdf_file" ]]; then
     sdf_name="$(basename "$sdf_file")"

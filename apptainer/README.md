@@ -30,6 +30,18 @@ apptainer run --nv conditar-dev.sif \
   --num-samples 100
 ```
 
+By default, the launcher uses CUDA when it is visible and falls back to CPU otherwise. You can also select CPU or GPU explicitly with `--device` or `CONDITAR_DEVICE`:
+
+```bash
+CONDITAR_DEVICE=cpu apptainer run conditar-dev.sif \
+  --pdb /path/to/pocket_or_protein.pdb \
+  --out /path/to/results
+
+CONDITAR_DEVICE=cuda:0 apptainer run --nv conditar-dev.sif \
+  --pdb /path/to/pocket_or_protein.pdb \
+  --out /path/to/results
+```
+
 The image exposes the same command as `conditar-sample`. Extra options are passed through to `scripts.conDitar.sample`.
 
 ```bash
@@ -55,5 +67,3 @@ apptainer run --nv \
 ```
 
 Rebuild when dependencies, checkpoints, or anything installed in `%post` changes.
-
-Use `--device cpu` only for smoke tests; full sampling is expected to use `--nv` with a CUDA-capable host driver.

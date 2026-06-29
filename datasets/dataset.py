@@ -31,6 +31,7 @@ from .dataset import *
 from .mol_data import *
 from models.pocket_modelAE import PocketModel
 from datasets.mol_data import FOLLOW_BATCH
+from utils.device import resolve_device
 
 
 class AbstractRawDataset(Dataset):
@@ -64,7 +65,7 @@ class RawDataset(AbstractRawDataset):
         
         self.model = PocketModel(config = self.config.pocket,
                                 hydrogen = self.config.data.hydrogen)
-        checkpoint = torch.load(self.ckpt_path)
+        checkpoint = torch.load(self.ckpt_path, map_location=resolve_device())
         try:
             self.model.load_state_dict(checkpoint["state_dict"])
         except:

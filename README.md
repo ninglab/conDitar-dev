@@ -63,6 +63,8 @@ The `container_dev` branch includes an Apptainer definition that packages the co
 ```bash
 apptainer build conditar-dev.sif apptainer/conditar.def
 apptainer run --nv conditar-dev.sif --pdb /path/to/pocket.pdb --out /path/to/results
+apptainer run conditar-dev.sif --pdb /path/to/pocket.pdb --out /path/to/cpu_results
+CONDITAR_DEVICE=cpu apptainer run conditar-dev.sif --pdb /path/to/pocket.pdb --out /path/to/results
 apptainer run --nv conditar-dev.sif --pdb /path/to/protein.pdb --sdf /path/to/ligand.sdf --out /path/to/results
 ```
 
