@@ -68,6 +68,17 @@ CONDITAR_DEVICE=cpu apptainer run conditar-dev.sif --pdb /path/to/pocket.pdb --o
 apptainer run --nv conditar-dev.sif --pdb /path/to/protein.pdb --sdf /path/to/ligand.sdf --out /path/to/results
 ```
 
+### Docker Container
+
+For Docker Desktop local CPU runs and Docker/NVIDIA GPU runs, see [`docker/README.md`](docker/README.md). The Docker image keeps the same `conditar-sample` launcher and `--device` / `CONDITAR_DEVICE` CPU-GPU behavior as the Apptainer image.
+
+```bash
+docker/build-image.sh
+INPUT_DIR=/fs/ess/PCON0041/gruoxi/conDitar-dev/examples
+docker run --rm -e CONDITAR_DEVICE=cpu -v "$INPUT_DIR":/inputs:ro -v "$PWD/results":/results localhost/conditar-dev:container-dev --pdb /inputs/xxxx/xxxx_pocket.pdb --out /results --device cpu --num-samples 1 --batch-size 1
+docker run --rm --gpus all -e CONDITAR_DEVICE=cuda:0 -v "$INPUT_DIR":/inputs:ro -v "$PWD/results":/results localhost/conditar-dev:container-dev --pdb /inputs/xxxx/xxxx_pocket.pdb --out /results --device cuda:0 --num-samples 10
+```
+
 ---
 
 ## Evaluation

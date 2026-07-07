@@ -1,0 +1,13 @@
+name: conDitar-dev
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - rdkit
+  - openbabel
+  - tensorboard
+  - pyyaml
+  - easydict
+  - python-lmdb
+  - scikit-learn
+  - pip

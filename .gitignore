@@ -1,6 +1,7 @@
 
 checkpoints/
 results/
+results_docker*/
 baselines_results/
 *.pt
 *.pth
@@ -16,6 +17,11 @@ baselines_results/
 *.pth
 *.ckpt
 *.sif
+*.tar
+*.tar.gz
+*.tar.zst
+docker/checkpoints/
+docker/build-context/
 *.lmdb
 *.lmdb-lock
 
