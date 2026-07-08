@@ -83,8 +83,8 @@ docker run --rm \
 ```
 
 Add Vina score/minimize post-processing by passing `--vina-score`. This runs
-after sampling inside the same container and writes `eval_results/vina_scores.csv`
-and `eval_results/vina_scores.json` under the output directory:
+after sampling inside the same container and annotates each generated SDF with
+properties such as `VINA_SCORE_ONLY`, `VINA_MINIMIZE`, `QED`, and `SA`:
 
 ```bash
 docker run --rm \

@@ -150,7 +150,6 @@ if [[ "$vina_score" == "true" ]]; then
     python -m scripts.conDitar.postprocess_vina \
         --generated-dir "$out_dir" \
         --protein "$stage_dir/$pdb_name" \
-        --out "$out_dir/eval_results" \
         --tmp-dir "${tmp_dir%/}/vina" \
         --mode "$vina_mode" \
         --exhaustiveness "$vina_exhaustiveness" \

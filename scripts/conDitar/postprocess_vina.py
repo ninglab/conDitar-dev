@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
-import json
 from pathlib import Path
 
 from rdkit import Chem
@@ -50,20 +48,80 @@ def score_molecule(
     }
 
 
-def iter_sdf_molecules(generated_dir: Path):
-    for sdf_path in sorted(generated_dir.rglob("*.sdf")):
-        if "eval_results" in sdf_path.parts:
-            continue
-        supplier = Chem.SDMolSupplier(str(sdf_path), removeHs=False)
-        for mol_index, mol in enumerate(supplier):
-            yield sdf_path, mol_index, mol
+def set_prop(mol: Chem.Mol, name: str, value) -> None:
+    if value not in (None, ""):
+        mol.SetProp(name, str(value))
+
+
+def annotate_molecule(
+    mol: Chem.Mol,
+    protein: Path,
+    tmp_dir: Path,
+    mode: str,
+    exhaustiveness: int,
+    cpu: int,
+) -> bool:
+    mol.SetProp("VINA_MODE", mode)
+    mol.SetProp("VINA_EXHAUSTIVENESS", str(exhaustiveness))
+    mol.SetProp("VINA_CPU", str(cpu))
+    try:
+        smiles = Chem.MolToSmiles(mol)
+        mol.SetProp("SMILES", smiles)
+        if "." in smiles:
+            raise ValueError("Molecule has separate fragments.")
+        if not is_vina_compatible(mol):
+            raise ValueError("Molecule has atoms unsupported by Vina.")
+
+        result = score_molecule(mol, protein, tmp_dir, mode, exhaustiveness, cpu)
+        chem_results = result["chem_results"]
+        set_prop(mol, "QED", chem_results.get("qed"))
+        set_prop(mol, "SA", chem_results.get("sa"))
+        set_prop(mol, "LOGP", chem_results.get("logp"))
+        set_prop(mol, "LIPINSKI", chem_results.get("lipinski"))
+        set_prop(mol, "VINA_SCORE_ONLY", affinity(result["vina"].get("score_only", [])))
+        set_prop(mol, "VINA_MINIMIZE", affinity(result["vina"].get("minimize", [])))
+        set_prop(mol, "VINA_DOCK", affinity(result["vina"].get("dock", [])))
+        mol.SetProp("VINA_STATUS", "ok")
+        if mol.HasProp("VINA_ERROR"):
+            mol.ClearProp("VINA_ERROR")
+        return True
+    except Exception as error:
+        mol.SetProp("VINA_STATUS", "failed")
+        mol.SetProp("VINA_ERROR", str(error))
+        return False
+
+
+def annotate_sdf_file(
+    sdf_path: Path,
+    protein: Path,
+    tmp_dir: Path,
+    mode: str,
+    exhaustiveness: int,
+    cpu: int,
+) -> tuple[int, int]:
+    supplier = Chem.SDMolSupplier(str(sdf_path), removeHs=False)
+    molecules = [mol for mol in supplier if mol is not None]
+    if not molecules:
+        return 0, 0
+
+    ok_count = 0
+    tmp_path = sdf_path.with_suffix(sdf_path.suffix + ".tmp")
+    writer = Chem.SDWriter(str(tmp_path))
+    try:
+        for mol in molecules:
+            if annotate_molecule(mol, protein, tmp_dir, mode, exhaustiveness, cpu):
+                ok_count += 1
+            writer.write(mol)
+    finally:
+        writer.close()
+    tmp_path.replace(sdf_path)
+    return len(molecules), ok_count
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Post-process generated conDitar SDFs with Vina scoring.")
     parser.add_argument("--generated-dir", required=True, type=Path)
     parser.add_argument("--protein", required=True, type=Path)
-    parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--tmp-dir", default="/tmp/conditar/vina", type=Path)
     parser.add_argument("--mode", choices=["vina_score", "vina_dock"], default="vina_score")
     parser.add_argument("--exhaustiveness", type=int, default=8)
@@ -78,84 +136,17 @@ def main() -> int:
     if not args.generated_dir.exists():
         raise FileNotFoundError(f"Generated SDF directory not found: {args.generated_dir}")
 
-    args.out.mkdir(parents=True, exist_ok=True)
     args.tmp_dir.mkdir(parents=True, exist_ok=True)
 
-    rows = []
-    for sdf_path, mol_index, mol in iter_sdf_molecules(args.generated_dir):
-        row = {
-            "sdf": str(sdf_path.relative_to(args.generated_dir)),
-            "mol_index": mol_index,
-            "status": "ok",
-            "smiles": "",
-            "qed": "",
-            "sa": "",
-            "logp": "",
-            "lipinski": "",
-            "vina_score_only": "",
-            "vina_minimize": "",
-            "vina_dock": "",
-            "error": "",
-        }
-        try:
-            if mol is None:
-                raise ValueError("RDKit could not parse molecule.")
-            smiles = Chem.MolToSmiles(mol)
-            row["smiles"] = smiles
-            if "." in smiles:
-                raise ValueError("Molecule has separate fragments.")
-            if not is_vina_compatible(mol):
-                raise ValueError("Molecule has atoms unsupported by Vina.")
+    total = 0
+    ok = 0
+    for sdf_path in sorted(args.generated_dir.rglob("*.sdf")):
+        count, ok_count = annotate_sdf_file(sdf_path, args.protein, args.tmp_dir, args.mode, args.exhaustiveness, args.cpu)
+        total += count
+        ok += ok_count
 
-            result = score_molecule(mol, args.protein, args.tmp_dir, args.mode, args.exhaustiveness, args.cpu)
-            chem_results = result["chem_results"]
-            row["qed"] = chem_results.get("qed", "")
-            row["sa"] = chem_results.get("sa", "")
-            row["logp"] = chem_results.get("logp", "")
-            row["lipinski"] = chem_results.get("lipinski", "")
-            row["vina_score_only"] = affinity(result["vina"].get("score_only", []))
-            row["vina_minimize"] = affinity(result["vina"].get("minimize", []))
-            row["vina_dock"] = affinity(result["vina"].get("dock", []))
-        except Exception as error:
-            row["status"] = "failed"
-            row["error"] = str(error)
-        rows.append(row)
-
-    fieldnames = [
-        "sdf",
-        "mol_index",
-        "status",
-        "smiles",
-        "qed",
-        "sa",
-        "logp",
-        "lipinski",
-        "vina_score_only",
-        "vina_minimize",
-        "vina_dock",
-        "error",
-    ]
-    csv_path = args.out / "vina_scores.csv"
-    with csv_path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
-
-    summary = {
-        "mode": args.mode,
-        "exhaustiveness": args.exhaustiveness,
-        "cpu": args.cpu,
-        "protein": str(args.protein),
-        "generated_dir": str(args.generated_dir),
-        "total": len(rows),
-        "ok": sum(1 for row in rows if row["status"] == "ok"),
-        "failed": sum(1 for row in rows if row["status"] != "ok"),
-        "csv": str(csv_path),
-        "rows": rows,
-    }
-    (args.out / "vina_scores.json").write_text(json.dumps(summary, indent=2))
-    print(f"Wrote Vina scores for {summary['ok']}/{summary['total']} molecules to {csv_path}")
-    return 0 if rows else 1
+    print(f"Annotated Vina scores in generated SDFs for {ok}/{total} molecules")
+    return 0 if total and ok else 1
 
 
 if __name__ == "__main__":

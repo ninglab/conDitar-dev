@@ -80,8 +80,8 @@ docker run --rm --gpus all -e CONDITAR_DEVICE=cuda:0 -v "$INPUT_DIR":/inputs:ro 
 ```
 
 Add optional Vina score/minimize post-processing with `--vina-score`. Vina runs
-after generation inside the same container and writes `eval_results/vina_scores.csv`
-and `eval_results/vina_scores.json` under the output directory.
+after generation inside the same container and annotates each generated SDF with
+properties such as `VINA_SCORE_ONLY`, `VINA_MINIMIZE`, `QED`, and `SA`.
 
 ---
 
