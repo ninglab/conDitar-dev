@@ -82,6 +82,28 @@ docker run --rm \
   --batch-size 1
 ```
 
+Add Vina score/minimize post-processing by passing `--vina-score`. This runs
+after sampling inside the same container and writes `eval_results/vina_scores.csv`
+and `eval_results/vina_scores.json` under the output directory:
+
+```bash
+docker run --rm \
+  -e CONDITAR_DEVICE=cpu \
+  -v "${INPUT_DIR:?set INPUT_DIR to your examples/input directory}":/inputs:ro \
+  -v "$PWD/results":/results \
+  localhost/conditar-dev:container-dev \
+  --pdb /inputs/4aua/4aua_protein.pdb \
+  --sdf /inputs/4aua/4aua_ligand.sdf \
+  --out /results \
+  --device cpu \
+  --num-samples 1 \
+  --batch-size 1 \
+  --vina-score \
+  --vina-mode vina_score \
+  --vina-exhaustiveness 8 \
+  --vina-cpu 4
+```
+
 ## Run On OSC With Podman
 
 OSC's Docker-compatible runtime is Podman/Buildah. If you build on OSC, the image is stored on the node-local image store, so push it to a registry if you need to reuse it from other nodes.
@@ -122,6 +144,10 @@ podman run --rm --device nvidia.com/gpu=all \
   --num-samples 1 \
   --batch-size 1
 ```
+
+The same `--vina-score` flags can be added to Podman GPU runs. Generation uses
+CUDA when requested; Vina post-processing uses CPU threads inside the same
+container/job.
 
 ## Run On NVIDIA GPU
 

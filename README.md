@@ -79,6 +79,10 @@ docker run --rm -e CONDITAR_DEVICE=cpu -v "$INPUT_DIR":/inputs:ro -v "$PWD/resul
 docker run --rm --gpus all -e CONDITAR_DEVICE=cuda:0 -v "$INPUT_DIR":/inputs:ro -v "$PWD/results":/results localhost/conditar-dev:container-dev --pdb /inputs/xxxx/xxxx_pocket.pdb --out /results --device cuda:0 --num-samples 10
 ```
 
+Add optional Vina score/minimize post-processing with `--vina-score`. Vina runs
+after generation inside the same container and writes `eval_results/vina_scores.csv`
+and `eval_results/vina_scores.json` under the output directory.
+
 ---
 
 ## Evaluation

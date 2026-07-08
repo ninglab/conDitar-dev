@@ -16,6 +16,10 @@ Options:
   --batch-size N             Batch size. Default: sample.py default
   --pocket-radius N          Pocket radius. Default: sample.py default
   --tmp-dir DIR              Temporary directory. Default: /tmp/conditar
+  --vina-score               Run Vina post-processing after sampling.
+  --vina-mode MODE           vina_score or vina_dock. Default: vina_score
+  --vina-exhaustiveness N    Vina exhaustiveness. Default: 8
+  --vina-cpu N               CPU threads for Vina. Default: 4
   -h, --help                 Show this help.
 
 Any unrecognized options are passed through to scripts.conDitar.sample.
@@ -28,6 +32,10 @@ device="${CONDITAR_DEVICE:-auto}"
 tmp_dir="/tmp/conditar"
 pdb_file=""
 sdf_file=""
+vina_score="false"
+vina_mode="vina_score"
+vina_exhaustiveness="8"
+vina_cpu="4"
 sample_args=()
 
 while [[ $# -gt 0 ]]; do
@@ -66,6 +74,22 @@ while [[ $# -gt 0 ]]; do
             ;;
         --tmp-dir|--tmp_dir)
             tmp_dir="${2:?missing value for $1}"
+            shift 2
+            ;;
+        --vina-score|--vina_score)
+            vina_score="true"
+            shift
+            ;;
+        --vina-mode|--vina_mode)
+            vina_mode="${2:?missing value for $1}"
+            shift 2
+            ;;
+        --vina-exhaustiveness|--vina_exhaustiveness)
+            vina_exhaustiveness="${2:?missing value for $1}"
+            shift 2
+            ;;
+        --vina-cpu|--vina_cpu)
+            vina_cpu="${2:?missing value for $1}"
             shift 2
             ;;
         -h|--help)
@@ -120,4 +144,15 @@ if [[ -n "$sdf_file" ]]; then
 fi
 
 cd /opt/conditar/app
-exec python "${python_args[@]}" "${sample_args[@]}"
+python "${python_args[@]}" "${sample_args[@]}"
+
+if [[ "$vina_score" == "true" ]]; then
+    python -m scripts.conDitar.postprocess_vina \
+        --generated-dir "$out_dir" \
+        --protein "$stage_dir/$pdb_name" \
+        --out "$out_dir/eval_results" \
+        --tmp-dir "${tmp_dir%/}/vina" \
+        --mode "$vina_mode" \
+        --exhaustiveness "$vina_exhaustiveness" \
+        --cpu "$vina_cpu"
+fi
