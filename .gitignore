@@ -1,6 +1,8 @@
 
 checkpoints/
 results/
+results_qvina*/
+validation_runs/
 results_docker*/
 baselines_results/
 *.pt
@@ -21,6 +23,7 @@ baselines_results/
 *.tar.gz
 *.tar.zst
 docker/checkpoints/
+docker/qvina/qvina2.1
 docker/build-context/
 *.lmdb
 *.lmdb-lock

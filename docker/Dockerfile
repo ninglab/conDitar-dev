@@ -10,6 +10,7 @@ ENV PATH=/opt/micromamba/envs/conDitar-dev/bin:/opt/micromamba/bin:/usr/local/bi
 ENV PYTHONPATH=/opt/conditar/app
 ENV CONDITAR_CONFIG=/opt/conditar/app/configs/sample_container.yml
 ENV CONDITAR_DEVICE=auto
+ENV CONDITAR_QVINA_BIN=/opt/conditar/qvina/qvina2.1
 
 WORKDIR /opt/conditar/app
 
@@ -54,8 +55,10 @@ COPY scripts /opt/conditar/app/scripts
 COPY utils /opt/conditar/app/utils
 COPY README.md NOTICE.txt /opt/conditar/app/
 COPY docker/checkpoints /opt/conditar/checkpoints
+COPY docker/qvina /opt/conditar/qvina
 
-RUN install -m 0755 /opt/conditar/app/scripts/container/conditar-sample /usr/local/bin/conditar-sample
+RUN install -m 0755 /opt/conditar/app/scripts/container/conditar-sample /usr/local/bin/conditar-sample \
+    && if [ -f "$CONDITAR_QVINA_BIN" ]; then chmod 0755 "$CONDITAR_QVINA_BIN"; fi
 
 ENTRYPOINT ["conditar-sample"]
 CMD ["--help"]

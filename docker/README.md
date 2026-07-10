@@ -35,6 +35,24 @@ If the checkpoints are somewhere else:
 docker/build-image.sh --checkpoint-dir /path/to/checkpoints
 ```
 
+The helper also stages QuickVina2 into the image when available. By default it checks:
+
+```text
+/fs/ess/PCON0041/gruoxi/qvina/bin/qvina2.1
+```
+
+If the QuickVina2 binary is somewhere else:
+
+```bash
+docker/build-image.sh --qvina-bin /path/to/qvina2.1
+```
+
+Inside the image, QVina is exposed as:
+
+```text
+CONDITAR_QVINA_BIN=/opt/conditar/qvina/qvina2.1
+```
+
 Override the tag or platform:
 
 ```bash
@@ -82,9 +100,10 @@ docker run --rm \
   --batch-size 1
 ```
 
-Add Vina score/minimize post-processing by passing `--vina-score`. This runs
+Add docking/chemistry post-processing by passing `--vina-score`. This runs
 after sampling inside the same container and annotates each generated SDF with
-properties such as `VINA_SCORE_ONLY`, `VINA_MINIMIZE`, `QED`, and `SA`:
+properties such as `VINA_SCORE_ONLY`, `VINA_MINIMIZE`, `QVINA`, `QED`, and `SA`.
+Supported modes are `none`, `vina_score`, `vina_dock`, `qvina`, and `all`:
 
 ```bash
 docker run --rm \
@@ -103,6 +122,10 @@ docker run --rm \
   --vina-exhaustiveness 8 \
   --vina-cpu 4
 ```
+
+Use `--vina-mode qvina` for QuickVina2 only, or `--vina-mode all` for Vina
+score/minimize plus QVina. QVina is CPU-based; GPU jobs use CUDA for generation
+and CPU threads for docking post-processing.
 
 ## Run On OSC With Podman
 

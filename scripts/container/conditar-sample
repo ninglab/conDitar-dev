@@ -17,9 +17,10 @@ Options:
   --pocket-radius N          Pocket radius. Default: sample.py default
   --tmp-dir DIR              Temporary directory. Default: /tmp/conditar
   --vina-score               Run Vina post-processing after sampling.
-  --vina-mode MODE           vina_score or vina_dock. Default: vina_score
+  --vina-mode MODE           none, vina_score, vina_dock, qvina, or all. Default: vina_score
   --vina-exhaustiveness N    Vina exhaustiveness. Default: 8
   --vina-cpu N               CPU threads for Vina. Default: 4
+  --qvina-bin FILE           QuickVina2 executable for qvina/all modes.
   -h, --help                 Show this help.
 
 Any unrecognized options are passed through to scripts.conDitar.sample.
@@ -36,6 +37,7 @@ vina_score="false"
 vina_mode="vina_score"
 vina_exhaustiveness="8"
 vina_cpu="4"
+qvina_bin="${CONDITAR_QVINA_BIN:-}"
 sample_args=()
 
 while [[ $# -gt 0 ]]; do
@@ -90,6 +92,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --vina-cpu|--vina_cpu)
             vina_cpu="${2:?missing value for $1}"
+            shift 2
+            ;;
+        --qvina-bin|--qvina_bin)
+            qvina_bin="${2:?missing value for $1}"
             shift 2
             ;;
         -h|--help)
@@ -147,11 +153,17 @@ cd /opt/conditar/app
 python "${python_args[@]}" "${sample_args[@]}"
 
 if [[ "$vina_score" == "true" ]]; then
-    python -m scripts.conDitar.postprocess_vina \
-        --generated-dir "$out_dir" \
-        --protein "$stage_dir/$pdb_name" \
-        --tmp-dir "${tmp_dir%/}/vina" \
-        --mode "$vina_mode" \
-        --exhaustiveness "$vina_exhaustiveness" \
+    vina_args=(
+        -m scripts.conDitar.postprocess_vina
+        --generated-dir "$out_dir"
+        --protein "$stage_dir/$pdb_name"
+        --tmp-dir "${tmp_dir%/}/vina"
+        --mode "$vina_mode"
+        --exhaustiveness "$vina_exhaustiveness"
         --cpu "$vina_cpu"
+    )
+    if [[ -n "$qvina_bin" ]]; then
+        vina_args+=(--qvina-bin "$qvina_bin")
+    fi
+    python "${vina_args[@]}"
 fi

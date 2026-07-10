@@ -387,6 +387,7 @@ def calculate_qvina2_score(
     exhaustiveness=16,
     return_rdmol=False,
     filtering=False,
+    qvina_bin=None,
 ):
     """
     Calculate the QuickVina2 score
@@ -433,17 +434,36 @@ def calculate_qvina2_score(
         cx, cy, cz = mol.GetConformer().GetPositions().mean(0)
 
         # run QuickVina 2
-        PATH = "/fs/ess/PCON0041/gruoxi/qvina/bin/qvina2.1"
-
-        out = os.popen(
-            f"/{PATH} --receptor {receptor_pdbqt_file} "
-            f"--ligand {ligand_pdbqt_file} "
-            f"--center_x {cx:.4f} --center_y {cy:.4f} --center_z {cz:.4f} "
-            f"--size_x {size} --size_y {size} --size_z {size} "
-            f"--exhaustiveness {exhaustiveness}",
-        ).read()
+        qvina_bin = qvina_bin or os.environ.get("CONDITAR_QVINA_BIN") or "/fs/ess/PCON0041/gruoxi/qvina/bin/qvina2.1"
+        qvina_bin = shutil.which(qvina_bin) or qvina_bin
+        if not os.path.exists(qvina_bin):
+            raise FileNotFoundError(
+                f"QuickVina2 binary not found: {qvina_bin}. "
+                "Set CONDITAR_QVINA_BIN or pass --qvina-bin to enable qvina modes."
+            )
+        result = subprocess.run(
+            [
+                qvina_bin,
+                "--receptor", str(receptor_pdbqt_file),
+                "--ligand", str(ligand_pdbqt_file),
+                "--center_x", f"{cx:.4f}",
+                "--center_y", f"{cy:.4f}",
+                "--center_z", f"{cz:.4f}",
+                "--size_x", str(size),
+                "--size_y", str(size),
+                "--size_z", str(size),
+                "--exhaustiveness", str(exhaustiveness),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        out = result.stdout + result.stderr
         # clean up
         ligand_pdbqt_file.unlink()
+
+        if result.returncode != 0:
+            raise RuntimeError(f"QuickVina2 failed with exit code {result.returncode}: {out.strip()}")
 
         if "-----+------------+----------+----------" not in out:
             continue

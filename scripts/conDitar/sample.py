@@ -156,6 +156,7 @@ if __name__ == '__main__':
         print(smiles)
 
         writer = Chem.SDWriter(os.path.join(mol_path, f"{os.path.basename(args.pdb_filename)}_generated_{sample_idx}.sdf"))
+        mol.SetProp("SMILES", smiles)
         writer.write(mol)
         writer.close()
 
