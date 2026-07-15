@@ -59,6 +59,36 @@ Override the tag or platform:
 docker/build-image.sh --tag localhost/conditar-dev:latest --platform linux/amd64
 ```
 
+## Copy the OSC Image to a Local Machine
+
+If the image has already been built on OSC, copy the archive instead of
+rebuilding it locally. Run `rsync` from your local terminal (replace the
+placeholders with your OSC username and login host):
+
+```bash
+mkdir -p "$HOME/containers"
+rsync -avP \
+  <OSC_USER>@<OSC_LOGIN_HOST>:/fs/ess/PCON0041/mey200/container_images/localhost_conditar-dev_container-dev-20260710-105038.tar.gz \
+  "$HOME/containers/"
+```
+
+The archive is large, so `-P` allows an interrupted transfer to resume. On the
+local machine, install and start [Docker Desktop](https://www.docker.com/products/docker-desktop/),
+then load and verify the image:
+
+```bash
+docker load -i "$HOME/containers/localhost_conditar-dev_container-dev-20260710-105038.tar.gz"
+docker image inspect localhost/conditar-dev:container-dev >/dev/null \
+  && echo "conDitar container loaded"
+docker run --rm localhost/conditar-dev:container-dev --help
+```
+
+Docker Desktop must be running before `docker load` or `docker run`. On Apple
+Silicon, use the `linux/amd64` image; Docker Desktop will use emulation and may
+run more slowly. The OSC archive is for local CPU testing; local NVIDIA GPU
+runs additionally require Docker Desktop's GPU support and a compatible NVIDIA
+runtime.
+
 ## Run On Local CPU
 
 Set `INPUT_DIR` to the folder containing `xxxx/xxxx_pocket.pdb` and/or `4aua/4aua_protein.pdb`. On OSC, use:
