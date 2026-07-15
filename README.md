@@ -68,7 +68,7 @@ For local Docker CPU/GPU runs and OSC Podman/Slurm runs, see [`docker/README.md`
 
 ```bash
 docker/build-image.sh
-INPUT_DIR=/fs/ess/PCON0041/gruoxi/conDitar-dev/examples
+INPUT_DIR=/path/to/conDitar-dev/data/test_data
 docker run --rm -e CONDITAR_DEVICE=cpu -v "$INPUT_DIR":/inputs:ro -v "$PWD/results":/results localhost/conditar-dev:container-dev --pdb /inputs/xxxx/xxxx_pocket.pdb --out /results --device cpu --num-samples 1 --batch-size 1
 docker run --rm --gpus all -e CONDITAR_DEVICE=cuda:0 -v "$INPUT_DIR":/inputs:ro -v "$PWD/results":/results localhost/conditar-dev:container-dev --pdb /inputs/xxxx/xxxx_pocket.pdb --out /results --device cuda:0 --num-samples 10
 ```

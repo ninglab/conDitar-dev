@@ -25,8 +25,8 @@ docker/build-image.sh --engine buildah
 The helper stages the trained checkpoints into `docker/checkpoints/` before building. By default it expects:
 
 ```text
-/fs/ess/PCON0041/gruoxi/SBDDcode/checkpoints/Diff.pt
-/fs/ess/PCON0041/gruoxi/SBDDcode/checkpoints/PocketAE.pt
+/path/to/checkpoints/Diff.pt
+/path/to/checkpoints/PocketAE.pt
 ```
 
 If the checkpoints are somewhere else:
@@ -38,7 +38,7 @@ docker/build-image.sh --checkpoint-dir /path/to/checkpoints
 The helper also stages QuickVina2 into the image when available. By default it checks:
 
 ```text
-/fs/ess/PCON0041/gruoxi/qvina/bin/qvina2.1
+/path/to/qvina2.1
 ```
 
 If the QuickVina2 binary is somewhere else:
@@ -64,7 +64,7 @@ docker/build-image.sh --tag localhost/conditar-dev:latest --platform linux/amd64
 Set `INPUT_DIR` to the folder containing `xxxx/xxxx_pocket.pdb` and/or `4aua/4aua_protein.pdb`. On OSC, use:
 
 ```bash
-INPUT_DIR=/fs/ess/PCON0041/gruoxi/conDitar-dev/examples
+INPUT_DIR=/path/to/input-data
 ```
 
 On a local machine, use the path where you copied or cloned the examples.
@@ -145,7 +145,7 @@ CPU:
 
 ```bash
 mkdir -p results
-INPUT_DIR=/fs/ess/PCON0041/gruoxi/conDitar-dev/examples
+INPUT_DIR=/path/to/input-data
 
 podman run --rm \
   -e CONDITAR_DEVICE=cpu \
@@ -164,7 +164,7 @@ GPU:
 ```bash
 salloc -n 1 -G 1
 mkdir -p results
-INPUT_DIR=/fs/ess/PCON0041/gruoxi/conDitar-dev/examples
+INPUT_DIR=/path/to/input-data
 
 podman run --rm --device nvidia.com/gpu=all \
   -e CONDITAR_DEVICE=cuda:0 \
