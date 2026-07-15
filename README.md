@@ -1,3 +1,9 @@
+# conDitar-dev
+
+conDitar generates ligand structures conditioned on a protein or prepared
+pocket. This branch supports CPU/GPU execution, Docker/Podman containers, and
+optional Vina/QVina post-processing.
+
 ## Environment Setup
 
 ```bash
@@ -56,21 +62,9 @@ python -m scripts.conDitar.sample configs/sample.yml
 python -m scripts.paOPT.sample_with_opt configs/sample.yml
 ```
 
-### Apptainer / Singularity Container
-
-The `container_dev` branch includes an Apptainer definition that packages the conda environment, conDitar-dev code, and trained checkpoints into a single image. See [`apptainer/README.md`](apptainer/README.md).
-
-```bash
-apptainer build conditar-dev.sif apptainer/conditar.def
-apptainer run --nv conditar-dev.sif --pdb /path/to/pocket.pdb --out /path/to/results
-apptainer run conditar-dev.sif --pdb /path/to/pocket.pdb --out /path/to/cpu_results
-CONDITAR_DEVICE=cpu apptainer run conditar-dev.sif --pdb /path/to/pocket.pdb --out /path/to/results
-apptainer run --nv conditar-dev.sif --pdb /path/to/protein.pdb --sdf /path/to/ligand.sdf --out /path/to/results
-```
-
 ### Docker Container
 
-For Docker Desktop local CPU runs and Docker/NVIDIA GPU runs, see [`docker/README.md`](docker/README.md). The Docker image keeps the same `conditar-sample` launcher and `--device` / `CONDITAR_DEVICE` CPU-GPU behavior as the Apptainer image.
+For local Docker CPU/GPU runs and OSC Podman/Slurm runs, see [`docker/README.md`](docker/README.md). The image uses the same `conditar-sample` launcher everywhere.
 
 ```bash
 docker/build-image.sh
@@ -85,14 +79,8 @@ properties such as `VINA_SCORE_ONLY`, `VINA_MINIMIZE`, `QED`, and `SA`.
 
 ---
 
-## Evaluation
+## GUI integration
 
-```bash
-python -m scripts.conDitar.evaluate_mol
-```
-
----
-
-### Generation Results
-
-[https://drive.google.com/drive/folders/158A-cQKIF-x_-ewrf7jPGdFew005I3W0?usp=drive_link](https://drive.google.com/drive/folders/158A-cQKIF-x_-ewrf7jPGdFew005I3W0?usp=drive_link)
+The GUI stages uploaded inputs and invokes this same Docker/Podman container.
+Local jobs use Docker; OSC jobs submit Podman commands through Slurm. See the
+GUI repository for setup, batch behavior, logs, and export instructions.

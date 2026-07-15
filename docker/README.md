@@ -1,6 +1,6 @@
 # conDitar-dev Docker Container
 
-This Docker image mirrors the Apptainer image but is intended for local Docker Desktop CPU runs and Docker/NVIDIA GPU runs. It keeps the same launcher behavior:
+This image is the supported runtime for local Docker and OSC Podman. It keeps the same launcher behavior:
 
 - `CONDITAR_DEVICE=cpu` or `--device cpu` for local CPU.
 - `CONDITAR_DEVICE=cuda:0` or `--device cuda:0` plus Docker `--gpus all` for NVIDIA GPU.
@@ -129,7 +129,17 @@ and CPU threads for docking post-processing.
 
 ## Run On OSC With Podman
 
-OSC's Docker-compatible runtime is Podman/Buildah. If you build on OSC, the image is stored on the node-local image store, so push it to a registry if you need to reuse it from other nodes.
+OSC's Docker-compatible runtime is Podman/Buildah. For Slurm jobs, use a shared archive so compute nodes can load the image:
+
+```bash
+IMAGE_TAR=/fs/ess/PCON0041/mey200/container_images/localhost_conditar-dev_container-dev-20260710-105038.tar.gz
+podman load -i "$IMAGE_TAR"
+podman image exists localhost/conditar-dev:container-dev
+```
+
+The GUI's `start_gpu_gui.sh` and generated Slurm scripts perform this load when
+the image is missing. Do not let Podman fall through to a registry pull for the
+`localhost/...` image.
 
 CPU:
 
