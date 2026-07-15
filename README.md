@@ -1,4 +1,4 @@
-# conDitar
+# Generating Developable 3D Molecules via Pocket-Conditioned Diffusion and Property-Aware Optimization
 
 This is the implementation of our conDitar-dev model: https://arxiv.org/abs/2607.12349.
 
