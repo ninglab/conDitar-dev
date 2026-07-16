@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage:
+  conditar-sample --pdb PROTEIN_OR_POCKET.pdb [--sdf REFERENCE_LIGAND.sdf] [options]
+
+Options:
+  --pdb, --pocket FILE       Protein PDB or pre-cut pocket PDB.
+  --sdf, --ligand FILE       Optional reference ligand SDF.
+  --out DIR                  Output directory. Default: ./results
+  --config FILE              Sample config. Default: $CONDITAR_CONFIG
+  --device DEVICE            PyTorch device. Default: ${CONDITAR_DEVICE:-auto}
+  --num-samples N            Number of molecules to generate. Default: sample.py default
+  --batch-size N             Batch size. Default: sample.py default
+  --pocket-radius N          Pocket radius. Default: sample.py default
+  --tmp-dir DIR              Temporary directory. Default: /tmp/conditar
+  --vina-score               Run Vina post-processing after sampling.
+  --vina-mode MODE           none, vina_score, vina_dock, qvina, or all. Default: vina_score
+  --vina-exhaustiveness N    Vina exhaustiveness. Default: 8
+  --vina-cpu N               CPU threads for Vina. Default: 4
+  --qvina-bin FILE           QuickVina2 executable for qvina/all modes.
+  -h, --help                 Show this help.
+
+Any unrecognized options are passed through to scripts.conDitar.sample.
+EOF
+}
+
+config="${CONDITAR_CONFIG:-/opt/conditar/app/configs/sample_container.yml}"
+out_dir="./results"
+device="${CONDITAR_DEVICE:-auto}"
+tmp_dir="/tmp/conditar"
+pdb_file=""
+sdf_file=""
+vina_score="false"
+vina_mode="vina_score"
+vina_exhaustiveness="8"
+vina_cpu="4"
+qvina_bin="${CONDITAR_QVINA_BIN:-}"
+sample_args=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --pdb|--pocket)
+            pdb_file="${2:?missing value for $1}"
+            shift 2
+            ;;
+        --sdf|--ligand)
+            sdf_file="${2:?missing value for $1}"
+            shift 2
+            ;;
+        --out|--result-path|--result_path)
+            out_dir="${2:?missing value for $1}"
+            shift 2
+            ;;
+        --config)
+            config="${2:?missing value for $1}"
+            shift 2
+            ;;
+        --device)
+            device="${2:?missing value for $1}"
+            shift 2
+            ;;
+        --num-samples|--num_samples)
+            sample_args+=(--num_samples "${2:?missing value for $1}")
+            shift 2
+            ;;
+        --batch-size|--batch_size)
+            sample_args+=(--batch_size "${2:?missing value for $1}")
+            shift 2
+            ;;
+        --pocket-radius|--pocket_radius)
+            sample_args+=(--pocket_radius "${2:?missing value for $1}")
+            shift 2
+            ;;
+        --tmp-dir|--tmp_dir)
+            tmp_dir="${2:?missing value for $1}"
+            shift 2
+            ;;
+        --vina-score|--vina_score)
+            vina_score="true"
+            shift
+            ;;
+        --vina-mode|--vina_mode)
+            vina_mode="${2:?missing value for $1}"
+            shift 2
+            ;;
+        --vina-exhaustiveness|--vina_exhaustiveness)
+            vina_exhaustiveness="${2:?missing value for $1}"
+            shift 2
+            ;;
+        --vina-cpu|--vina_cpu)
+            vina_cpu="${2:?missing value for $1}"
+            shift 2
+            ;;
+        --qvina-bin|--qvina_bin)
+            qvina_bin="${2:?missing value for $1}"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            sample_args+=("$1")
+            shift
+            ;;
+    esac
+done
+
+if [[ -z "$pdb_file" ]]; then
+    usage >&2
+    exit 2
+fi
+
+if [[ ! -f "$pdb_file" ]]; then
+    echo "PDB file not found: $pdb_file" >&2
+    exit 2
+fi
+
+if [[ -n "$sdf_file" && ! -f "$sdf_file" ]]; then
+    echo "SDF file not found: $sdf_file" >&2
+    exit 2
+fi
+
+mkdir -p "$out_dir" "$tmp_dir"
+stage_dir="$(mktemp -d "${tmp_dir%/}/conditar-input.XXXXXX")"
+trap 'rm -rf "$stage_dir"' EXIT
+
+pdb_name="$(basename "$pdb_file")"
+ln -s "$(realpath "$pdb_file")" "$stage_dir/$pdb_name"
+
+python_args=(
+    -m scripts.conDitar.sample
+    "$config"
+    --device "$device"
+    --protein_root "$stage_dir"
+    --pdb_filename "$pdb_name"
+    --result_path "$out_dir"
+    --tmp_dir "$tmp_dir"
+)
+
+export CONDITAR_DEVICE="$device"
+
+if [[ -n "$sdf_file" ]]; then
+    sdf_name="$(basename "$sdf_file")"
+    ln -s "$(realpath "$sdf_file")" "$stage_dir/$sdf_name"
+    python_args+=(--sdf_filename "$sdf_name")
+fi
+
+cd /opt/conditar/app
+python "${python_args[@]}" "${sample_args[@]}"
+
+if [[ "$vina_score" == "true" ]]; then
+    vina_args=(
+        -m scripts.conDitar.postprocess_vina
+        --generated-dir "$out_dir"
+        --protein "$stage_dir/$pdb_name"
+        --tmp-dir "${tmp_dir%/}/vina"
+        --mode "$vina_mode"
+        --exhaustiveness "$vina_exhaustiveness"
+        --cpu "$vina_cpu"
+    )
+    if [[ -n "$qvina_bin" ]]; then
+        vina_args+=(--qvina-bin "$qvina_bin")
+    fi
+    python "${vina_args[@]}"
+fi

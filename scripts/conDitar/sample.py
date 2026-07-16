@@ -30,6 +30,7 @@ import utils.data as utils_data
 import numpy as np
 from models.molopt_score_model import ScorePosNet3D, log_sample_categorical
 from utils import atom_num
+from utils.device import resolve_device
 from utils.scoring_func import *
 from rdkit import Chem
 from scripts.conDitar.sample_diffusion import sample_diffusion_ligand
@@ -38,7 +39,7 @@ from scripts.conDitar.sample_diffusion import sample_diffusion_ligand
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('config', type=str)
-    parser.add_argument('--device', type=str, default='cuda:0')
+    parser.add_argument('--device', type=str, default=os.environ.get('CONDITAR_DEVICE', 'auto'))
     parser.add_argument('--atom_enc_mode', type=str, default='add_aromatic')
     parser.add_argument('--batch_size', type=int, default=100)
     # Number of molecules to be generated
@@ -57,8 +58,12 @@ if __name__ == '__main__':
 
 
     args = parser.parse_args()
+    # Resolve "auto" once and share it with helper code that reads CONDITAR_DEVICE.
+    args.device = resolve_device(args.device)
+    os.environ['CONDITAR_DEVICE'] = args.device
 
     logger = misc.get_logger('sample')
+    logger.info(f"Using device: {args.device}")
     
     # Load config
     config = misc.load_config(args.config)
@@ -152,6 +157,7 @@ if __name__ == '__main__':
         print(smiles)
 
         writer = Chem.SDWriter(os.path.join(mol_path, f"{os.path.basename(args.pdb_filename)}_generated_{sample_idx}.sdf"))
+        mol.SetProp("SMILES", smiles)
         writer.write(mol)
         writer.close()
 

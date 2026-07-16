@@ -22,7 +22,7 @@ The two parts are released under separate licenses; see [`NOTICE.txt`](./NOTICE.
 
 **paOPT**
 
-- `sample_with_opt.py` – Generates molecules while optimizing them toward chosen properties (e.g. ADMET endpoints). 
+- `sample_with_opt.py` – Generates molecules while optimizing them toward chosen properties (e.g. ADMET endpoints).
 
 ### Configs
 
@@ -43,8 +43,14 @@ pip install torch-geometric==2.7.0
 pip install torch-scatter==2.1.2 torch-sparse==0.6.18 torch-cluster==1.6.3 torch-spline-conv==1.2.2 -f https://data.pyg.org/whl/torch-2.5.1+cu124.html
 conda install -c conda-forge rdkit openbabel tensorboard pyyaml easydict python-lmdb
 pip install meeko==0.1.dev3 pdb2pqr tqdm vina cvxpy admet-ai
-pip install git+https://github.com/Valdes-Tresanco-MS/AutoDockTools_py3  
+pip install git+https://github.com/Valdes-Tresanco-MS/AutoDockTools_py3
 ```
+
+---
+
+## Containerized Usage
+
+There is Docker/Podman container support for CPU/GPU sampling and optional post-processing. See [`docker/README.md`](docker/README.md) for build, run, and development instructions.
 
 ---
 

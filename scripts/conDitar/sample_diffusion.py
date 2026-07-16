@@ -15,6 +15,7 @@
 # =============================================================================
 
 import pdb
+import os
 import torch
 import torch.nn.functional as F
 from tqdm.auto import tqdm
@@ -28,6 +29,7 @@ import numpy as np
 from models.molopt_score_model import ScorePosNet3D, log_sample_categorical, index_to_log_onehot
 from utils import atom_num
 from utils import reconstruct
+from utils.device import resolve_device
 from datasets.mol_data import FOLLOW_BATCH
 from rdkit import Chem, DataStructs
     
@@ -42,9 +44,11 @@ def unbatch_v_traj(ligand_v_traj, n_data, ligand_cum_atoms):
     return all_step_v
 
 
-def sample_diffusion_ligand(model, data, num_samples, batch_size=16, device='cuda:0',
+def sample_diffusion_ligand(model, data, num_samples, batch_size=16, device=None,
                             num_steps=None, pos_only=False, center_pos_mode='none', sample_func=None,
                             sample_num_atoms='prior', sample_num_atoms_average=True):
+    # Preserve existing CUDA behavior when available, while allowing CPU-only sampling.
+    device = resolve_device(device)
     all_pred_pos, all_pred_v = [], []
     all_pred_pos_traj, all_pred_v_traj = [], []
     all_pred_pos_cond_traj, all_pred_v_cond_traj = [], []

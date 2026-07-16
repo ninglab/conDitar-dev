@@ -1,0 +1,35 @@
+# =============================================================================
+# Container runtime sampling config.
+# Checkpoints are copied into /opt/conditar/checkpoints by apptainer/conditar.def.
+# =============================================================================
+
+data:
+  hydrogen: False
+  transform: False
+
+pocket:
+  embedding_dim: 32
+  hidden_size: 128
+  output_size: 128
+  point_dim: 3
+  pocket_layer_num: 3
+  layer_num: 3
+  num_k: 16
+  num_k_residue: 8
+  loss_type_weight: 0.5
+  noise: 1.
+  noise_type: uniform
+  residue_center: mean
+
+model:
+  checkpoint_pocket: /opt/conditar/checkpoints/PocketAE.pt
+  checkpoint: /opt/conditar/checkpoints/Diff.pt
+
+sample:
+  seed: 2026
+  num_steps: 1000
+  center_pos_mode: none
+  sample_num_atoms: pocket
+
+# scripts.conDitar.sample currently reads this key from the top level.
+sample_num_atoms: pocket

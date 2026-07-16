@@ -1,0 +1,82 @@
+Bootstrap: docker
+From: nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
+
+%files
+    apptainer/environment.yml /opt/conditar/environment.yml
+    configs /opt/conditar/app/configs
+    datasets /opt/conditar/app/datasets
+    models /opt/conditar/app/models
+    scripts /opt/conditar/app/scripts
+    utils /opt/conditar/app/utils
+    README.md /opt/conditar/app/README.md
+    NOTICE.txt /opt/conditar/app/NOTICE.txt
+    /fs/ess/PCON0041/gruoxi/SBDDcode/checkpoints/Diff.pt /opt/conditar/checkpoints/Diff.pt
+    /fs/ess/PCON0041/gruoxi/SBDDcode/checkpoints/PocketAE.pt /opt/conditar/checkpoints/PocketAE.pt
+
+%post
+    set -eu
+
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        curl \
+        git \
+        libgl1 \
+        libglib2.0-0 \
+        libxrender1 \
+        libxext6 \
+        build-essential
+    rm -rf /var/lib/apt/lists/*
+
+    curl -L https://micro.mamba.pm/api/micromamba/linux-64/latest -o /tmp/micromamba.tar.bz2
+    mkdir -p /opt/micromamba/bin /tmp/micromamba
+    tar -xjf /tmp/micromamba.tar.bz2 -C /tmp/micromamba
+    cp /tmp/micromamba/bin/micromamba /opt/micromamba/bin/micromamba
+    rm -rf /tmp/micromamba /tmp/micromamba.tar.bz2
+
+    export MAMBA_ROOT_PREFIX=/opt/micromamba
+    /opt/micromamba/bin/micromamba create -y -n conDitar-dev -f /opt/conditar/environment.yml
+
+    /opt/micromamba/bin/micromamba run -n conDitar-dev \
+        pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124
+    /opt/micromamba/bin/micromamba run -n conDitar-dev \
+        pip install torch-geometric==2.7.0
+    /opt/micromamba/bin/micromamba run -n conDitar-dev \
+        pip install torch-scatter==2.1.2 torch-sparse==0.6.18 torch-cluster==1.6.3 torch-spline-conv==1.2.2 \
+        -f https://data.pyg.org/whl/torch-2.5.1+cu124.html
+    /opt/micromamba/bin/micromamba run -n conDitar-dev \
+        pip install meeko==0.1.dev3 pdb2pqr tqdm vina cvxpy
+    /opt/micromamba/bin/micromamba run -n conDitar-dev \
+        pip install admet-ai --no-deps
+    /opt/micromamba/bin/micromamba run -n conDitar-dev \
+        pip install git+https://github.com/Valdes-Tresanco-MS/AutoDockTools_py3
+
+    /opt/micromamba/bin/micromamba clean -a -y
+
+    install -m 0755 /opt/conditar/app/scripts/container/conditar-sample /usr/local/bin/conditar-sample
+
+%environment
+    export MAMBA_ROOT_PREFIX=/opt/micromamba
+    export PATH=/opt/micromamba/envs/conDitar-dev/bin:/opt/micromamba/bin:/usr/local/bin:$PATH
+    export PYTHONPATH=/opt/conditar/app
+    export CONDITAR_CONFIG=/opt/conditar/app/configs/sample_container.yml
+
+%runscript
+    exec conditar-sample "$@"
+
+%test
+    conda_python=/opt/micromamba/envs/conDitar-dev/bin/python
+    "$conda_python" - <<'PY'
+import torch
+import torch_geometric
+from rdkit import Chem
+print("torch", torch.__version__, "cuda", torch.version.cuda)
+print("torch_geometric", torch_geometric.__version__)
+assert Chem.MolFromSmiles("CCO") is not None
+PY
+
+%labels
+    Author conDitar-dev
+    Description conDitar-dev Apptainer image with conda environment and trained checkpoints
