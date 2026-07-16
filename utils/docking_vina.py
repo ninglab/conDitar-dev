@@ -433,8 +433,8 @@ def calculate_qvina2_score(
         # center box at ligand's center of mass
         cx, cy, cz = mol.GetConformer().GetPositions().mean(0)
 
-        # Resolve QuickVina2 from an explicit argument, env var, or PATH so this works outside one filesystem.
-        qvina_bin = qvina_bin or os.environ.get("CONDITAR_QVINA_BIN") or shutil.which("qvina2.1") or shutil.which("qvina")
+        # Prefer portable QVina configuration, with the existing lab path kept as a final fallback.
+        qvina_bin = qvina_bin or os.environ.get("CONDITAR_QVINA_BIN") or shutil.which("qvina2.1") or shutil.which("qvina") or "/fs/ess/PCON0041/gruoxi/qvina/bin/qvina2.1"
         qvina_bin = shutil.which(qvina_bin) or qvina_bin
         if not qvina_bin or not os.path.exists(qvina_bin):
             raise FileNotFoundError(
