@@ -1,0 +1,9 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.venv/
+node_modules/
+job_data/
+conDitar-dev-*.zip
+.conditar-cpu.env
+.conditar-slurm.env
