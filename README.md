@@ -48,6 +48,12 @@ pip install git+https://github.com/Valdes-Tresanco-MS/AutoDockTools_py3
 
 ---
 
+## Containerized Usage
+
+There is Docker/Podman container support for CPU/GPU sampling and optional post-processing. See [`docker/README.md`](docker/README.md) for build, run, and development instructions.
+
+---
+
 ## Data
 
 We train our model on CrossDocked2020 v1.1 (https://bits.csb.pitt.edu/files/crossdock2020/). If you want to use your own dataset, you need to prepare paired `.pdb` (protein) and `.sdf` (ligand) data. Point the data paths in `configs/train_diffusion.yml` to your data, and it will be preprocessed automatically before training starts.
@@ -157,9 +163,3 @@ Main arguments:
 ### Generation Results
 
 [https://drive.google.com/drive/folders/158A-cQKIF-x_-ewrf7jPGdFew005I3W0?usp=drive_link](https://drive.google.com/drive/folders/158A-cQKIF-x_-ewrf7jPGdFew005I3W0?usp=drive_link)
-
----
-
-## Containerized Usage
-
-This branch adds Docker/Podman container support for CPU/GPU sampling and optional Vina/QVina post-processing. See [`docker/README.md`](docker/README.md) for build, run, archive, and development instructions. The container uses the `conditar-sample` launcher for Docker and Podman runs.
