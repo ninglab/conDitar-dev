@@ -1,12 +1,62 @@
-# conDitar-dev Docker Container
+# conDitar-dev Container Runtime
 
-This image is the supported runtime for local Docker and OSC Podman. It keeps the same launcher behavior:
+This folder defines the Docker/Podman image used to run conDitar sampling with the same dependencies, checkpoints, and launcher across container runtimes.
 
-- `CONDITAR_DEVICE=cpu` or `--device cpu` for local CPU.
-- `CONDITAR_DEVICE=cuda:0` or `--device cuda:0` plus Docker `--gpus all` for NVIDIA GPU.
-- `CONDITAR_DEVICE=auto` uses CUDA when visible and falls back to CPU.
+The container supports:
 
-The image uses CUDA-enabled PyTorch wheels so one image can run on GPU or CPU. On Apple Silicon Macs, build/run as `linux/amd64`; Docker Desktop will use emulation, so it is compatible but slow.
+- CPU sampling with Docker or Podman.
+- NVIDIA GPU sampling with Docker `--gpus all` or Podman GPU devices.
+- Optional Vina/QVina post-processing after generation.
+- A single `conditar-sample` launcher for Docker and Podman runs.
+
+The image uses CUDA-enabled PyTorch wheels, so the same image can run on CPU or GPU. You do not need a GPU to build the image or run CPU sampling. On Apple Silicon Macs, build and run the `linux/amd64` image; Docker Desktop will use emulation, which is compatible but slower.
+
+---
+
+## Quick Start
+
+Build the container from the repository root:
+
+```bash
+docker/build-image.sh --checkpoint-dir /path/to/checkpoints
+```
+
+The checkpoint directory must contain:
+
+```text
+Diff.pt
+PocketAE.pt
+```
+
+Run a small CPU sampling job:
+
+```bash
+INPUT_DIR=/path/to/input-data docker/run-examples.sh cpu-pocket
+```
+
+Use the example runner for other common modes:
+
+```bash
+INPUT_DIR=/path/to/input-data docker/run-examples.sh cpu-ligand
+INPUT_DIR=/path/to/input-data docker/run-examples.sh gpu
+INPUT_DIR=/path/to/input-data docker/run-examples.sh vina
+INPUT_DIR=/path/to/input-data docker/run-examples.sh podman-cpu
+```
+
+The examples write results to `./results` by default. Set `OUTPUT_DIR=/path/to/results` to use a different folder.
+
+---
+
+### Scripts
+
+- `Dockerfile` – Builds the runtime image with conDitar dependencies, checkpoints, and the container launcher.
+- `build-image.sh` – Builds the image with Docker or Buildah and stages required checkpoints before the build.
+- `build-export-image.sh` – Builds the image and saves it as a `.tar.gz` archive.
+- `run-examples.sh` – Runs common Docker/Podman examples for CPU, GPU, Vina/QVina, and development bind mounts.
+- `run-build-export-background.sh` – Runs the build/export workflow in the background.
+- `qvina/` – Optional QuickVina2 staging location.
+
+---
 
 ## Build
 
@@ -16,13 +66,7 @@ From the repository root:
 docker/build-image.sh
 ```
 
-On OSC, use Buildah explicitly. This matches OSC's Docker/Podman build guidance and avoids Docker Desktop assumptions:
-
-```bash
-docker/build-image.sh --engine buildah
-```
-
-The helper stages the trained checkpoints into `docker/checkpoints/` before building. By default it expects:
+By default, the build script expects `Diff.pt` and `PocketAE.pt` in the checkpoint directory set by `CONDITAR_CHECKPOINT_DIR`.
 
 ```text
 /path/to/checkpoints/Diff.pt
@@ -35,230 +79,154 @@ If the checkpoints are somewhere else:
 docker/build-image.sh --checkpoint-dir /path/to/checkpoints
 ```
 
-The helper also stages QuickVina2 into the image when available. By default it checks:
-
-```text
-/path/to/qvina2.1
-```
-
-If the QuickVina2 binary is somewhere else:
+The build script also stages QuickVina2 when available. Point it to the executable with `--qvina-bin` or `CONDITAR_QVINA_BIN`.
 
 ```bash
-docker/build-image.sh --qvina-bin /path/to/qvina2.1
+docker/build-image.sh \
+  --checkpoint-dir /path/to/checkpoints \
+  --qvina-bin /path/to/qvina2.1
 ```
 
-Inside the image, QVina is exposed as:
+Main build arguments:
 
-```text
-CONDITAR_QVINA_BIN=/opt/conditar/qvina/qvina2.1
-```
+- `--tag` – image tag to build. Default: `localhost/conditar-dev:container-dev`.
+- `--platform` – target platform. Default: `linux/amd64`.
+- `--checkpoint-dir` – folder containing `Diff.pt` and `PocketAE.pt`.
+- `--qvina-bin` – optional QuickVina2 executable to include in the image.
+- `--engine` – container build engine: `auto`, `docker`, or `buildah`.
 
-Override the tag or platform:
+Use Buildah explicitly when Docker is not the desired build engine:
 
 ```bash
-docker/build-image.sh --tag localhost/conditar-dev:latest --platform linux/amd64
+docker/build-image.sh --engine buildah
 ```
 
-## Copy the OSC Image to a Local Machine
+---
 
-If the image has already been built on OSC, copy the archive instead of
-rebuilding it locally. Run `rsync` from your local terminal (replace the
-placeholders with your OSC username and login host):
+## Run Examples
+
+The runnable examples live in [`run-examples.sh`](run-examples.sh). Set `INPUT_DIR` to the host folder containing your target files, then choose a command:
+
+```bash
+INPUT_DIR=/path/to/input-data docker/run-examples.sh cpu-pocket
+```
+
+Available commands:
+
+- `cpu-pocket` – Docker CPU run with a prepared pocket PDB.
+- `cpu-ligand` – Docker CPU run with a protein PDB and reference ligand SDF.
+- `gpu` – Docker NVIDIA GPU run with a prepared pocket PDB.
+- `vina` – Docker CPU run with Vina/QVina post-processing enabled.
+- `podman-cpu` – Podman CPU run with a prepared pocket PDB.
+- `podman-gpu` – Podman GPU run with a prepared pocket PDB.
+- `dev` – Docker CPU run with the live checkout bind-mounted read-only.
+
+Default example inputs:
+
+- `POCKET_PDB=xxxx/xxxx_pocket.pdb`
+- `PROTEIN_PDB=4aua/4aua_protein.pdb`
+- `LIGAND_SDF=4aua/4aua_ligand.sdf`
+
+Override those paths when your files have different names:
+
+```bash
+INPUT_DIR=/path/to/input-data \
+POCKET_PDB=my_target/pocket.pdb \
+OUTPUT_DIR=/path/to/results \
+docker/run-examples.sh cpu-pocket
+```
+
+Use `NUM_SAMPLES`, `BATCH_SIZE`, `VINA_MODE`, `VINA_EXHAUSTIVENESS`, and `VINA_CPU` to adjust the examples. Run `docker/run-examples.sh --help` for the full list.
+
+---
+
+## Launcher Arguments
+
+The image entrypoint is `conditar-sample`.
+
+Main arguments:
+
+- `--pdb` / `--pocket` – protein PDB or prepared pocket PDB.
+- `--sdf` / `--ligand` – optional reference ligand SDF.
+- `--out` – output directory inside the container. Mount this path to keep results.
+- `--config` – sampling config. Default: `/opt/conditar/app/configs/sample_container.yml`.
+- `--device` – PyTorch device: `cpu`, `cuda:0`, or `auto`.
+- `--num-samples` – number of molecules to generate.
+- `--batch-size` – batch size used during sampling.
+- `--pocket-radius` – pocket radius passed through to `scripts.conDitar.sample`.
+
+Any unrecognized launcher options are passed through to `scripts.conDitar.sample`.
+
+Show the full launcher help:
+
+```bash
+docker run --rm localhost/conditar-dev:container-dev --help
+```
+
+---
+
+## Vina and QVina
+
+Add `--vina-score` to run docking/property post-processing after sampling. The example runner includes this in:
+
+```bash
+INPUT_DIR=/path/to/input-data docker/run-examples.sh vina
+```
+
+Supported modes:
+
+- `none` – skip docking post-processing.
+- `vina_score` – run Vina score-only post-processing.
+- `vina_dock` – run Vina docking/minimization.
+- `qvina` – run QuickVina2.
+- `all` – run Vina score/minimize plus QuickVina2.
+
+Post-processing annotates generated SDF files with properties such as `VINA_SCORE_ONLY`, `VINA_MINIMIZE`, `QVINA`, `QED`, and `SA`. QVina is CPU-based; GPU jobs use CUDA for generation and CPU threads for docking post-processing.
+
+---
+
+## Export an Image Archive
+
+Build and save a compressed image archive when you need to move the image to another machine:
+
+```bash
+CONDITAR_IMAGE_OUTPUT_DIR=/path/to/container_images docker/build-export-image.sh
+```
+
+The archive can be loaded later with Docker or Podman:
+
+```bash
+docker load -i /path/to/localhost_conditar-dev_container-dev-YYYYMMDD-HHMMSS.tar.gz
+podman load -i /path/to/localhost_conditar-dev_container-dev-YYYYMMDD-HHMMSS.tar.gz
+```
+
+If the image has already been built on another machine, copy the archive instead of rebuilding it:
 
 ```bash
 mkdir -p "$HOME/containers"
 rsync -avP \
-  <OSC_USER>@<OSC_LOGIN_HOST>:/fs/ess/PCON0041/mey200/container_images/localhost_conditar-dev_container-dev-20260710-105038.tar.gz \
+  <USER>@<HOST>:/path/to/container_images/localhost_conditar-dev_container-dev-YYYYMMDD-HHMMSS.tar.gz \
   "$HOME/containers/"
 ```
 
-The archive is large, so `-P` allows an interrupted transfer to resume. On the
-local machine, install and start [Docker Desktop](https://www.docker.com/products/docker-desktop/),
-then load and verify the image:
+The archive is large, so `-P` allows an interrupted transfer to resume.
 
-```bash
-docker load -i "$HOME/containers/localhost_conditar-dev_container-dev-20260710-105038.tar.gz"
-docker image inspect localhost/conditar-dev:container-dev >/dev/null \
-  && echo "conDitar container loaded"
-docker run --rm localhost/conditar-dev:container-dev --help
-```
-
-Docker Desktop must be running before `docker load` or `docker run`. On Apple
-Silicon, use the `linux/amd64` image; Docker Desktop will use emulation and may
-run more slowly. The OSC archive is for local CPU testing; local NVIDIA GPU
-runs additionally require Docker Desktop's GPU support and a compatible NVIDIA
-runtime.
-
-## Run On Local CPU
-
-Set `INPUT_DIR` to the folder containing `xxxx/xxxx_pocket.pdb` and/or `4aua/4aua_protein.pdb`. On OSC, use:
-
-```bash
-INPUT_DIR=/path/to/input-data
-```
-
-On a local machine, use the path where you copied or cloned the examples.
-
-```bash
-mkdir -p results
-
-docker run --rm \
-  -e CONDITAR_DEVICE=cpu \
-  -v "${INPUT_DIR:?set INPUT_DIR to your examples/input directory}":/inputs:ro \
-  -v "$PWD/results":/results \
-  localhost/conditar-dev:container-dev \
-  --pdb /inputs/xxxx/xxxx_pocket.pdb \
-  --out /results \
-  --device cpu \
-  --num-samples 1 \
-  --batch-size 1
-```
-
-With a reference ligand:
-
-```bash
-docker run --rm \
-  -e CONDITAR_DEVICE=cpu \
-  -v "${INPUT_DIR:?set INPUT_DIR to your examples/input directory}":/inputs:ro \
-  -v "$PWD/results":/results \
-  localhost/conditar-dev:container-dev \
-  --pdb /inputs/4aua/4aua_protein.pdb \
-  --sdf /inputs/4aua/4aua_ligand.sdf \
-  --out /results \
-  --device cpu \
-  --num-samples 1 \
-  --batch-size 1
-```
-
-Add docking/chemistry post-processing by passing `--vina-score`. This runs
-after sampling inside the same container and annotates each generated SDF with
-properties such as `VINA_SCORE_ONLY`, `VINA_MINIMIZE`, `QVINA`, `QED`, and `SA`.
-Supported modes are `none`, `vina_score`, `vina_dock`, `qvina`, and `all`:
-
-```bash
-docker run --rm \
-  -e CONDITAR_DEVICE=cpu \
-  -v "${INPUT_DIR:?set INPUT_DIR to your examples/input directory}":/inputs:ro \
-  -v "$PWD/results":/results \
-  localhost/conditar-dev:container-dev \
-  --pdb /inputs/4aua/4aua_protein.pdb \
-  --sdf /inputs/4aua/4aua_ligand.sdf \
-  --out /results \
-  --device cpu \
-  --num-samples 1 \
-  --batch-size 1 \
-  --vina-score \
-  --vina-mode vina_score \
-  --vina-exhaustiveness 8 \
-  --vina-cpu 4
-```
-
-Use `--vina-mode qvina` for QuickVina2 only, or `--vina-mode all` for Vina
-score/minimize plus QVina. QVina is CPU-based; GPU jobs use CUDA for generation
-and CPU threads for docking post-processing.
-
-## Run On OSC With Podman
-
-OSC's Docker-compatible runtime is Podman/Buildah. For Slurm jobs, use a shared archive so compute nodes can load the image:
-
-```bash
-IMAGE_TAR=/fs/ess/PCON0041/mey200/container_images/localhost_conditar-dev_container-dev-20260710-105038.tar.gz
-podman load -i "$IMAGE_TAR"
-podman image exists localhost/conditar-dev:container-dev
-```
-
-The GUI's `start_gpu_gui.sh` and generated Slurm scripts perform this load when
-the image is missing. Do not let Podman fall through to a registry pull for the
-`localhost/...` image.
-
-CPU:
-
-```bash
-mkdir -p results
-INPUT_DIR=/path/to/input-data
-
-podman run --rm \
-  -e CONDITAR_DEVICE=cpu \
-  -v "$INPUT_DIR":/inputs:ro \
-  -v "$PWD/results":/results \
-  localhost/conditar-dev:container-dev \
-  --pdb /inputs/xxxx/xxxx_pocket.pdb \
-  --out /results \
-  --device cpu \
-  --num-samples 1 \
-  --batch-size 1
-```
-
-GPU:
-
-```bash
-salloc -n 1 -G 1
-mkdir -p results
-INPUT_DIR=/path/to/input-data
-
-podman run --rm --device nvidia.com/gpu=all \
-  -e CONDITAR_DEVICE=cuda:0 \
-  -v "$INPUT_DIR":/inputs:ro \
-  -v "$PWD/results":/results \
-  localhost/conditar-dev:container-dev \
-  --pdb /inputs/xxxx/xxxx_pocket.pdb \
-  --out /results \
-  --device cuda:0 \
-  --num-samples 1 \
-  --batch-size 1
-```
-
-The same `--vina-score` flags can be added to Podman GPU runs. Generation uses
-CUDA when requested; Vina post-processing uses CPU threads inside the same
-container/job.
-
-## Run On NVIDIA GPU
-
-```bash
-mkdir -p results
-
-docker run --rm --gpus all \
-  -e CONDITAR_DEVICE=cuda:0 \
-  -v "${INPUT_DIR:?set INPUT_DIR to your examples/input directory}":/inputs:ro \
-  -v "$PWD/results":/results \
-  localhost/conditar-dev:container-dev \
-  --pdb /inputs/xxxx/xxxx_pocket.pdb \
-  --out /results \
-  --device cuda:0 \
-  --num-samples 10
-```
+---
 
 ## Quick Checks
 
-```bash
-docker run --rm localhost/conditar-dev:container-dev --help
+Verify core Python dependencies:
 
+```bash
 docker run --rm --entrypoint python localhost/conditar-dev:container-dev - <<'PY'
 import torch
 import torch_geometric
 from rdkit import Chem
+
 print("torch", torch.__version__, "cuda_available", torch.cuda.is_available())
 print("torch_geometric", torch_geometric.__version__)
 assert Chem.MolFromSmiles("CCO") is not None
 PY
 ```
 
-## Development
-
-For quick code/config iteration without rebuilding, bind the live checkout over the image app directory:
-
-```bash
-docker run --rm \
-  -e CONDITAR_DEVICE=cpu \
-  -v "$PWD":/opt/conditar/app:ro \
-  -v "${INPUT_DIR:?set INPUT_DIR to your examples/input directory}":/inputs:ro \
-  -v "$PWD/results":/results \
-  localhost/conditar-dev:container-dev \
-  --pdb /inputs/xxxx/xxxx_pocket.pdb \
-  --out /results \
-  --device cpu \
-  --num-samples 1 \
-  --batch-size 1
-```
-
-Rebuild when dependencies, checkpoints, or anything installed into the image changes.
+Rebuild the image when dependencies, checkpoints, or anything installed into the image changes.
