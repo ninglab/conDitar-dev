@@ -656,6 +656,7 @@ class UniTransformerO2TwoUpdateGeneralWeightedPoolDynamicUpdateGVPLateBiLevelSep
         indices = torch.stack((atom1, atom2), dim=1).to(atom1.device)
         
         edge_types = torch.zeros(atom1.shape[0], dtype=torch.long).to(atom1.device)
+        # Match bond lookup tensors to edge_dist's device to avoid CPU/GPU mismatch at runtime.
         bond_tensors = [bond_tensor.to(edge_dist.device) for bond_tensor in self.bond_tensors]
         single_bond_indices = torch.where((edge_dist - bond_tensors[0][indices[:, 0], indices[:, 1]]) < self.bond_margins[0])[0]
         double_bond_indices = torch.where((edge_dist - bond_tensors[1][indices[:, 0], indices[:, 1]]) < self.bond_margins[1])[0]

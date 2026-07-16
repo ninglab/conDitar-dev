@@ -300,6 +300,7 @@ def parse_rdkit_mol(rdmol, center=None):
     # Remove Hydrogens (if needed)
     rd_num_atoms = rdmol.GetNumAtoms()
 
+    # np.compat.long was removed in newer NumPy; int64 preserves the intended integer dtype.
     feat_mat = np.zeros([rd_num_atoms, len(ATOM_FAMILIES)], dtype=np.int64)
     for feat in factory.GetFeaturesForMol(rdmol):
         feat_mat[feat.GetAtomIds(), ATOM_FAMILIES_ID[feat.GetFamily()]] = 1

@@ -97,6 +97,7 @@ margin1, margin2, margin3 = 10, 5, 3
 allowed_bonds = {'H': 1, 'C': 4, 'N': 3, 'O': 2, 'F': 1, 'P': 5, 'S': 4, 'Cl': 1, 'Br': 1, 'I': 1}
 
 def construct_bond_tensors(atom_type, device=None):
+    # Bond tensors are used by sampling/model code, so place them on the resolved runtime device.
     device = resolve_device(device)
     if atom_type == 'add_aromatic':
         dicts = MAP_INDEX_TO_ATOM_TYPE_AROMATIC
@@ -136,6 +137,7 @@ def construct_bond_tensors(atom_type, device=None):
     return single_bond_tensor, double_bond_tensor, triple_bond_tensor, aromatic_bond_tensor
     
 def construct_bond_tensors(atom_type, device=None):
+    # Keep this duplicate helper consistent with the runtime device resolver.
     device = resolve_device(device)
     if atom_type == 'add_aromatic':
         dicts = MAP_INDEX_TO_ATOM_TYPE_AROMATIC

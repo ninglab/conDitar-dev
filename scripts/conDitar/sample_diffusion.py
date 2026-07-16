@@ -47,6 +47,7 @@ def unbatch_v_traj(ligand_v_traj, n_data, ligand_cum_atoms):
 def sample_diffusion_ligand(model, data, num_samples, batch_size=16, device=None,
                             num_steps=None, pos_only=False, center_pos_mode='none', sample_func=None,
                             sample_num_atoms='prior', sample_num_atoms_average=True):
+    # Preserve existing CUDA behavior when available, while allowing CPU-only sampling.
     device = resolve_device(device)
     all_pred_pos, all_pred_v = [], []
     all_pred_pos_traj, all_pred_v_traj = [], []

@@ -65,6 +65,7 @@ class RawDataset(AbstractRawDataset):
         
         self.model = PocketModel(config = self.config.pocket,
                                 hydrogen = self.config.data.hydrogen)
+        # map_location lets CUDA-trained checkpoints load during CPU-only container runs.
         checkpoint = torch.load(self.ckpt_path, map_location=resolve_device())
         try:
             self.model.load_state_dict(checkpoint["state_dict"])

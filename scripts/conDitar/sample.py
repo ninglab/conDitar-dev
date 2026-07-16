@@ -58,6 +58,7 @@ if __name__ == '__main__':
 
 
     args = parser.parse_args()
+    # Resolve "auto" once and share it with helper code that reads CONDITAR_DEVICE.
     args.device = resolve_device(args.device)
     os.environ['CONDITAR_DEVICE'] = args.device
 
