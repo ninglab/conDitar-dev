@@ -54,6 +54,14 @@ There is Docker/Podman container support for CPU/GPU sampling and optional post-
 
 ---
 
+## Browser GUI
+
+A lightweight browser GUI is available in [`gui/`](gui/) for launching local CPU
+or Slurm GPU generation jobs, tracking job status, viewing generated molecules,
+and exporting results. See [`gui/README.md`](gui/README.md) for setup and usage.
+
+---
+
 ## Data
 
 We train our model on CrossDocked2020 v1.1 (https://bits.csb.pitt.edu/files/crossdock2020/). If you want to use your own dataset, you need to prepare paired `.pdb` (protein) and `.sdf` (ligand) data. Point the data paths in `configs/train_diffusion.yml` to your data, and it will be preprocessed automatically before training starts.

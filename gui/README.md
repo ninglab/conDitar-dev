@@ -2,9 +2,9 @@
 
 A lightweight browser GUI for running conDitar molecular generation jobs.
 
-This folder contains the conDitar browser GUI. It starts a small Python web
-server, stages user-selected PDB/SDF inputs, and then launches conDitar inside
-the container image built from `conDitar-dev`.
+This folder contains the conDitar browser GUI. It stages user-selected PDB/SDF
+inputs, launches conDitar jobs through the container image built from
+`conDitar-dev`, tracks job status, and reads generated SDF outputs.
 
 The generator, container, and GUI are documented separately:
 
