@@ -12,7 +12,9 @@ The generator, container, and GUI are documented separately:
 - [`../docker/README.md`](../docker/README.md) — image build, archive transfer,
   Docker/Podman usage, and container-only runs.
 
-## How the pieces fit together
+![conDitar GUI overview](media/screenshots/gui-overview.png)
+
+## Architecture overview
 
 ```text
 conDitar-dev/gui
