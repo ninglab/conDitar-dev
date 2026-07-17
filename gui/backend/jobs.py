@@ -796,10 +796,7 @@ class LocalJobManager:
             job["status"] = "completed" if exit_code == 0 else "failed"
             job.setdefault("slurm", {})["state"] = "COMPLETED" if exit_code == 0 else "FAILED"
             if exit_code != 0:
-                job["error_message"] = (
-                    f"Slurm container command exited with status {exit_code}. See logs: "
-                    f"{paths.stderr} and {paths.stdout}."
-                )
+                job["error_message"] = self._container_failure_message(paths, exit_code)
             self._write_job(paths, job)
             self._send_email(job, paths)
             return job
@@ -814,6 +811,9 @@ class LocalJobManager:
             job.setdefault("slurm", {})["state"] = state
             if state in SLURM_PENDING_STATES:
                 job["status"] = "queued"
+                reason = self._slurm_pending_reason(job)
+                if reason:
+                    job["status_note"] = f"Slurm is waiting: {reason}"
             elif state in SLURM_RUNNING_STATES:
                 if output_sdfs:
                     self._mark_completed_from_outputs(paths, job, output_sdfs)
@@ -837,7 +837,8 @@ class LocalJobManager:
                 job["finished_at"] = job.get("finished_at") or utc_now()
                 job["exit_code"] = 1
                 job["error_message"] = (
-                    f"Slurm job ended with state {state}. See logs: {paths.stderr} and {paths.stdout}."
+                    f"Slurm job ended with state {state}. Check the scheduler reason and logs: "
+                    f"{paths.stderr} and {paths.stdout}."
                 )
                 self._send_email(job, paths)
             self._write_job(paths, job)
@@ -934,6 +935,42 @@ class LocalJobManager:
             if result.returncode == 0 and result.stdout.strip():
                 return result.stdout.strip().splitlines()[0].split("|")[0].strip().split()[0]
         return None
+
+    def _slurm_pending_reason(self, job: dict) -> str | None:
+        job_id = (job.get("slurm") or {}).get("job_id")
+        if not job_id or not self.squeue_bin:
+            return None
+        result = subprocess.run([self.squeue_bin, "-h", "-j", job_id, "-o", "%R"], text=True, capture_output=True, check=False)
+        reason = result.stdout.strip()
+        if not reason:
+            return None
+        labels = {
+            "MaxGRESPerAccount": "your account has reached its GPU allocation limit; wait for another GPU job to finish or contact the cluster/account administrator",
+            "QOSMaxGRESPerUser": "your user/QOS GPU allocation limit has been reached",
+            "Resources": "GPU resources are currently unavailable",
+            "Priority": "the job is waiting for its scheduler priority",
+        }
+        return labels.get(reason, reason)
+
+    def _container_failure_message(self, paths: JobPaths, exit_code: int) -> str:
+        stderr = paths.stderr.read_text(errors="replace") if paths.stderr.exists() else ""
+        if "Trying to pull localhost/" in stderr or "connection refused" in stderr:
+            return (
+                "Container image was not available on the compute node (exit 125). "
+                "Set CONDITAR_DOCKER_TAR to the shared image archive or run podman load "
+                "before retrying. See logs: "
+                f"{paths.stderr} and {paths.stdout}."
+            )
+        if "Container image archive not found" in stderr:
+            return (
+                "The configured container archive was not found on the compute node. "
+                "Check CONDITAR_DOCKER_TAR and retry. See logs: "
+                f"{paths.stderr} and {paths.stdout}."
+            )
+        return (
+            f"Container command exited with status {exit_code}. Review the container error "
+            f"and logs: {paths.stderr} and {paths.stdout}."
+        )
 
     def _slurm_state_commands(self, slurm_job_id: str) -> list[list[str]]:
         commands = []

@@ -6,6 +6,12 @@ This folder contains the conDitar browser GUI. It starts a small Python web
 server, stages user-selected PDB/SDF inputs, and then launches conDitar inside
 the container image built from `conDitar-dev`.
 
+The generator, container, and GUI are documented separately:
+
+- [`../README.md`](../README.md) — model, sampling, and repository overview.
+- [`../docker/README.md`](../docker/README.md) — image build, archive transfer,
+  Docker/Podman usage, and container-only runs.
+
 ## How the pieces fit together
 
 ```text
@@ -58,10 +64,10 @@ Requirements:
 - Docker Desktop
 - A loaded conDitar image named `localhost/conditar-dev:container-dev`
 
-From the GUI folder:
+From the GUI folder inside your conDitar checkout:
 
 ```bash
-cd gui
+cd /path/to/conDitar-dev/gui
 ```
 
 Load the conDitar image if needed:
@@ -108,7 +114,7 @@ Requirements:
 From the GUI folder on the cluster:
 
 ```bash
-cd gui
+cd /path/to/conDitar-dev/gui
 ```
 
 Start the Slurm GUI:

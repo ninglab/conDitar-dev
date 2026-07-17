@@ -295,7 +295,7 @@ async function submitGenerationJob() {
     const message = failedJobs.length
       ? `${queuedJobs} queued, ${failedJobs.length} failed. ${failedJobs[0].error_message || "See the selected job logs."}`
       : response.jobs.length > 1
-        ? `${response.jobs.length} ${isSlurmGpuTarget(job?.target) ? "parallel GPU tasks" : "CPU jobs queued"}${response.errors.length ? `, ${response.errors.length} skipped` : ""}.`
+        ? `${response.jobs.length} ${isSlurmGpuTarget(job?.target) ? "parallel GPU tasks" : "CPU jobs queued"}${response.errors.length ? `, ${response.errors.length} skipped: ${response.errors[0].error}` : ""}.`
         : "Job queued.";
     updateJobPanel(job, message);
     updateJobDetail(job, message);
@@ -376,14 +376,19 @@ async function pollJob(jobId) {
     const logs = await service.getJobLogs(jobId).catch(() => ({ stdout: "", stderr: "" }));
     const logText = combineLogs(logs);
     state.currentJob = job;
-    state.selectedJob = job;
-    updateJobPanel(job, logText || "Waiting for job output.");
-    updateJobDetail(job, logText || "Waiting for job output.", logs);
+    // Keep polling the running job, but do not steal the user's selected log
+    // view when they are inspecting a different job.
+    const isSelected = !state.selectedJob || state.selectedJob.id === job.id;
+    if (isSelected) {
+      state.selectedJob = job;
+      updateJobPanel(job, logText || "Waiting for job output.");
+      updateJobDetail(job, logText || "Waiting for job output.", logs);
+    }
     renderJobsTable();
     if (job.status === "completed") {
       notifyJobTerminal(job, "completed");
       await refreshJobs(false);
-      await loadCompletedJob(job);
+      if (isSelected) await loadCompletedJob(job);
       return;
     }
     if (CLEANUP_JOB_STATUSES.has(job.status)) {
@@ -409,6 +414,7 @@ async function loadCompletedJob(job) {
     setActiveTab("jobs");
     return;
   }
+  const vinaFailures = candidates.filter((item) => String(item.properties?.VINA_STATUS || "").toLowerCase() === "failed");
   const fallbackExample = state.study?.example || EXAMPLES[state.exampleId] || {};
   const pdbInput = result.inputs?.pdb || null;
   const sdfInput = result.inputs?.sdf || null;
@@ -438,7 +444,9 @@ async function loadCompletedJob(job) {
   $("#hero-status").textContent = "Completed";
   renderStudy();
   setActiveTab("results");
-  showToast(`Job completed with ${candidates.length} result${candidates.length === 1 ? "" : "s"}.`);
+  showToast(vinaFailures.length
+    ? `${candidates.length} result${candidates.length === 1 ? "" : "s"} loaded; ${vinaFailures.length} molecule${vinaFailures.length === 1 ? "" : "s"} had no docking score.`
+    : `Job completed with ${candidates.length} result${candidates.length === 1 ? "" : "s"}.`);
 }
 
 function updateJobPanel(job, logText) {
