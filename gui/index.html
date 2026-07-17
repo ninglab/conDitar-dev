@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="conDitar molecular generation interface">
+  <title>conDitar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="./media/logo/conditar-logo-highres-transparent.png">
+  <link rel="apple-touch-icon" href="./media/logo/conditar-logo-highres-transparent.png">
+  <link rel="stylesheet" href="./src/styles.css?v=20260715-source-branding-1">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="conDitar home">
+        <img class="brand-logo" src="./media/logo/conditar-logo-highres-transparent.png" alt="conDitar">
+      </a>
+      <div class="topbar-meta">
+        <button class="icon-button" id="theme-toggle" aria-label="Toggle contrast">◐</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-text">
+          <p class="eyebrow">conDitar molecular generation</p>
+          <h1>Generate and explore molecules.</h1>
+          <p class="hero-copy">Add a protein structure, choose a few settings, and review generated candidates in 3D.</p>
+        </div>
+        <div class="hero-brand-panel">
+          <img class="hero-mark" src="./media/logo/conditar-logo-highres-transparent.png" alt="" aria-hidden="true">
+          <div class="study-status" aria-label="Loaded study summary">
+            <i></i><strong id="hero-candidate-count">0</strong> candidates ·
+            <span id="hero-input-mode">No input</span> ·
+            <span id="hero-status">Ready</span>
+          </div>
+        </div>
+      </section>
+
+      <nav class="workflow-nav" aria-label="Workflow">
+        <button class="workflow-step active" data-section="setup">Setup</button>
+        <button class="workflow-step" data-section="jobs">Jobs</button>
+        <button class="workflow-step" data-section="results">Results</button>
+        <button class="workflow-step" data-section="export">Export</button>
+        <button class="workflow-step" data-section="help">Help</button>
+      </nav>
+
+      <section id="setup-section" class="workspace-section">
+        <div class="section-heading">
+          <div><p class="eyebrow">Step 1</p><h2>Set up a run</h2></div>
+        </div>
+
+        <div class="batch-mode-banner" id="batch-mode-banner" hidden role="status">
+          <strong id="batch-mode-title">Batch ready</strong>
+          <span id="batch-mode-message">Each selected folder will submit as a separate job.</span>
+        </div>
+
+        <div class="setup-grid">
+          <article class="panel input-panel">
+            <div class="panel-heading"><div><h3>Input structures</h3></div><span class="required-label">PDB required</span></div>
+            <div class="mode-toggle" role="group" aria-label="Conditioning mode">
+              <button class="active" data-mode="reference">Protein + reference ligand</button>
+              <button data-mode="pocket">Pocket only</button>
+            </div>
+            <label class="field-label" for="example-select">Input source</label>
+            <select id="example-select">
+              <option value="custom" selected>Upload your own files</option>
+            </select>
+            <div class="dropzone" id="pdb-dropzone">
+              <input id="pdb-input" type="file" accept=".pdb">
+              <div class="file-icon">PDB</div>
+              <div><strong id="pdb-name">Choose a PDB file</strong><span id="pdb-detail">Required · uploaded with this job</span></div>
+              <button class="text-button" id="refresh-pdb" type="button">Choose / refresh</button>
+            </div>
+            <div class="dropzone" id="sdf-dropzone">
+              <input id="sdf-input" type="file" accept=".sdf">
+              <div class="file-icon accent">SDF</div>
+              <div><strong id="sdf-name">Choose a reference SDF</strong><span id="sdf-detail">Required for protein + ligand mode</span></div>
+              <button class="text-button" id="refresh-sdf" type="button">Choose / refresh</button>
+            </div>
+            <div class="dropzone folder-dropzone" id="folder-dropzone">
+              <input id="folder-input" type="file" webkitdirectory directory multiple>
+              <div class="file-icon">DIR</div>
+              <div><strong id="folder-name">Batch folders</strong><span id="folder-detail">Optional: one PDB and optional SDF per folder</span></div>
+              <button class="text-button" id="clear-batch" type="button">Clear</button>
+            </div>
+            <p class="field-note" id="mode-note">The reference ligand defines the generation center. Pocket radius controls the surrounding protein context.</p>
+          </article>
+
+          <article class="panel parameter-panel">
+            <div class="panel-heading"><div><h3>Run settings</h3></div><button class="text-button" id="reset-params">Reset</button></div>
+            <div id="parameter-fields" class="parameter-fields"></div>
+            <div class="execution-bar">
+              <div>
+                <span class="field-label">Where should this run?</span>
+                <select id="job-target">
+                  <option value="local_cpu">This computer · CPU</option>
+                  <option value="slurm_gpu">Slurm GPU · Podman</option>
+                </select>
+              </div>
+              <div class="runtime-readout"><span>Detected environment</span><strong id="runtime-status">Detecting…</strong><small id="runtime-detail">Choosing a default target for this host.</small></div>
+            </div>
+            <details class="advanced-options">
+              <summary>Advanced run settings <span>Batch, scoring, notifications</span></summary>
+              <div id="advanced-fields" class="parameter-fields advanced-grid"></div>
+              <div class="advanced-controls">
+                <div class="job-controls">
+                  <label class="field-label" for="job-email">Email when finished</label>
+                  <input id="job-email" type="email" placeholder="name@example.edu">
+                  <small id="email-note">Email notifications are currently available for Slurm GPU runs.</small>
+                </div>
+                <div class="postprocess-controls">
+                  <label class="check-control">
+                    <input id="vina-enabled" type="checkbox" checked>
+                    <span>Run Vina scoring after generation</span>
+                  </label>
+                  <div class="vina-options" id="vina-options" hidden>
+                    <div>
+                      <label class="field-label" for="vina-mode">Scoring mode</label>
+                      <select id="vina-mode">
+                        <option value="vina_score">Vina score + minimize</option>
+                        <option value="vina_dock">Vina dock</option>
+                        <option value="qvina">QVina</option>
+                        <option value="all">All available</option>
+                        <option value="none">Chemistry only</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="field-label" for="vina-exhaustiveness">Exhaustiveness</label>
+                      <input id="vina-exhaustiveness" type="number" value="8" min="1">
+                    </div>
+                    <div>
+                      <label class="field-label" for="vina-cpu">CPU threads</label>
+                      <input id="vina-cpu" type="number" value="4" min="1">
+                    </div>
+                  </div>
+                </div>
+                <div class="slurm-controls" id="slurm-controls" hidden>
+                  <div>
+                    <label class="field-label" for="slurm-time">Time limit</label>
+                    <input id="slurm-time" type="text" value="04:00:00">
+                  </div>
+                  <div>
+                    <label class="field-label" for="slurm-mem">Memory</label>
+                    <input id="slurm-mem" type="text" value="32G">
+                  </div>
+                  <div>
+                    <label class="field-label" for="slurm-cpus">CPUs</label>
+                    <input id="slurm-cpus" type="number" value="4" min="1">
+                  </div>
+                  <div>
+                    <label class="field-label" for="slurm-gpus">GPUs</label>
+                    <input id="slurm-gpus" type="number" value="1" min="1">
+                  </div>
+                  <div>
+                    <label class="field-label" for="slurm-partition">Partition</label>
+                    <input id="slurm-partition" type="text" placeholder="optional">
+                  </div>
+                  <div>
+                    <label class="field-label" for="slurm-account">Account</label>
+                    <input id="slurm-account" type="text" placeholder="required" required>
+                  </div>
+                </div>
+              </div>
+            </details>
+          </article>
+        </div>
+        <div class="job-panel" id="job-panel">
+          <div class="job-status-grid">
+            <div><span>Status</span><strong id="job-status">Idle</strong></div>
+            <div><span>Job ID</span><strong id="job-id">None</strong></div>
+            <div><span>Runtime target</span><strong id="job-runtime-label">Local CPU</strong></div>
+          </div>
+          <pre id="job-log" class="job-log">No job submitted.</pre>
+        </div>
+        <div class="run-bar">
+          <div>
+            <strong>Ready to generate</strong>
+            <span class="run-summary">Uploaded inputs are staged per job; outputs and logs are stored in that job's folder.</span>
+            <span class="run-summary run-estimate" id="run-estimate">Estimate updates after you choose inputs.</span>
+            <code id="command-preview" hidden></code>
+          </div>
+          <button class="primary-button" id="preview-run"><span>Generate molecules</span><b>→</b></button>
+        </div>
+      </section>
+
+      <section id="jobs-section" class="workspace-section" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">Step 2</p><h2>Job queue</h2></div>
+          <p>Track queued, running, and completed jobs. Completed jobs can be loaded into the Results tab.</p>
+        </div>
+
+        <div class="jobs-grid">
+          <article class="panel jobs-table-panel">
+            <div class="panel-heading list-heading">
+              <div><h3>Runs</h3></div>
+              <div class="table-actions">
+                <select id="job-filter" class="compact-select">
+                  <option value="all">All jobs</option>
+                  <option value="active">Active</option>
+                  <option value="completed">Completed</option>
+                  <option value="failed">Failed</option>
+                  <option value="canceled">Canceled</option>
+                </select>
+                <button class="secondary-button compact-action" id="refresh-jobs">Refresh</button>
+              </div>
+            </div>
+            <div class="job-table-wrap">
+              <table>
+                <thead><tr><th>Job</th><th>Status</th><th>Input</th><th>Created</th><th>Action</th></tr></thead>
+                <tbody id="jobs-table"></tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="panel job-detail-panel">
+            <div class="panel-heading"><div><h3>Selected job</h3></div><span id="job-detail-status" class="status-badge">None</span></div>
+            <div class="job-status-grid">
+              <div><span>Job ID</span><strong id="job-detail-id">None</strong></div>
+              <div><span>Runtime target</span><strong id="job-detail-target">Local CPU</strong></div>
+              <div><span>Started</span><strong id="job-detail-started">-</strong></div>
+            </div>
+            <div id="job-detail-alert" class="job-detail-alert" hidden></div>
+            <pre id="job-detail-log" class="job-log">Select a job to view logs.</pre>
+          </article>
+        </div>
+      </section>
+
+      <section id="results-section" class="workspace-section" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">Step 3</p><h2>Explore results</h2></div>
+          <p id="results-source">Submit a job or load a completed job from Jobs to review generated outputs.</p>
+        </div>
+
+        <div class="metric-strip" id="metric-strip"></div>
+
+        <details class="analytics-details">
+          <summary><span><strong>Dataset analysis</strong><small>Property distributions and run-level quality checks</small></span><b>Show analysis</b></summary>
+          <div class="analytics-grid">
+            <article class="panel chart-panel">
+              <div class="panel-heading"><div><h3>Property distribution</h3></div>
+                <select id="histogram-metric" class="compact-select">
+                  <option value="molecularWeight">Molecular weight</option>
+                  <option value="heavyAtoms">Heavy atoms</option>
+                  <option value="heteroAtoms">Hetero atoms</option>
+                  <option value="rings">Ring estimate</option>
+                  <option value="vinaScore">Docking score</option>
+                </select>
+              </div>
+              <label class="threshold-control" for="histogram-threshold">Threshold <output id="histogram-threshold-value">—</output></label>
+              <input id="histogram-threshold" type="range" min="0" max="100" step="0.1" disabled>
+              <canvas id="histogram" height="140" aria-label="Property distribution chart"></canvas>
+              <p class="chart-note" id="histogram-tooltip">Hover a bar to see its range and count.</p>
+            </article>
+            <article class="panel chart-panel">
+              <div class="panel-heading"><div><h3>Quality summary</h3></div><span class="chart-key">Current results</span></div>
+              <div class="quality-summary" id="quality-summary" aria-label="Generated molecule quality summary"></div>
+            </article>
+          </div>
+        </details>
+
+        <div class="explorer-grid">
+          <article class="panel result-list-panel">
+            <div class="panel-heading list-heading">
+              <div><h3>Candidates</h3></div>
+              <span id="visible-count">0 shown</span>
+            </div>
+            <div class="list-tools">
+              <label class="search-box"><span>⌕</span><input id="result-search" type="search" placeholder="Search candidate ID"></label>
+              <select id="result-sort" class="compact-select">
+                <option value="index">Generation order</option>
+                <option value="vina_dock">Vina dock</option>
+                <option value="vina_score_only">Vina score</option>
+                <option value="vina_minimize">Vina minimize</option>
+                <option value="qvina">QVina</option>
+                <option value="molecularWeight">Molecular weight</option>
+                <option value="heavyAtoms">Heavy atoms</option>
+                <option value="rings">Ring estimate</option>
+              </select>
+            </div>
+            <div class="result-table-wrap">
+              <table>
+                <thead><tr><th>Export</th><th>Candidate</th><th>SMILES</th><th>Vina score</th><th>Vina minimize</th><th>Vina dock / QVina</th></tr></thead>
+                <tbody id="result-table"></tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="panel viewer-panel">
+            <div class="viewer-header">
+              <div><p class="eyebrow">Selected candidate</p><h3 id="selected-name">Candidate 000</h3></div>
+              <div class="viewer-actions">
+                <div class="view-toggle"><button class="active" data-view="3d">3D</button><button data-view="2d">2D</button></div>
+                <button class="icon-button" id="download-selected" aria-label="Download selected SDF">↓</button>
+              </div>
+            </div>
+            <div class="viewer-stage">
+              <div id="viewer-3d"></div>
+              <div id="viewer-2d" hidden></div>
+              <div class="viewer-loading" id="viewer-loading"><span></span>Loading structure</div>
+            </div>
+            <div class="viewer-footer">
+              <div class="selected-metrics" id="selected-metrics"></div>
+              <details class="viewer-options">
+                <summary>View options</summary>
+                <div class="viewer-controls">
+                  <label>Protein
+                    <select id="protein-style"><option value="cartoon">Cartoon</option><option value="line">Lines</option><option value="surface">Surface</option><option value="hidden">Hidden</option></select>
+                  </label>
+                  <label>Ligand
+                    <select id="ligand-style"><option value="stick">Sticks</option><option value="sphere">Spheres</option><option value="line">Lines</option></select>
+                  </label>
+                </div>
+              </details>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="export-section" class="workspace-section export-section" hidden>
+        <div class="download-bar">
+          <div><h2>Download results</h2><p>Exports use the current search and threshold filters. Vina scores are standard Vina energy scores; lower is better. QVina is shown separately.</p></div>
+          <div class="download-actions">
+            <button class="primary-button" id="download-all">Download all <b>↓</b></button>
+            <button class="secondary-button" id="download-csv">Metrics CSV</button>
+            <button class="secondary-button" id="download-config">Run JSON</button>
+          </div>
+        </div>
+        <label class="export-scope"><input id="export-filtered" type="checkbox" checked> Export the selected subset <span id="export-scope-count"></span></label>
+        <div class="export-selection-actions"><button class="secondary-button compact-action" id="select-all-candidates" type="button">Select all</button><button class="secondary-button compact-action" id="clear-candidate-selection" type="button">Clear selection</button><small>Changing the threshold updates the selected set; you can adjust it from the table.</small></div>
+      </section>
+
+      <section id="help-section" class="workspace-section help-section" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">Reference</p><h2>How to use conDitar</h2></div>
+          <p>Quick guidance for setting up runs, interpreting jobs, and exporting useful subsets of your results.</p>
+        </div>
+        <div class="help-grid">
+          <article class="panel help-card"><h3>Set up a run</h3><p>Choose where to run, then choose <strong>Protein + reference ligand</strong> or <strong>Pocket only</strong>. Upload a PDB; reference mode also needs an SDF. Use the folder picker for batches.</p></article>
+          <article class="panel help-card"><h3>Batch behavior</h3><p>Each folder is processed as its own job; inputs are never mixed. CPU batches run one at a time. Slurm GPU batches can run in parallel when scheduler capacity is available.</p></article>
+          <article class="panel help-card"><h3>Job states</h3><p><strong>Queued/PENDING</strong> means the queue has not started the job. <strong>Running</strong> means container execution has begun. Failed and canceled jobs include a reason and log paths.</p></article>
+          <article class="panel help-card"><h3>Vina and QVina</h3><p>The primary Vina score is a standard energy score: lower is better. Vina minimize and dock are separate outputs. QVina is reported separately when selected.</p></article>
+          <article class="panel help-card"><h3>Filter and export</h3><p>Change a distribution threshold to select candidates automatically, then adjust individual checkboxes in the table. Export the selected subset or uncheck the scope option to export all candidates.</p></article>
+          <article class="panel help-card"><h3>Where files go</h3><p>Uploaded inputs, outputs, logs, and metadata are stored under <code>job_data/jobs/&lt;job-id&gt;/</code>. Browser downloads go to Downloads; completed-job ZIPs are also saved in the job output folder.</p></article>
+          <article class="panel help-card"><h3>Troubleshooting</h3><p>For a failure, open the selected job and read the reported log paths. Useful files include <code>job.json</code>, <code>logs/stdout.log</code>, <code>logs/stderr.log</code>, Slurm submission logs, and <code>outputs/</code>.</p></article>
+          <article class="panel help-card"><h3>Pending GPU jobs</h3><p>A valid Slurm job can remain pending while waiting for account, partition, or GPU capacity. This is a scheduler state, not evidence that the molecule input or code failed.</p></article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script async src="https://cdn.jsdelivr.net/npm/3dmol@2.4.2/build/3Dmol-min.js"></script>
+  <script async src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script defer src="https://unpkg.com/@rdkit/rdkit/dist/RDKit_minimal.js"></script>
+  <script type="module" src="./src/app.js?v=20260715-source-branding-1"></script>
+</body>
+</html>

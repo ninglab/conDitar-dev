@@ -1,6 +1,6 @@
 # =============================================================================
 # Container runtime sampling config.
-# Checkpoints are copied into /opt/conditar/checkpoints by apptainer/conditar.def.
+# Checkpoints are copied into /opt/conditar/checkpoints by docker/Dockerfile.
 # =============================================================================
 
 data:
