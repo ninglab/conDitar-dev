@@ -1,5 +1,5 @@
-import { EXAMPLES } from "./config.js?v=20260723-launch-3";
-import { candidateId, parseSdf } from "./sdf.js?v=20260723-launch-3";
+import { EXAMPLES } from "./config.js?v=20260723-layout-5";
+import { candidateId, parseSdf } from "./sdf.js?v=20260723-layout-5";
 
 export class ExampleDataService {
   async loadStudy(exampleId, onProgress = () => {}) {

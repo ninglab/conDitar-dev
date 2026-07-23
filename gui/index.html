@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="./media/logo/conditar-logo-highres-transparent.png">
   <link rel="apple-touch-icon" href="./media/logo/conditar-logo-highres-transparent.png">
-  <link rel="stylesheet" href="./src/styles.css?v=20260723-launch-3">
+  <link rel="stylesheet" href="./src/styles.css?v=20260723-layout-5">
 </head>
 <body>
   <div class="app-shell">
@@ -19,6 +19,21 @@
         <img class="brand-logo" src="./media/logo/conditar-logo-highres-transparent.png" alt="conDitar">
       </a>
       <div class="topbar-meta">
+        <details class="readiness-menu" id="setup-health-panel">
+          <summary>
+            <span>
+              <strong>Launch readiness</strong>
+              <small id="setup-health-status">Checking setup</small>
+            </span>
+          </summary>
+          <div class="readiness-body">
+            <div class="readiness-copy">
+              <p id="setup-health-detail">Looking for Python, Docker/Podman, the conDitar image, Slurm, and optional tools.</p>
+              <button class="secondary-button compact-action" id="refresh-health" type="button">Check again</button>
+            </div>
+            <div class="setup-health-list" id="setup-health-list"></div>
+          </div>
+        </details>
         <button class="icon-button" id="theme-toggle" aria-label="Toggle contrast">◐</button>
       </div>
     </header>
@@ -57,18 +72,6 @@
           <strong id="batch-mode-title">Batch ready</strong>
           <span id="batch-mode-message">Each selected folder will submit as a separate job.</span>
         </div>
-
-        <article class="panel setup-health-panel" id="setup-health-panel">
-          <div class="panel-heading list-heading">
-            <div><h3>Launch checklist</h3></div>
-            <button class="secondary-button compact-action" id="refresh-health" type="button">Check again</button>
-          </div>
-          <div class="setup-health-summary">
-            <strong id="setup-health-status">Checking setup</strong>
-            <span id="setup-health-detail">Looking for Python, Docker/Podman, the conDitar image, Slurm, and optional tools.</span>
-          </div>
-          <div class="setup-health-list" id="setup-health-list"></div>
-        </article>
 
         <div class="setup-grid">
           <article class="panel input-panel">
@@ -119,81 +122,82 @@
               <summary>Advanced run settings <span>Batch, evaluation, notifications</span></summary>
               <div id="advanced-fields" class="parameter-fields advanced-grid"></div>
               <div class="advanced-controls">
-                <div class="postprocess-controls vina-run-settings" id="vina-options">
-                  <div class="evaluation-heading">
+                <details class="advanced-subsection" open>
+                  <summary><strong>Molecule evaluation</strong><span id="evaluation-tool-status">Loading tools</span></summary>
+                  <div class="postprocess-controls evaluation-controls">
+                    <div class="evaluation-heading">
+                      <div>
+                        <strong>Built-in metrics</strong>
+                        <small>Select generated-molecule properties to compute with each run.</small>
+                      </div>
+                    </div>
+                    <div class="evaluation-group no-border">
+                      <div class="evaluation-check-grid">
+                        <label class="check-control" title="Scores the generated pose, then reports the affinity after local energy minimization of that pose."><input class="builtin-evaluation-toggle" type="checkbox" value="vina_score" checked><span>Vina score + minimize</span></label>
+                        <label class="check-control" title="Redocks the ligand, allowing the pose to change substantially from the generated pose."><input class="builtin-evaluation-toggle" type="checkbox" value="vina_dock"><span>Vina redock</span></label>
+                        <label class="check-control" title="Runs QVina scoring/docking when available in the container."><input class="builtin-evaluation-toggle" type="checkbox" value="qvina"><span>QVina</span></label>
+                        <label class="check-control" title="Quantitative Estimate of Drug-likeness. Higher values are generally better."><input class="builtin-evaluation-toggle" type="checkbox" value="qed" checked><span>QED</span></label>
+                        <label class="check-control" title="Synthetic accessibility estimate. Lower values are generally easier to synthesize."><input class="builtin-evaluation-toggle" type="checkbox" value="sa" checked><span>SA</span></label>
+                        <label class="check-control" title="Calculated partition coefficient estimate. Often used to monitor hydrophobicity."><input class="builtin-evaluation-toggle" type="checkbox" value="logp" checked><span>LogP</span></label>
+                        <label class="check-control" title="Lipinski rule-of-five count. Higher counts indicate more rules satisfied."><input class="builtin-evaluation-toggle" type="checkbox" value="lipinski" checked><span>Lipinski</span></label>
+                      </div>
+                    </div>
+                    <div class="evaluation-group">
+                      <span>Tool Chest</span>
+                      <div id="evaluation-tool-list" class="evaluation-tool-list"></div>
+                    </div>
+                  </div>
+                </details>
+                <details class="advanced-subsection">
+                  <summary><strong>Vina run settings</strong><span id="vina-mode-summary">Vina score</span></summary>
+                  <div class="postprocess-controls vina-run-settings" id="vina-options">
+                    <small class="subsection-note">Used when Vina score, minimize, redock, or QVina is selected.</small>
+                    <div class="vina-options">
+                      <div>
+                        <label class="field-label" for="vina-exhaustiveness">Exhaustiveness <span class="info-tip" tabindex="0" aria-label="Vina search depth for minimization or redocking. Higher values can be slower but may search poses more thoroughly." data-tip="Vina search depth for minimization or redocking. Higher values can be slower but may search poses more thoroughly.">?</span></label>
+                        <input id="vina-exhaustiveness" type="number" value="8" min="1">
+                      </div>
+                      <div>
+                        <label class="field-label" for="vina-cpu">Vina CPU threads <span class="info-tip" tabindex="0" aria-label="Threads used by Vina postprocessing. This can speed up minimization or redocking, but it does not make conDitar generation itself use more CPU threads." data-tip="Threads used by Vina postprocessing. This can speed up minimization or redocking, but it does not make conDitar generation itself use more CPU threads.">?</span></label>
+                        <input id="vina-cpu" type="number" value="4" min="1">
+                      </div>
+                    </div>
+                  </div>
+                </details>
+                <details class="advanced-subsection">
+                  <summary><strong>Notifications and Slurm</strong><span>Cluster options</span></summary>
+                  <div class="job-controls">
+                    <label class="field-label" for="job-email">Email when finished</label>
+                    <input id="job-email" type="email" placeholder="name@example.edu">
+                    <small id="email-note">Email notifications are currently available for Slurm GPU runs.</small>
+                  </div>
+                  <div class="slurm-controls" id="slurm-controls" hidden>
                     <div>
-                      <strong>Vina run settings</strong>
-                      <small>Used when a Vina or chemistry metric is selected below.</small>
-                    </div>
-                    <span id="vina-mode-summary">Vina score</span>
-                  </div>
-                  <div class="vina-options">
-                    <div>
-                      <label class="field-label" for="vina-exhaustiveness">Exhaustiveness <span class="info-tip" tabindex="0" aria-label="Vina search depth for minimization or redocking. Higher values can be slower but may search poses more thoroughly." data-tip="Vina search depth for minimization or redocking. Higher values can be slower but may search poses more thoroughly.">?</span></label>
-                      <input id="vina-exhaustiveness" type="number" value="8" min="1">
+                      <label class="field-label" for="slurm-time">Time limit <span class="info-tip" tabindex="0" aria-label="Requested wall time for the Slurm job, using HH:MM:SS." data-tip="Requested wall time for the Slurm job, using HH:MM:SS.">?</span></label>
+                      <input id="slurm-time" type="text" value="04:00:00">
                     </div>
                     <div>
-                      <label class="field-label" for="vina-cpu">Vina CPU threads <span class="info-tip" tabindex="0" aria-label="Threads used by Vina postprocessing. This can speed up minimization or redocking, but it does not make conDitar generation itself use more CPU threads." data-tip="Threads used by Vina postprocessing. This can speed up minimization or redocking, but it does not make conDitar generation itself use more CPU threads.">?</span></label>
-                      <input id="vina-cpu" type="number" value="4" min="1">
+                      <label class="field-label" for="slurm-mem">Memory <span class="info-tip" tabindex="0" aria-label="Requested memory for the Slurm job, such as 32G. Match your cluster partition limits." data-tip="Requested memory for the Slurm job, such as 32G. Match your cluster partition limits.">?</span></label>
+                      <input id="slurm-mem" type="text" value="32G">
                     </div>
-                  </div>
-                </div>
-                <div class="postprocess-controls evaluation-controls">
-                  <div class="evaluation-heading">
                     <div>
-                      <strong>Molecule evaluation</strong>
-                      <small>Select generated-molecule properties and GUI-side Tool Chest evaluators to compute.</small>
+                      <label class="field-label" for="slurm-cpus">CPUs <span class="info-tip" tabindex="0" aria-label="CPU cores requested from Slurm for the container job and postprocessing support." data-tip="CPU cores requested from Slurm for the container job and postprocessing support.">?</span></label>
+                      <input id="slurm-cpus" type="number" value="4" min="1">
                     </div>
-                    <span id="evaluation-tool-status">Loading tools</span>
-                  </div>
-                  <div class="evaluation-group">
-                    <span>Built-in metrics</span>
-                    <div class="evaluation-check-grid">
-                      <label class="check-control" title="Scores the generated pose, then reports the affinity after local energy minimization of that pose."><input class="builtin-evaluation-toggle" type="checkbox" value="vina_score" checked><span>Vina score + minimize</span></label>
-                      <label class="check-control" title="Redocks the ligand, allowing the pose to change substantially from the generated pose."><input class="builtin-evaluation-toggle" type="checkbox" value="vina_dock"><span>Vina redock</span></label>
-                      <label class="check-control" title="Runs QVina scoring/docking when available in the container."><input class="builtin-evaluation-toggle" type="checkbox" value="qvina"><span>QVina</span></label>
-                      <label class="check-control" title="Quantitative Estimate of Drug-likeness. Higher values are generally better."><input class="builtin-evaluation-toggle" type="checkbox" value="qed" checked><span>QED</span></label>
-                      <label class="check-control" title="Synthetic accessibility estimate. Lower values are generally easier to synthesize."><input class="builtin-evaluation-toggle" type="checkbox" value="sa" checked><span>SA</span></label>
-                      <label class="check-control" title="Calculated partition coefficient estimate. Often used to monitor hydrophobicity."><input class="builtin-evaluation-toggle" type="checkbox" value="logp" checked><span>LogP</span></label>
-                      <label class="check-control" title="Lipinski rule-of-five count. Higher counts indicate more rules satisfied."><input class="builtin-evaluation-toggle" type="checkbox" value="lipinski" checked><span>Lipinski</span></label>
+                    <div>
+                      <label class="field-label" for="slurm-gpus">GPUs <span class="info-tip" tabindex="0" aria-label="Number of GPUs requested from Slurm. conDitar usually expects one GPU per job." data-tip="Number of GPUs requested from Slurm. conDitar usually expects one GPU per job.">?</span></label>
+                      <input id="slurm-gpus" type="number" value="1" min="1">
+                    </div>
+                    <div>
+                      <label class="field-label" for="slurm-partition">Partition <span class="info-tip" tabindex="0" aria-label="Optional Slurm partition or queue name. Leave blank to use the configured cluster default." data-tip="Optional Slurm partition or queue name. Leave blank to use the configured cluster default.">?</span></label>
+                      <input id="slurm-partition" type="text" placeholder="optional">
+                    </div>
+                    <div>
+                      <label class="field-label" for="slurm-account">Account <span class="info-tip" tabindex="0" aria-label="Slurm allocation or account to charge for GPU jobs. Required on clusters that enforce accounts." data-tip="Slurm allocation or account to charge for GPU jobs. Required on clusters that enforce accounts.">?</span></label>
+                      <input id="slurm-account" type="text" placeholder="required" required>
                     </div>
                   </div>
-                  <div class="evaluation-group">
-                    <span>Tool Chest</span>
-                    <div id="evaluation-tool-list" class="evaluation-tool-list"></div>
-                  </div>
-                </div>
-                <div class="job-controls">
-                  <label class="field-label" for="job-email">Email when finished</label>
-                  <input id="job-email" type="email" placeholder="name@example.edu">
-                  <small id="email-note">Email notifications are currently available for Slurm GPU runs.</small>
-                </div>
-                <div class="slurm-controls" id="slurm-controls" hidden>
-                  <div>
-                    <label class="field-label" for="slurm-time">Time limit <span class="info-tip" tabindex="0" aria-label="Requested wall time for the Slurm job, using HH:MM:SS." data-tip="Requested wall time for the Slurm job, using HH:MM:SS.">?</span></label>
-                    <input id="slurm-time" type="text" value="04:00:00">
-                  </div>
-                  <div>
-                    <label class="field-label" for="slurm-mem">Memory <span class="info-tip" tabindex="0" aria-label="Requested memory for the Slurm job, such as 32G. Match your cluster partition limits." data-tip="Requested memory for the Slurm job, such as 32G. Match your cluster partition limits.">?</span></label>
-                    <input id="slurm-mem" type="text" value="32G">
-                  </div>
-                  <div>
-                    <label class="field-label" for="slurm-cpus">CPUs <span class="info-tip" tabindex="0" aria-label="CPU cores requested from Slurm for the container job and postprocessing support." data-tip="CPU cores requested from Slurm for the container job and postprocessing support.">?</span></label>
-                    <input id="slurm-cpus" type="number" value="4" min="1">
-                  </div>
-                  <div>
-                    <label class="field-label" for="slurm-gpus">GPUs <span class="info-tip" tabindex="0" aria-label="Number of GPUs requested from Slurm. conDitar usually expects one GPU per job." data-tip="Number of GPUs requested from Slurm. conDitar usually expects one GPU per job.">?</span></label>
-                    <input id="slurm-gpus" type="number" value="1" min="1">
-                  </div>
-                  <div>
-                    <label class="field-label" for="slurm-partition">Partition <span class="info-tip" tabindex="0" aria-label="Optional Slurm partition or queue name. Leave blank to use the configured cluster default." data-tip="Optional Slurm partition or queue name. Leave blank to use the configured cluster default.">?</span></label>
-                    <input id="slurm-partition" type="text" placeholder="optional">
-                  </div>
-                  <div>
-                    <label class="field-label" for="slurm-account">Account <span class="info-tip" tabindex="0" aria-label="Slurm allocation or account to charge for GPU jobs. Required on clusters that enforce accounts." data-tip="Slurm allocation or account to charge for GPU jobs. Required on clusters that enforce accounts.">?</span></label>
-                    <input id="slurm-account" type="text" placeholder="required" required>
-                  </div>
-                </div>
+                </details>
               </div>
             </details>
           </article>
@@ -267,14 +271,14 @@
 
         <div class="metric-strip" id="metric-strip"></div>
 
-        <article class="panel tool-chest-panel">
-          <div class="panel-heading list-heading">
-            <div><h3>Tool Chest</h3></div>
-            <span id="tool-chest-status">No job loaded</span>
-          </div>
+        <details class="tool-chest-panel tool-chest-details">
+          <summary>
+            <span><strong>Tool Chest</strong><small>Run additional molecule evaluators on completed jobs</small></span>
+            <b id="tool-chest-status">No job loaded</b>
+          </summary>
           <p class="tool-chest-copy">Run plug-and-play molecule evaluators on completed jobs, then filter and export using the new SDF properties.</p>
           <div id="tool-list" class="tool-list"></div>
-        </article>
+        </details>
 
         <details class="analytics-details">
           <summary><span><strong>Dataset analysis</strong><small>Property distributions and run-level quality checks</small></span><b>Show analysis</b></summary>
@@ -303,7 +307,7 @@
 
         <details class="export-filter-details">
           <summary>
-            <span><strong>Export requirements</strong><small>Metric thresholds for the selected export pool</small></span>
+            <span><strong>Filter for export</strong><small>Metric thresholds for the selected export pool</small></span>
             <div class="export-filter-summary-actions"><b id="export-filter-status">No filters</b><button class="text-button" id="reset-export-filters" type="button">Reset</button></div>
           </summary>
           <div id="export-filter-list" class="export-filter-list"></div>
@@ -407,6 +411,6 @@
   <script async src="https://cdn.jsdelivr.net/npm/3dmol@2.4.2/build/3Dmol-min.js"></script>
   <script async src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script defer src="https://unpkg.com/@rdkit/rdkit/dist/RDKit_minimal.js"></script>
-  <script type="module" src="./src/app.js?v=20260723-launch-3"></script>
+  <script type="module" src="./src/app.js?v=20260723-layout-5"></script>
 </body>
 </html>

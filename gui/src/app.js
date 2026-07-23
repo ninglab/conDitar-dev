@@ -1,8 +1,8 @@
-import { ADVANCED_PARAMETERS, EXAMPLES, PARAMETERS } from "./config.js?v=20260723-launch-3";
-import { drawCategoryChart, drawHistogram } from "./charts.js?v=20260723-launch-3";
-import { ExampleDataService } from "./data-service.js?v=20260723-launch-3";
-import { vinaWasRun } from "./sdf.js?v=20260723-launch-3";
-import { render2D, render3D } from "./viewers.js?v=20260723-launch-3";
+import { ADVANCED_PARAMETERS, EXAMPLES, PARAMETERS } from "./config.js?v=20260723-layout-5";
+import { drawCategoryChart, drawHistogram } from "./charts.js?v=20260723-layout-5";
+import { ExampleDataService } from "./data-service.js?v=20260723-layout-5";
+import { vinaWasRun } from "./sdf.js?v=20260723-layout-5";
+import { render2D, render3D } from "./viewers.js?v=20260723-layout-5";
 
 const service = new ExampleDataService();
 const ACTIVE_JOB_STATUSES = new Set(["queued", "running"]);
@@ -106,6 +106,10 @@ function bindEvents() {
   $("#job-target").addEventListener("change", () => {
     state.targetTouched = true;
     updateJobTargetControls();
+    if (state.runtimeHealth) {
+      renderRuntimeStatus(state.runtimeHealth);
+      renderSetupHealth(state.runtimeHealth);
+    }
   });
   $("#refresh-pdb").addEventListener("click", () => chooseFileAgain("#pdb-input"));
   $("#refresh-sdf").addEventListener("click", () => chooseFileAgain("#sdf-input"));
@@ -193,11 +197,7 @@ async function refreshRuntime(showMessage = false) {
       $("#job-target").value = slurmAvailable ? SLURM_GPU_TARGET : "local_cpu";
       updateJobTargetControls();
     }
-    const slurm = health.slurm?.sbatch ? "sbatch available" : "sbatch not found";
-    const gpu = health.gpu_available ? "GPU device visible" : "no local GPU visible";
-    const imageReady = Boolean(health.container_image?.exists);
-    status.textContent = slurmAvailable ? "Slurm GPU available" : imageReady ? "Local CPU available" : "Setup needs attention";
-    detail.textContent = `${gpu}; ${slurm}; ${imageReady ? "container image found" : "container image missing"}. Selected target: ${slurmAvailable ? "Slurm GPU" : "Local CPU"}.`;
+    renderRuntimeStatus(health);
     renderSetupHealth(health);
     if (showMessage) showToast("Setup checklist refreshed.");
   } catch (error) {
@@ -208,26 +208,46 @@ async function refreshRuntime(showMessage = false) {
   }
 }
 
+function renderRuntimeStatus(health) {
+  const status = $("#runtime-status");
+  const detail = $("#runtime-detail");
+  if (!status || !detail || !health) return;
+  const slurmAvailable = Boolean(health.slurm?.sbatch);
+  const slurm = slurmAvailable ? "sbatch available" : "sbatch not found";
+  const imageReady = Boolean(health.container_image?.exists);
+  const isSlurmGpu = isSlurmGpuTarget(resolvedTarget());
+  status.textContent = isSlurmGpu ? (slurmAvailable ? "Slurm GPU available" : "Slurm setup needs attention") : imageReady ? "Local CPU available" : "Local setup needs attention";
+  detail.textContent = isSlurmGpu
+    ? `${slurm}; ${imageReady ? "container image found" : "container image not confirmed"}. Selected target: Slurm GPU.`
+    : `${imageReady ? "container image found" : "container image missing"}. Selected target: Local CPU.`;
+}
+
 function renderSetupHealth(health, error = null) {
+  const panel = $("#setup-health-panel");
   const status = $("#setup-health-status");
   const detail = $("#setup-health-detail");
   const list = $("#setup-health-list");
   if (!status || !detail || !list) return;
   if (error) {
+    panel?.setAttribute("data-status", "fail");
+    if (panel) panel.open = true;
     status.textContent = "Backend unavailable";
     detail.textContent = error.message;
     list.innerHTML = "";
     return;
   }
-  const checks = health?.checks || [];
+  const checks = targetAwareHealthChecks(health);
   const failing = checks.filter((check) => check.status === "fail").length;
   const warnings = checks.filter((check) => check.status === "warn").length;
+  panel?.setAttribute("data-status", failing ? "fail" : warnings ? "warn" : "ready");
+  if (panel && failing) panel.open = true;
+  const isSlurmGpu = isSlurmGpuTarget(resolvedTarget());
   status.textContent = failing ? "Setup needs attention" : warnings ? "Ready with optional warnings" : "Ready to run";
   detail.textContent = failing
-    ? "Fix the missing required items before submitting a local job."
+    ? `Fix the missing required items before submitting a ${isSlurmGpu ? "Slurm GPU" : "local CPU"} job.`
     : warnings
-      ? "Local runs can work; optional GPU or Tool Chest items may need setup."
-      : "Python, container runtime, conDitar image, and optional tools look ready.";
+      ? `${isSlurmGpu ? "Slurm GPU" : "Local CPU"} runs can work; optional Tool Chest items may need setup.`
+      : `${isSlurmGpu ? "Slurm GPU" : "Local CPU"} launch requirements look ready.`;
   list.innerHTML = checks.map((check) => `
     <div class="setup-health-item" data-status="${escapeHtml(check.status)}">
       <i aria-hidden="true"></i>
@@ -238,6 +258,24 @@ function renderSetupHealth(health, error = null) {
       </div>
     </div>
   `).join("");
+}
+
+function targetAwareHealthChecks(health) {
+  const target = resolvedTarget();
+  const isSlurmGpu = isSlurmGpuTarget(target);
+  const checks = (health?.checks || []).map((check) => ({ ...check }));
+  if (!isSlurmGpu) {
+    return checks.filter((check) => check.id !== "slurm");
+  }
+  return checks.map((check) => {
+    if (check.id !== "slurm" || check.status === "ok") return check;
+    return {
+      ...check,
+      status: "fail",
+      detail: "sbatch not found for the selected Slurm GPU target",
+      action: "Start the GUI from a cluster session with Slurm loaded, or switch to This computer · CPU.",
+    };
+  });
 }
 
 function resolvedTarget() {
@@ -835,16 +873,9 @@ function renderSummary() {
     ["Loaded structures", candidates.length, "SDF"],
     ["Mean molecular weight", formatMetric(average("molecularWeight"), 1), "Da"],
     ["Mean heavy atoms", formatMetric(average("heavyAtoms"), 1), "atoms"],
-    ["Ring-containing", candidates.filter((item) => item.rings > 0).length, "molecules"],
   ];
   const vinaScoreValues = candidates.map((item) => propertyMetric(item, "VINA_SCORE_ONLY")).filter(Number.isFinite);
-  const vinaDockValues = candidates.map((item) => propertyMetric(item, "VINA_DOCK")).filter(Number.isFinite);
-  if (vinaScoreValues.length) {
-    cards.push(["Mean Vina score", formatMetric(mean(vinaScoreValues)), "kcal/mol"]);
-  }
-  if (vinaDockValues.length) {
-    cards.push(["Mean redocked Vina", formatMetric(mean(vinaDockValues)), "kcal/mol"]);
-  }
+  if (vinaScoreValues.length) cards[2] = ["Mean Vina score", formatMetric(mean(vinaScoreValues)), "kcal/mol"];
   $("#metric-strip").innerHTML = cards.map(([label, value, unit]) => `<div class="metric-card"><span>${label}</span><strong>${value}</strong><small>${unit}</small></div>`).join("");
   renderQualitySummary(candidates);
 }
@@ -853,32 +884,24 @@ function renderQualitySummary(candidates) {
   const vinaScoreValues = candidates.map((item) => propertyMetric(item, "VINA_SCORE_ONLY")).filter(Number.isFinite);
   const vinaMinimizeValues = candidates.map((item) => propertyMetric(item, "VINA_MINIMIZE")).filter(Number.isFinite);
   const vinaDockValues = candidates.map((item) => propertyMetric(item, "VINA_DOCK")).filter(Number.isFinite);
-  const qvinaValues = candidates.map((item) => propertyMetric(item, "QVINA")).filter(Number.isFinite);
   const qedValues = propertyValues(candidates, "QED");
   const saValues = propertyValues(candidates, "SA");
   const logpValues = propertyValues(candidates, "LOGP");
   const lipinskiValues = propertyValues(candidates, "LIPINSKI");
-  const uniqueFormulas = new Set(candidates.map((item) => item.formula).filter(Boolean)).size;
   const scored = candidates.filter((item) => propertyMetric(item, "VINA_SCORE_ONLY") !== null).length;
   const minimized = candidates.filter((item) => propertyMetric(item, "VINA_MINIMIZE") !== null).length;
   const docked = candidates.filter((item) => propertyMetric(item, "VINA_DOCK") !== null).length;
   const lipinskiPasses = lipinskiValues.filter((value) => value >= 4).length;
   const rows = [
-    ["Vina score-only", scored ? `${scored}/${candidates.length}` : "Not run"],
-    ["Best Vina score", bestValueLabel(vinaScoreValues)],
-    ["Vina minimized", minimized ? `${minimized}/${candidates.length}` : "Not run"],
-    ["Best minimized", bestValueLabel(vinaMinimizeValues)],
-    ["Vina redocked", docked ? `${docked}/${candidates.length}` : "Not run"],
-    ["Best redocked", bestValueLabel(vinaDockValues)],
-    ["Best QVina", bestValueLabel(qvinaValues)],
-    ["QED range", rangeLabel(qedValues)],
-    ["SA range", rangeLabel(saValues)],
-    ["LogP range", rangeLabel(logpValues)],
+    ["Vina scored", scored || minimized || docked ? `${scored} score · ${minimized} min · ${docked} redock` : "Not run"],
+    ["Best affinity", bestValueLabel(vinaDockValues.length ? vinaDockValues : vinaMinimizeValues.length ? vinaMinimizeValues : vinaScoreValues)],
+    ["QED", rangeLabel(qedValues)],
+    ["SA", rangeLabel(saValues)],
+    ["LogP", rangeLabel(logpValues)],
     ["Lipinski >=4", lipinskiValues.length ? `${lipinskiPasses}/${lipinskiValues.length}` : "n/a"],
-    ...toolQualityRows(candidates),
-    ["Unique formulas", candidates.length ? `${uniqueFormulas}/${candidates.length}` : "n/a"],
-    ["Ring-containing", candidates.length ? `${candidates.filter((item) => item.rings > 0).length}/${candidates.length}` : "n/a"],
-  ];
+    ...toolQualityRows(candidates).slice(0, 2),
+  ].filter(([, value]) => value !== "n/a" && value !== "Not run");
+  if (!rows.length) rows.push(["Summary", candidates.length ? `${candidates.length} candidates loaded` : "No results loaded"]);
   $("#quality-summary").innerHTML = rows.map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join("");
 }
 
