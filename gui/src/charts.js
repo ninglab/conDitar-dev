@@ -42,6 +42,34 @@ export function drawHistogram(canvas, values, label, threshold = null) {
   canvas._histogram = { min, max, counts, pad, plotW, bins };
 }
 
+export function drawCategoryChart(canvas, entries, label) {
+  const { ctx, width, height } = prepare(canvas);
+  ctx.clearRect(0, 0, width, height);
+  canvas._histogram = null;
+  if (!entries.length) return;
+  const pad = { left: 40, right: 12, top: 16, bottom: 40 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const maxCount = Math.max(...entries.map((entry) => entry.count));
+  drawAxes(ctx, width, height, pad, "0", String(maxCount), label);
+  entries.forEach((entry, index) => {
+    const gap = 8;
+    const slot = plotW / entries.length;
+    const barW = Math.max(10, slot - gap);
+    const barH = (entry.count / maxCount) * plotH;
+    const x = pad.left + index * slot + gap / 2;
+    ctx.fillStyle = COLORS.accentSoft;
+    ctx.fillRect(x, pad.top + plotH - barH, barW, barH);
+    ctx.fillStyle = COLORS.muted;
+    ctx.font = "10px DM Mono, monospace";
+    ctx.textAlign = "center";
+    const name = String(entry.label).slice(0, 12);
+    ctx.fillText(name, x + barW / 2, height - 20);
+    ctx.fillText(String(entry.count), x + barW / 2, pad.top + plotH - barH - 5);
+  });
+  ctx.textAlign = "left";
+}
+
 function prepare(canvas) {
   const ratio = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();

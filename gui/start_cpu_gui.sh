@@ -27,6 +27,13 @@ for required in python3 "$DOCKER_COMMAND"; do
   fi
 done
 
+PYTHON_COMMAND=(python3)
+if [[ -n "${CONDITAR_GUI_PYTHON:-}" ]]; then
+  PYTHON_COMMAND=("$CONDITAR_GUI_PYTHON")
+elif command -v conda >/dev/null 2>&1 && conda run -n conditar-gui-dev python -c "import sys" >/dev/null 2>&1; then
+  PYTHON_COMMAND=(conda run --no-capture-output -n conditar-gui-dev python)
+fi
+
 if ! "$DOCKER_COMMAND" image inspect "$CONDITAR_DOCKER_IMAGE" >/dev/null 2>&1; then
   echo "ERROR: conDitar container image not found: $CONDITAR_DOCKER_IMAGE" >&2
   echo "Load or build the image first, or set CONDITAR_DOCKER_IMAGE to an available image." >&2
@@ -37,7 +44,8 @@ echo "Starting conDitar GUI"
 echo "Container image: $CONDITAR_DOCKER_IMAGE"
 echo "Source mount: ${CONDITAR_SOURCE_MOUNT:-none}"
 echo "Runtime: $CONDITAR_RUNTIME"
+echo "GUI Python: ${PYTHON_COMMAND[*]}"
 echo "CPU mode: select This computer · CPU in the Setup panel"
 echo
 
-python3 serve.py --host 127.0.0.1 --port "${PORT:-4173}" --open
+"${PYTHON_COMMAND[@]}" serve.py --host 127.0.0.1 --port "${PORT:-4173}" --open

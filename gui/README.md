@@ -247,6 +247,42 @@ The GUI can accept folders of paired inputs.
 The browser never passes arbitrary client filesystem paths into the container.
 Uploaded files are copied into each job's private `inputs/` directory first.
 
+## Tool Chest
+
+Completed jobs can be annotated with optional molecule-evaluation tools from the
+Results tab. Tool runs write logs and summaries under
+`job_data/jobs/<job-id>/tool_runs/` and can add new SDF properties that appear
+in the table, selected-molecule details, and CSV export.
+
+Tool Chest evaluators can also be selected before submission from
+**Advanced run settings** under **Evaluate molecules**. Those evaluators run on
+the GUI backend after conDitar generation completes, without rebuilding the
+conDitar sampling image.
+
+The first included tool is the Lilly Medchem Rules filter. Its dependency is
+listed in `gui/environment.yml`, keeping this post-processing layer separate
+from the conDitar sampling image. Users can add or update GUI tools without
+rebuilding the model container.
+
+The basic GUI only needs Python because structure viewing runs in the browser
+with JavaScript libraries. Tool Chest evaluators run on the GUI backend, so
+tools with command-line dependencies need those dependencies in the GUI
+environment. To enable the included tools, run once:
+
+```bash
+./setup_tool_chest.sh
+```
+
+After that, `./start_cpu_gui.sh` and `./start_slurm_gui.sh` automatically use
+the `conditar-gui-dev` environment when it is available. Without that
+environment, the GUI still starts with system Python and marks missing optional
+tools as unavailable.
+
+The GUI still starts if optional tools are missing; unavailable tools are shown
+disabled until their command-line dependency is available in the GUI
+environment. See [`tools/README.md`](tools/README.md) for the plug-in contract
+for adding custom evaluators.
+
 ## Vina post-processing
 
 Vina scoring is optional and lives in the run setup controls. When enabled,

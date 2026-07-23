@@ -84,7 +84,7 @@
             <div class="dropzone folder-dropzone" id="folder-dropzone">
               <input id="folder-input" type="file" webkitdirectory directory multiple>
               <div class="file-icon">DIR</div>
-              <div><strong id="folder-name">Batch folders</strong><span id="folder-detail">Optional: one PDB and optional SDF per folder</span></div>
+              <div><strong id="folder-name">Batch folders <span class="info-tip" tabindex="0" aria-label="Choose a parent folder containing one folder per run. Each child folder should include one PDB and, for reference mode, optionally one SDF." data-tip="Choose a parent folder containing one folder per run. Each child folder should include one PDB and, for reference mode, optionally one SDF.">?</span></strong><span id="folder-detail">Optional: one PDB and optional SDF per folder</span></div>
               <button class="text-button" id="clear-batch" type="button">Clear</button>
             </div>
             <p class="field-note" id="mode-note">The reference ligand defines the generation center. Pocket radius controls the surrounding protein context.</p>
@@ -95,7 +95,7 @@
             <div id="parameter-fields" class="parameter-fields"></div>
             <div class="execution-bar">
               <div>
-                <span class="field-label">Where should this run?</span>
+                <span class="field-label">Where should this run? <span class="info-tip" tabindex="0" aria-label="Local CPU runs on this computer through Docker. Slurm GPU submits to a scheduler when sbatch is available." data-tip="Local CPU runs on this computer through Docker. Slurm GPU submits to a scheduler when sbatch is available.">?</span></span>
                 <select id="job-target">
                   <option value="local_cpu">This computer · CPU</option>
                   <option value="slurm_gpu">Slurm GPU · Podman</option>
@@ -104,39 +104,57 @@
               <div class="runtime-readout"><span>Detected environment</span><strong id="runtime-status">Detecting…</strong><small id="runtime-detail">Choosing a default target for this host.</small></div>
             </div>
             <details class="advanced-options">
-              <summary>Advanced run settings <span>Batch, scoring, notifications</span></summary>
+              <summary>Advanced run settings <span>Batch, evaluation, notifications</span></summary>
               <div id="advanced-fields" class="parameter-fields advanced-grid"></div>
               <div class="advanced-controls">
+                <div class="postprocess-controls vina-run-settings" id="vina-options">
+                  <div class="evaluation-heading">
+                    <div>
+                      <strong>Vina run settings</strong>
+                      <small>Used when a Vina or chemistry metric is selected below.</small>
+                    </div>
+                    <span id="vina-mode-summary">Vina score</span>
+                  </div>
+                  <div class="vina-options">
+                    <div>
+                      <label class="field-label" for="vina-exhaustiveness">Exhaustiveness <span class="info-tip" tabindex="0" aria-label="Vina search depth for minimization or redocking. Higher values can be slower but may search poses more thoroughly." data-tip="Vina search depth for minimization or redocking. Higher values can be slower but may search poses more thoroughly.">?</span></label>
+                      <input id="vina-exhaustiveness" type="number" value="8" min="1">
+                    </div>
+                    <div>
+                      <label class="field-label" for="vina-cpu">Vina CPU threads <span class="info-tip" tabindex="0" aria-label="Threads used by Vina postprocessing. This can speed up minimization or redocking, but it does not make conDitar generation itself use more CPU threads." data-tip="Threads used by Vina postprocessing. This can speed up minimization or redocking, but it does not make conDitar generation itself use more CPU threads.">?</span></label>
+                      <input id="vina-cpu" type="number" value="4" min="1">
+                    </div>
+                  </div>
+                </div>
+                <div class="postprocess-controls evaluation-controls">
+                  <div class="evaluation-heading">
+                    <div>
+                      <strong>Molecule evaluation</strong>
+                      <small>Select generated-molecule properties and GUI-side Tool Chest evaluators to compute.</small>
+                    </div>
+                    <span id="evaluation-tool-status">Loading tools</span>
+                  </div>
+                  <div class="evaluation-group">
+                    <span>Built-in metrics</span>
+                    <div class="evaluation-check-grid">
+                      <label class="check-control" title="Scores the generated pose, then reports the affinity after local energy minimization of that pose."><input class="builtin-evaluation-toggle" type="checkbox" value="vina_score" checked><span>Vina score + minimize</span></label>
+                      <label class="check-control" title="Redocks the ligand, allowing the pose to change substantially from the generated pose."><input class="builtin-evaluation-toggle" type="checkbox" value="vina_dock"><span>Vina redock</span></label>
+                      <label class="check-control" title="Runs QVina scoring/docking when available in the container."><input class="builtin-evaluation-toggle" type="checkbox" value="qvina"><span>QVina</span></label>
+                      <label class="check-control" title="Quantitative Estimate of Drug-likeness. Higher values are generally better."><input class="builtin-evaluation-toggle" type="checkbox" value="qed" checked><span>QED</span></label>
+                      <label class="check-control" title="Synthetic accessibility estimate. Lower values are generally easier to synthesize."><input class="builtin-evaluation-toggle" type="checkbox" value="sa" checked><span>SA</span></label>
+                      <label class="check-control" title="Calculated partition coefficient estimate. Often used to monitor hydrophobicity."><input class="builtin-evaluation-toggle" type="checkbox" value="logp" checked><span>LogP</span></label>
+                      <label class="check-control" title="Lipinski rule-of-five count. Higher counts indicate more rules satisfied."><input class="builtin-evaluation-toggle" type="checkbox" value="lipinski" checked><span>Lipinski</span></label>
+                    </div>
+                  </div>
+                  <div class="evaluation-group">
+                    <span>Tool Chest</span>
+                    <div id="evaluation-tool-list" class="evaluation-tool-list"></div>
+                  </div>
+                </div>
                 <div class="job-controls">
                   <label class="field-label" for="job-email">Email when finished</label>
                   <input id="job-email" type="email" placeholder="name@example.edu">
                   <small id="email-note">Email notifications are currently available for Slurm GPU runs.</small>
-                </div>
-                <div class="postprocess-controls">
-                  <label class="check-control">
-                    <input id="vina-enabled" type="checkbox" checked>
-                    <span>Run Vina scoring after generation</span>
-                  </label>
-                  <div class="vina-options" id="vina-options" hidden>
-                    <div>
-                      <label class="field-label" for="vina-mode">Scoring mode</label>
-                      <select id="vina-mode">
-                        <option value="vina_score">Vina score + minimize</option>
-                        <option value="vina_dock">Vina dock</option>
-                        <option value="qvina">QVina</option>
-                        <option value="all">All available</option>
-                        <option value="none">Chemistry only</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label class="field-label" for="vina-exhaustiveness">Exhaustiveness</label>
-                      <input id="vina-exhaustiveness" type="number" value="8" min="1">
-                    </div>
-                    <div>
-                      <label class="field-label" for="vina-cpu">CPU threads</label>
-                      <input id="vina-cpu" type="number" value="4" min="1">
-                    </div>
-                  </div>
                 </div>
                 <div class="slurm-controls" id="slurm-controls" hidden>
                   <div>
@@ -237,6 +255,15 @@
 
         <div class="metric-strip" id="metric-strip"></div>
 
+        <article class="panel tool-chest-panel">
+          <div class="panel-heading list-heading">
+            <div><h3>Tool Chest</h3></div>
+            <span id="tool-chest-status">No job loaded</span>
+          </div>
+          <p class="tool-chest-copy">Run plug-and-play molecule evaluators on completed jobs, then filter and export using the new SDF properties.</p>
+          <div id="tool-list" class="tool-list"></div>
+        </article>
+
         <details class="analytics-details">
           <summary><span><strong>Dataset analysis</strong><small>Property distributions and run-level quality checks</small></span><b>Show analysis</b></summary>
           <div class="analytics-grid">
@@ -247,7 +274,7 @@
                   <option value="heavyAtoms">Heavy atoms</option>
                   <option value="heteroAtoms">Hetero atoms</option>
                   <option value="rings">Ring estimate</option>
-                  <option value="vinaScore">Docking score</option>
+                  <option value="vinaScore">Vina score</option>
                 </select>
               </div>
               <label class="threshold-control" for="histogram-threshold">Threshold <output id="histogram-threshold-value">—</output></label>
@@ -262,6 +289,14 @@
           </div>
         </details>
 
+        <details class="export-filter-details">
+          <summary>
+            <span><strong>Export requirements</strong><small>Metric thresholds for the selected export pool</small></span>
+            <div class="export-filter-summary-actions"><b id="export-filter-status">No filters</b><button class="text-button" id="reset-export-filters" type="button">Reset</button></div>
+          </summary>
+          <div id="export-filter-list" class="export-filter-list"></div>
+        </details>
+
         <div class="explorer-grid">
           <article class="panel result-list-panel">
             <div class="panel-heading list-heading">
@@ -272,7 +307,7 @@
               <label class="search-box"><span>⌕</span><input id="result-search" type="search" placeholder="Search candidate ID"></label>
               <select id="result-sort" class="compact-select">
                 <option value="index">Generation order</option>
-                <option value="vina_dock">Vina dock</option>
+                <option value="vina_dock">Vina redock</option>
                 <option value="vina_score_only">Vina score</option>
                 <option value="vina_minimize">Vina minimize</option>
                 <option value="qvina">QVina</option>
@@ -283,7 +318,7 @@
             </div>
             <div class="result-table-wrap">
               <table>
-                <thead><tr><th>Export</th><th>Candidate</th><th>SMILES</th><th>Vina score</th><th>Vina minimize</th><th>Vina dock / QVina</th></tr></thead>
+                <thead><tr><th>Export</th><th>Candidate</th><th>SMILES</th><th>Vina score</th><th>Vina minimized</th><th>Vina redock / QVina</th><th>Tool properties</th></tr></thead>
                 <tbody id="result-table"></tbody>
               </table>
             </div>
@@ -321,8 +356,12 @@
       </section>
 
       <section id="export-section" class="workspace-section export-section" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">Step 4</p><h2>Export results</h2></div>
+          <p>Download the selected candidate set, metrics, and run configuration.</p>
+        </div>
         <div class="download-bar">
-          <div><h2>Download results</h2><p>Exports use the current search and threshold filters. Vina scores are standard Vina energy scores; lower is better. QVina is shown separately.</p></div>
+          <div><h2>Download files</h2><p>Exports use the selected candidate set from Results. Vina score, minimization, redocking, and QVina outputs are reported separately; lower affinity values are better.</p></div>
           <div class="download-actions">
             <button class="primary-button" id="download-all">Download all <b>↓</b></button>
             <button class="secondary-button" id="download-csv">Metrics CSV</button>
@@ -330,7 +369,7 @@
           </div>
         </div>
         <label class="export-scope"><input id="export-filtered" type="checkbox" checked> Export the selected subset <span id="export-scope-count"></span></label>
-        <div class="export-selection-actions"><button class="secondary-button compact-action" id="select-all-candidates" type="button">Select all</button><button class="secondary-button compact-action" id="clear-candidate-selection" type="button">Clear selection</button><small>Changing the threshold updates the selected set; you can adjust it from the table.</small></div>
+        <div class="export-selection-actions"><button class="secondary-button compact-action" id="select-all-candidates" type="button">Select all</button><button class="secondary-button compact-action" id="clear-candidate-selection" type="button">Clear selection</button><small>Use export requirements or candidate checkboxes to shape the selected set.</small></div>
       </section>
 
       <section id="help-section" class="workspace-section help-section" hidden>
@@ -342,8 +381,8 @@
           <article class="panel help-card"><h3>Set up a run</h3><p>Choose where to run, then choose <strong>Protein + reference ligand</strong> or <strong>Pocket only</strong>. Upload a PDB; reference mode also needs an SDF. Use the folder picker for batches.</p></article>
           <article class="panel help-card"><h3>Batch behavior</h3><p>Each folder is processed as its own job; inputs are never mixed. CPU batches run one at a time. Slurm GPU batches can run in parallel when scheduler capacity is available.</p></article>
           <article class="panel help-card"><h3>Job states</h3><p><strong>Queued/PENDING</strong> means the queue has not started the job. <strong>Running</strong> means container execution has begun. Failed and canceled jobs include a reason and log paths.</p></article>
-          <article class="panel help-card"><h3>Vina and QVina</h3><p>The primary Vina score is a standard energy score: lower is better. Vina minimize and dock are separate outputs. QVina is reported separately when selected.</p></article>
-          <article class="panel help-card"><h3>Filter and export</h3><p>Change a distribution threshold to select candidates automatically, then adjust individual checkboxes in the table. Export the selected subset or uncheck the scope option to export all candidates.</p></article>
+          <article class="panel help-card"><h3>Vina and QVina</h3><p>Vina score estimates affinity for the generated pose. Vina minimized reports affinity after local minimization. Vina redock reports affinity after redocking, where the pose may change substantially. QVina is reported separately when selected.</p></article>
+          <article class="panel help-card"><h3>Filter and export</h3><p>Set export requirements from calculated metrics, then adjust individual candidate checkboxes as needed. Export the selected subset or uncheck the scope option to export all candidates.</p></article>
           <article class="panel help-card"><h3>Where files go</h3><p>Uploaded inputs, outputs, logs, and metadata are stored under <code>job_data/jobs/&lt;job-id&gt;/</code>. Browser downloads go to Downloads; completed-job ZIPs are also saved in the job output folder.</p></article>
           <article class="panel help-card"><h3>Troubleshooting</h3><p>For a failure, open the selected job and read the reported log paths. Useful files include <code>job.json</code>, <code>logs/stdout.log</code>, <code>logs/stderr.log</code>, Slurm submission logs, and <code>outputs/</code>.</p></article>
           <article class="panel help-card"><h3>Pending GPU jobs</h3><p>A valid Slurm job can remain pending while waiting for account, partition, or GPU capacity. This is a scheduler state, not evidence that the molecule input or code failed.</p></article>

@@ -37,13 +37,21 @@ for required in python3 podman sbatch; do
   fi
 done
 
+PYTHON_COMMAND=(python3)
+if [[ -n "${CONDITAR_GUI_PYTHON:-}" ]]; then
+  PYTHON_COMMAND=("$CONDITAR_GUI_PYTHON")
+elif command -v conda >/dev/null 2>&1 && conda run -n conditar-gui-dev python -c "import sys" >/dev/null 2>&1; then
+  PYTHON_COMMAND=(conda run --no-capture-output -n conditar-gui-dev python)
+fi
+
 echo "Starting conDitar GUI"
 echo "Container image: $CONDITAR_DOCKER_IMAGE"
 echo "Container archive: ${CONDITAR_DOCKER_TAR:-none}"
 echo "Source mount: ${CONDITAR_SOURCE_MOUNT:-none}"
 echo "Runtime: $CONDITAR_RUNTIME"
+echo "GUI Python: ${PYTHON_COMMAND[*]}"
 echo "Slurm defaults: account=${CONDITAR_SLURM_ACCOUNT:-none} time=$CONDITAR_SLURM_TIME mem=$CONDITAR_SLURM_MEM cpus=$CONDITAR_SLURM_CPUS gpus=$CONDITAR_SLURM_GPUS"
 echo "GPU mode: select Slurm GPU in the Setup panel"
 echo
 
-python3 serve.py --host 127.0.0.1 --port "${PORT:-4173}" --open
+"${PYTHON_COMMAND[@]}" serve.py --host 127.0.0.1 --port "${PORT:-4173}" --open

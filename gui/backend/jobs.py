@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
 
+from .tool_chest import ToolChest
+
 
 TERMINAL_STATES = {"completed", "failed", "canceled"}
 SLURM_GPU_TARGET = "slurm_gpu"
@@ -84,6 +86,7 @@ class LocalJobManager:
             "gpus": os.environ.get("CONDITAR_SLURM_GPUS", "1"),
         }
         self.docker_tar = os.environ.get("CONDITAR_DOCKER_TAR", "")
+        self.tool_chest = ToolChest(project_root)
         self._queue: queue.Queue[str] = queue.Queue()
         self._processes: dict[str, subprocess.Popen] = {}
         self._lock = threading.Lock()
@@ -123,6 +126,7 @@ class LocalJobManager:
         parameters = payload.get("parameters") or {}
         parameters["device"] = "cuda:0" if is_slurm_gpu_target(target) else "cpu"
         postprocess = self._postprocess_options(payload.get("postprocess") or {})
+        tool_requests = payload.get("tools") or []
         command = self._build_command(paths, pdb_path, sdf_path, parameters, target, postprocess)
         slurm_options = self._slurm_options(payload.get("slurm") or {}) if is_slurm_gpu_target(target) else None
         if is_slurm_gpu_target(target) and not slurm_options["account"]:
@@ -147,6 +151,7 @@ class LocalJobManager:
             },
             "parameters": parameters,
             "postprocess": postprocess,
+            "tools": tool_requests,
             "slurm": slurm_options,
             "container": {
                 "backend": "slurm_podman" if is_slurm_gpu_target(target) else self.container_runtime_kind,
@@ -294,12 +299,74 @@ class LocalJobManager:
             "files": files,
             "artifacts": artifacts,
             "logs": self.logs(job_id),
+            "tool_runs": self.tool_chest.read_runs(paths.root),
             "summary": {
                 "sdf_count": len(files),
                 "artifact_count": len(artifacts),
                 "output_directory": str(paths.outputs),
             },
         }
+
+    def list_tools(self) -> list[dict]:
+        return self.tool_chest.list_tools()
+
+    def run_tool(self, job_id: str, tool_id: str, options: dict | None = None) -> dict:
+        paths = self._paths(job_id)
+        job = self.get_job(job_id)
+        if not job:
+            raise ValueError("Unknown job.")
+        if job.get("status") != "completed":
+            raise ValueError("Tools can only be run on completed jobs.")
+        if not self._output_sdfs(paths):
+            raise ValueError("This job has no generated SDF outputs to annotate.")
+        run = self.tool_chest.run_tool(tool_id, paths.root, options or {})
+        job = self.get_job(job_id) or job
+        self._record_tool_run(job, run)
+        if run.get("status") == "failed":
+            job["status_note"] = f"Tool {run.get('tool_name') or tool_id} failed: {run.get('error')}"
+        else:
+            job["status_note"] = f"Tool {run.get('tool_name') or tool_id} completed."
+        self._write_job(paths, job)
+        return {"job": job, "run": run}
+
+    def _record_tool_run(self, job: dict, run: dict) -> None:
+        job.setdefault("tool_runs", []).append({
+            "id": run.get("id"),
+            "tool_id": run.get("tool_id"),
+            "tool_name": run.get("tool_name"),
+            "status": run.get("status"),
+            "finished_at": run.get("finished_at"),
+            "result": run.get("result"),
+            "error": run.get("error"),
+        })
+
+    def _run_requested_tools(self, paths: JobPaths, job: dict) -> None:
+        requests = job.get("tools") or []
+        if not requests:
+            return
+        ran_any = False
+        for request in requests:
+            if request.get("status") in {"completed", "failed"}:
+                continue
+            tool_id = request.get("id")
+            request["status"] = "running"
+            self._write_job(paths, job)
+            run = self.tool_chest.run_tool(tool_id, paths.root, request.get("options") or {})
+            request["status"] = run.get("status")
+            request["run_id"] = run.get("id")
+            request["finished_at"] = run.get("finished_at")
+            request["error"] = run.get("error")
+            request["result"] = run.get("result")
+            self._record_tool_run(job, run)
+            ran_any = True
+        if ran_any:
+            completed = sum(1 for item in requests if item.get("status") == "completed")
+            failed = sum(1 for item in requests if item.get("status") == "failed")
+            if failed:
+                job["status_note"] = f"Post-run evaluators finished with {failed} failure{'' if failed == 1 else 's'}; {completed} completed."
+            else:
+                job["status_note"] = f"Post-run evaluators completed: {completed}/{len(requests)}."
+            self._write_job(paths, job)
 
     def export_job(self, job_id: str) -> dict:
         paths = self._paths(job_id)
@@ -359,6 +426,7 @@ class LocalJobManager:
             "sdf": sdf_payload,
             "slurm": job.get("slurm") or {},
             "postprocess": job.get("postprocess") or {},
+            "tools": job.get("tools") or [],
             "parameters": job.get("parameters") or {},
         }
         return self.submit(payload)
@@ -465,11 +533,14 @@ class LocalJobManager:
         for gui_key, cli_key in (
             ("num_samples", "--num-samples"),
             ("batch_size", "--batch-size"),
-            ("pocket_radius", "--pocket-radius"),
         ):
             value = parameters.get(gui_key)
             if value not in (None, ""):
                 command.extend([cli_key, str(value)])
+        if sdf_path:
+            value = parameters.get("pocket_radius")
+            if value not in (None, ""):
+                command.extend(["--pocket-radius", str(value)])
         self._append_postprocess_args(command, postprocess)
         return command
 
@@ -500,12 +571,38 @@ class LocalJobManager:
         vina_mode = str(payload_options.get("vina_mode") or "vina_score").strip()
         if vina_mode not in {"none", "vina_score", "vina_dock", "qvina", "all"}:
             raise ValueError("Vina mode must be none, vina_score, vina_dock, qvina, or all.")
+        metrics = payload_options.get("metrics") or []
+        if not isinstance(metrics, list):
+            raise ValueError("Selected evaluation metrics must be a list.")
         return {
             "vina": vina_enabled,
             "vina_mode": vina_mode,
             "vina_exhaustiveness": str(payload_options.get("vina_exhaustiveness") or "8").strip(),
             "vina_cpu": str(payload_options.get("vina_cpu") or "4").strip(),
+            "metrics": [str(item) for item in metrics],
         }
+
+    def _tool_requests(self, payload_tools: list) -> list[dict]:
+        if not isinstance(payload_tools, list):
+            raise ValueError("Tool selections must be a list.")
+        available = {tool["id"]: tool for tool in self.tool_chest.list_tools() if tool.get("available")}
+        requests = []
+        for item in payload_tools[:20]:
+            if not isinstance(item, dict):
+                raise ValueError("Each tool selection must be an object.")
+            tool_id = str(item.get("id") or "").strip()
+            if tool_id not in available:
+                raise ValueError(f"Selected tool is not available: {tool_id or 'unknown'}")
+            options = item.get("options") or {}
+            if not isinstance(options, dict):
+                raise ValueError(f"Options for tool {tool_id} must be an object.")
+            requests.append({
+                "id": tool_id,
+                "name": available[tool_id].get("name") or tool_id,
+                "options": options,
+                "status": "pending",
+            })
+        return requests
 
     def _validated_payload(self, payload: dict) -> dict:
         if not isinstance(payload, dict):
@@ -514,6 +611,7 @@ class LocalJobManager:
         payload["email"] = self._validated_email(payload.get("email"))
         payload["mode"] = self._validated_choice(payload.get("mode") or "pocket", {"reference", "pocket"}, "mode")
         payload["parameters"] = self._validated_parameters(payload.get("parameters") or {})
+        payload["tools"] = self._tool_requests(payload.get("tools") or [])
         if payload.get("slurm"):
             payload["slurm"] = self._slurm_options(payload["slurm"])
         if payload.get("input_name"):
@@ -774,6 +872,8 @@ class LocalJobManager:
         if job.get("status") in TERMINAL_STATES:
             if is_slurm_gpu_target(job.get("target")):
                 self._normalize_terminal_slurm_state(paths, job)
+            if job.get("status") == "completed":
+                self._run_requested_tools(paths, job)
             if (
                 not is_slurm_gpu_target(job.get("target"))
                 and job.get("status") == "failed"
@@ -798,6 +898,8 @@ class LocalJobManager:
             if exit_code != 0:
                 job["error_message"] = self._container_failure_message(paths, exit_code)
             self._write_job(paths, job)
+            if job["status"] == "completed":
+                self._run_requested_tools(paths, job)
             self._send_email(job, paths)
             return job
 
@@ -831,6 +933,8 @@ class LocalJobManager:
                         "Slurm completed but no SDF outputs were found. See logs: "
                         f"{paths.stderr} and {paths.stdout}."
                     )
+                else:
+                    self._run_requested_tools(paths, job)
                 self._send_email(job, paths)
             elif state in SLURM_FAILURE_STATES:
                 job["status"] = "failed"
@@ -879,6 +983,8 @@ class LocalJobManager:
             f"{'' if len(output_sdfs) == 1 else 's'} in the job output directory."
         )
         self._write_job(paths, job)
+        if job["status"] == "completed":
+            self._run_requested_tools(paths, job)
         self._send_email(job, paths)
 
     def _normalize_terminal_slurm_state(self, paths: JobPaths, job: dict) -> None:
@@ -1107,6 +1213,8 @@ class LocalJobManager:
                 f"{paths.stderr} and {paths.stdout}."
             )
         self._write_job(paths, job)
+        if job["status"] == "completed":
+            self._run_requested_tools(paths, job)
         self._send_email(job, paths)
 
     def _send_email(self, job: dict, paths: JobPaths) -> None:

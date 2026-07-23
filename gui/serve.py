@@ -69,6 +69,8 @@ class ConDitarRequestHandler(SimpleHTTPRequestHandler):
                 })
             elif parts == ["api", "jobs"]:
                 self._send_json({"jobs": JOB_MANAGER.list_jobs()})
+            elif parts == ["api", "tools"]:
+                self._send_json({"tools": JOB_MANAGER.list_tools()})
             elif len(parts) == 3 and parts[:2] == ["api", "jobs"]:
                 job = JOB_MANAGER.get_job(parts[2])
                 self._send_json({"job": job} if job else {"error": "Job not found."}, 200 if job else 404)
@@ -100,6 +102,8 @@ class ConDitarRequestHandler(SimpleHTTPRequestHandler):
                 self._send_json({"job": JOB_MANAGER.rerun_job(parts[2])}, 201)
             elif len(parts) == 4 and parts[:3] == ["api", "jobs", "rerun"]:
                 self._send_json({"job": JOB_MANAGER.rerun_job(parts[3])}, 201)
+            elif len(parts) == 5 and parts[:2] == ["api", "jobs"] and parts[3] == "tools":
+                self._send_json(JOB_MANAGER.run_tool(parts[2], parts[4], self._read_json()))
             else:
                 self._send_json({"error": "Unknown API endpoint."}, 404)
         except ValueError as error:

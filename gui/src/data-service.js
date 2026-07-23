@@ -95,6 +95,7 @@ export class ExampleDataService {
       artifacts: response.artifacts || [],
       logs: response.logs || {},
       summary: response.summary || {},
+      toolRuns: response.tool_runs || [],
       candidates: (response.files || []).map((file, index) => ({
         ...parseSdf(file.text, file.name),
         index,
@@ -114,6 +115,19 @@ export class ExampleDataService {
 
   async rerunJob(jobId) {
     return fetchJson(`/api/jobs/${jobId}/rerun`, { method: "POST" });
+  }
+
+  async listTools() {
+    const response = await fetchJson("/api/tools");
+    return response.tools || [];
+  }
+
+  async runTool(jobId, toolId, options = {}) {
+    return fetchJson(`/api/jobs/${jobId}/tools/${toolId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(options),
+    });
   }
 }
 
