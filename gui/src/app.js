@@ -1,8 +1,8 @@
-import { ADVANCED_PARAMETERS, EXAMPLES, PARAMETERS } from "./config.js?v=20260715-source-branding-1";
-import { drawCategoryChart, drawHistogram } from "./charts.js?v=20260715-source-branding-1";
-import { ExampleDataService } from "./data-service.js?v=20260715-source-branding-1";
-import { vinaWasRun } from "./sdf.js?v=20260715-source-branding-1";
-import { render2D, render3D } from "./viewers.js?v=20260715-source-branding-1";
+import { ADVANCED_PARAMETERS, EXAMPLES, PARAMETERS } from "./config.js?v=20260723-toolchest-2";
+import { drawCategoryChart, drawHistogram } from "./charts.js?v=20260723-toolchest-2";
+import { ExampleDataService } from "./data-service.js?v=20260723-toolchest-2";
+import { vinaWasRun } from "./sdf.js?v=20260723-toolchest-2";
+import { render2D, render3D } from "./viewers.js?v=20260723-toolchest-2";
 
 const service = new ExampleDataService();
 const ACTIVE_JOB_STATUSES = new Set(["queued", "running"]);
@@ -10,6 +10,7 @@ const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "canceled"]);
 const CLEANUP_JOB_STATUSES = new Set(["failed", "canceled"]);
 const SLURM_GPU_TARGET = "slurm_gpu";
 const LEGACY_SLURM_GPU_TARGET = "osc_gpu";
+const MAX_CATEGORICAL_FILTER_VALUES = 24;
 
 const state = {
   study: null,
@@ -37,6 +38,7 @@ const state = {
   notifiedJobs: new Set(),
   watchedJobs: new Set(),
   thresholdFrame: null,
+  exportFilterTimer: null,
   tools: [],
   toolsLoaded: false,
 };
@@ -124,9 +126,10 @@ function bindEvents() {
   $("#histogram-threshold").addEventListener("input", (event) => {
     state.histogramThreshold = Number(event.target.value);
     $("#histogram-threshold-value").textContent = Number(event.target.value).toFixed(1);
-    syncHistogramThresholdToExportFilter();
+    syncHistogramThresholdToExportFilter({ defer: true });
     scheduleThresholdRender();
   });
+  $("#histogram-threshold").addEventListener("change", () => syncHistogramThresholdToExportFilter());
   $("#histogram").addEventListener("mousemove", handleHistogramHover);
   $("#histogram").addEventListener("mouseleave", () => { $("#histogram-tooltip").textContent = "Hover a bar to see its range and count."; });
   $(".analytics-details").addEventListener("toggle", (event) => {
@@ -1017,7 +1020,7 @@ function toolPropertyBadges(item) {
     const text = toolPropertyDisplay(value);
     if (output.type === "boolean") {
       const passed = isTruthyProperty(value);
-      return `<span class="status-badge compact-badge" data-status="${passed ? "completed" : "failed"}" title="${escapeHtml(output.label)}">${escapeHtml(output.label)}: ${passed ? "Yes" : "No"}</span>`;
+      return `<span class="status-badge compact-badge" data-status="${passed ? "completed" : "failed"}" title="${escapeHtml(output.label)}">${escapeHtml(output.label)}: ${passed ? "Pass" : "Fail"}</span>`;
     }
     return `<span class="tool-property-chip" title="${escapeHtml(text)}">${escapeHtml(output.label)}: ${escapeHtml(text)}</span>`;
   }).join(" ");
@@ -1089,7 +1092,7 @@ function exportFilterControl(metric) {
   const valueLabel = metric.type === "number" ? rangeLabel(metric.values) : `${metric.values.length} value${metric.values.length === 1 ? "" : "s"}`;
   if (metric.type === "number") {
     return `
-      <div class="export-filter-row" data-metric-id="${escapeHtml(metric.id)}">
+      <div class="export-filter-row" data-metric-id="${escapeHtml(metric.id)}" title="${escapeHtml(exportFilterHelp(metric, filter))}">
         <label class="check-control">
           <input type="checkbox" data-filter-field="enabled" ${active}>
           <span>${escapeHtml(metric.label)}</span>
@@ -1110,7 +1113,7 @@ function exportFilterControl(metric) {
     `;
   }
   return `
-    <div class="export-filter-row" data-metric-id="${escapeHtml(metric.id)}">
+    <div class="export-filter-row" data-metric-id="${escapeHtml(metric.id)}" title="${escapeHtml(exportFilterHelp(metric, filter))}">
       <label class="check-control">
         <input type="checkbox" data-filter-field="enabled" ${active}>
         <span>${escapeHtml(metric.label)}</span>
@@ -1170,11 +1173,46 @@ function applyExportFilters(render = true) {
   if (render) renderResultsTable();
 }
 
+function activeExportFilters() {
+  const definitionById = new Map(availableExportMetrics().map((metric) => [metric.id, metric]));
+  return Object.entries(state.exportFilters)
+    .map(([id, filter]) => ({ metric: definitionById.get(id), filter }))
+    .filter((entry) => entry.metric && entry.filter.enabled)
+    .map(({ metric, filter }) => ({
+      id: metric.id,
+      label: metric.label,
+      type: metric.type,
+      operator: filter.operator,
+      value: filter.value,
+      min: filter.min,
+      max: filter.max,
+      text: exportFilterText(metric, filter),
+    }));
+}
+
+function exportFilterText(metric, filter) {
+  if (metric.type === "number" && filter.operator === "range") {
+    return `${metric.label} between ${formatFilterValue(filter.min)} and ${formatFilterValue(filter.max)}`;
+  }
+  if (metric.type === "number") {
+    return `${metric.label} ${filter.operator || ">="} ${formatFilterValue(filter.value)}`;
+  }
+  return `${metric.label} = ${metricValueLabel(metric, filter.value)}`;
+}
+
+function exportFilterHelp(metric, filter) {
+  if (filter.enabled) return exportFilterText(metric, filter);
+  if (metric.type === "number") return `Enable to filter exported molecules by ${metric.label}.`;
+  return `Enable to require a ${metric.label} value for exported molecules.`;
+}
+
 function updateExportFilterStatus() {
   const status = $("#export-filter-status");
   if (!status) return;
   const activeCount = Object.values(state.exportFilters).filter((filter) => filter.enabled).length;
-  status.textContent = activeCount ? `${activeCount} active` : "No filters";
+  const selectedCount = state.exportSelection?.size || 0;
+  const total = state.study?.candidates?.length || 0;
+  status.textContent = activeCount ? `${activeCount} active · ${selectedCount}/${total} selected` : total ? `No filters · ${selectedCount}/${total} selected` : "No job loaded";
   $$(".export-filter-row").forEach((row) => {
     const filter = state.exportFilters[row.dataset.metricId];
     row.classList.toggle("active", Boolean(filter?.enabled));
@@ -1256,6 +1294,7 @@ function availableExportMetrics() {
 }
 
 function isExportFilterOutput(output) {
+  if (output.filterable === false) return false;
   if (output.type === "boolean") return true;
   return !/_STATUS$|_REASONS$|_OUTPUT$/i.test(output.name || "");
 }
@@ -1267,6 +1306,7 @@ function metricWithValues(metric, candidates) {
     ? rawValues.map(Number).filter(Number.isFinite)
     : uniqueValues(rawValues.map((value) => metric.type === "boolean" ? booleanFilterValue(value) : String(value)));
   if (!values.length) return null;
+  if (metric.type === "text" && values.length > MAX_CATEGORICAL_FILTER_VALUES) return null;
   return { ...metric, values };
 }
 
@@ -1380,9 +1420,9 @@ function renderHistogramMetricOptions() {
   select.value = metrics.some((metric) => metric.id === current) ? current : metrics[0].id;
 }
 
-function renderCharts() {
+function renderCharts({ refreshMetricOptions = true } = {}) {
   if (!state.study || state.activeTab !== "results" || !$(".analytics-details").open) return;
-  renderHistogramMetricOptions();
+  if (refreshMetricOptions) renderHistogramMetricOptions();
   const metric = exportMetricForHistogram($("#histogram-metric").value);
   const label = metric?.label || $("#histogram-metric").selectedOptions[0]?.textContent || "Metric";
   const slider = $("#histogram-threshold");
@@ -1433,7 +1473,7 @@ function categoricalDistribution(candidates, metric) {
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, undefined, { numeric: true }));
 }
 
-function syncHistogramThresholdToExportFilter() {
+function syncHistogramThresholdToExportFilter({ defer = false } = {}) {
   const metric = exportMetricForHistogram($("#histogram-metric").value);
   if (!metric) return;
   const filter = state.exportFilters[metric.id] || defaultExportFilter(metric);
@@ -1441,8 +1481,21 @@ function syncHistogramThresholdToExportFilter() {
   filter.operator = filter.operator === "range" ? metric.defaultOperator || ">=" : filter.operator || metric.defaultOperator || ">=";
   filter.value = Number(state.histogramThreshold);
   state.exportFilters[metric.id] = filter;
+  if (defer) {
+    scheduleExportFilterApply();
+    return;
+  }
   renderExportFilters();
   applyExportFilters();
+}
+
+function scheduleExportFilterApply() {
+  if (state.exportFilterTimer) clearTimeout(state.exportFilterTimer);
+  state.exportFilterTimer = setTimeout(() => {
+    state.exportFilterTimer = null;
+    renderExportFilters();
+    applyExportFilters();
+  }, 140);
 }
 
 function exportMetricForHistogram(histogramMetric) {
@@ -1464,7 +1517,7 @@ function scheduleThresholdRender() {
   if (state.thresholdFrame) cancelAnimationFrame(state.thresholdFrame);
   state.thresholdFrame = requestAnimationFrame(() => {
     state.thresholdFrame = null;
-    renderCharts();
+    renderCharts({ refreshMetricOptions: false });
   });
 }
 
@@ -1855,22 +1908,35 @@ async function downloadAll() {
     return;
   }
   const button = $("#download-all");
+  const candidates = exportCandidates();
+  if (!candidates.length) {
+    showToast("No candidates match the current export filters. Reset or loosen filters before downloading.", 8000);
+    return;
+  }
   button.disabled = true;
-  button.textContent = "Packaging…";
+  button.textContent = "Packaging...";
+  const exportMetadata = buildExportMetadata(candidates);
   let archiveNotice = "The archive will be saved by your browser to its Downloads folder.";
   if (state.resultSource === "job" && state.selectedJob?.id) {
     try {
-      const saved = await service.exportJob(state.selectedJob.id);
-      archiveNotice = `A server copy was saved to ${saved.path}. The browser copy will be saved to its Downloads folder.`;
+      const saved = await service.exportJob(state.selectedJob.id, {
+        selected_paths: candidates.map((item) => item.path).filter(Boolean),
+        filters: exportMetadata.filters,
+        tool_runs: exportMetadata.tool_runs,
+        run_config: exportMetadata.run_config,
+        metrics_csv: csvText(candidates),
+      });
+      archiveNotice = `A filtered server copy was saved to ${saved.relative_directory || saved.relative_path}. The browser copy will be saved to its Downloads folder.`;
     } catch (error) {
       archiveNotice = `Browser copy will be saved to Downloads. Server archive was not created: ${error.message}`;
     }
   }
   const zip = new window.JSZip();
   const structures = zip.folder("generated_structures");
-  exportCandidates().forEach((item) => structures.file(item.name, item.text));
-  zip.file("metrics.csv", csvText(exportCandidates()));
-  zip.file("run_config.json", JSON.stringify(buildConfiguration(), null, 2));
+  candidates.forEach((item) => structures.file(item.name, item.text));
+  zip.file("metrics.csv", csvText(candidates));
+  zip.file("run_config.json", JSON.stringify(exportMetadata.run_config, null, 2));
+  zip.file("export_metadata.json", JSON.stringify(exportMetadata, null, 2));
   if (state.study.logs?.stdout) zip.file("logs/stdout.log", state.study.logs.stdout);
   if (state.study.logs?.stderr) zip.file("logs/stderr.log", state.study.logs.stderr);
   if (state.study.logs?.extra) zip.file("logs/additional_logs.txt", state.study.logs.extra);
@@ -1881,7 +1947,8 @@ async function downloadAll() {
   downloadBlob(blob, `${studyName()}_study.zip`, "application/zip");
   showToast(archiveNotice, 10000);
   button.disabled = false;
-  button.innerHTML = "Download ZIP <b>↓</b>";
+  button.innerHTML = "Download all <b>↓</b>";
+  updateExportScope();
 }
 
 function buildConfiguration() {
@@ -1900,6 +1967,24 @@ function buildConfiguration() {
         : null,
     },
     parameters: { ...(job?.parameters || state.parameters) },
+    export: {
+      selected_count: exportCandidates().length,
+      total_count: state.study?.candidates?.length || 0,
+      filters: activeExportFilters(),
+    },
+  };
+}
+
+function buildExportMetadata(candidates = exportCandidates()) {
+  return {
+    created_at: new Date().toISOString(),
+    job_id: state.selectedJob?.id || null,
+    selected_count: candidates.length,
+    total_count: state.study?.candidates?.length || 0,
+    selected_candidates: candidates.map((item) => ({ id: item.id, name: item.name, path: item.path || item.name })),
+    filters: activeExportFilters(),
+    tool_runs: state.study?.toolRuns || state.selectedJob?.tool_runs || [],
+    run_config: buildConfiguration(),
   };
 }
 
@@ -1951,6 +2036,7 @@ function updateExportScope() {
   const filtered = $("#export-filtered")?.checked;
   if ($("#export-scope-count")) $("#export-scope-count").textContent = `(${count} of ${total} candidates)`;
   if ($("#download-all")) $("#download-all").firstChild.textContent = filtered ? "Download filtered " : "Download all ";
+  updateExportFilterStatus();
 }
 
 function csvCell(value) {

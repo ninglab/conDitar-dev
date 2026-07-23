@@ -105,8 +105,12 @@ export class ExampleDataService {
     };
   }
 
-  async exportJob(jobId) {
-    return fetchJson(`/api/jobs/${jobId}/export`, { method: "POST" });
+  async exportJob(jobId, payload = {}) {
+    return fetchJson(`/api/jobs/${jobId}/export`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
   }
 
   async archiveJob(jobId) {

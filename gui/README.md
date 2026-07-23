@@ -45,6 +45,10 @@ For local CPU runs with Docker:
 ./start_cpu_gui.sh
 ```
 
+On macOS, you can also double-click `start_gui.command` from Finder. It starts
+the local CPU GUI and sets up the optional Tool Chest environment when conda is
+available.
+
 For GPU runs through Slurm and Podman:
 
 ```bash
@@ -222,12 +226,17 @@ NVIDIA runtime. For normal GPU throughput, use the Slurm/Podman path.
 5. Enable Vina scoring if desired, then review Slurm options when using the GPU target.
 6. Click **Generate molecules**.
 7. Use the **Jobs** tab to monitor status and load completed outputs.
-8. Use the **Results** and **Export** tabs to inspect molecules and download
-   SDF/CSV/ZIP artifacts.
+8. Use the **Results** and **Export** tabs to inspect molecules, filter
+   candidates, and download SDF/CSV/ZIP artifacts.
 
 CPU email notifications are intentionally disabled in the GUI until a local
 SMTP/sendmail path is configured. Slurm GPU jobs can use scheduler email notifications
 when an email address is provided.
+
+Filtered exports are saved both by the browser and, for completed backend jobs,
+under the job folder at `job_data/jobs/<job-id>/filtered_exports/`. Each
+filtered export includes copied SDFs, `metrics.csv`, and `export_metadata.json`
+with the active thresholds and tool runs used for that subset.
 
 If a Slurm job is `PENDING`, the scheduler has accepted it but is waiting for account,
 partition, or GPU capacity. If it fails before producing container output,

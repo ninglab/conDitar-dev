@@ -21,7 +21,7 @@ def describe() -> dict:
         "error": None if command else "Install the GUI environment from gui/environment.yml, or set LILLY_MEDCHEM_RULES_BIN.",
         "inputs": [],
         "outputs": [
-            {"name": "LILLY_PASS", "type": "boolean"},
+            {"name": "LILLY_PASS", "label": "Lily Filter", "type": "boolean"},
             {"name": "LILLY_STATUS", "type": "text"},
             {"name": "LILLY_REASONS", "type": "text"},
         ],

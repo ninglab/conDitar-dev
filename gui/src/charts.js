@@ -20,17 +20,18 @@ export function drawHistogram(canvas, values, label, threshold = null) {
     const index = Math.min(bins - 1, Math.floor((value - min) / step));
     counts[index] += 1;
   });
-  const pad = { left: 40, right: 12, top: 16, bottom: 34 };
-  const plotW = width - pad.left - pad.right;
-  const plotH = height - pad.top - pad.bottom;
+  const pad = { left: 40, right: 14, top: 16, bottom: 34 };
+  const plotW = Math.max(1, width - pad.left - pad.right);
+  const plotH = Math.max(1, height - pad.top - pad.bottom);
   const maxCount = Math.max(...counts);
   drawAxes(ctx, width, height, pad, min.toFixed(0), max.toFixed(0), label);
   counts.forEach((count, index) => {
-    const gap = 3;
-    const barW = plotW / bins - gap;
+    const slot = plotW / bins;
+    const gap = Math.min(4, Math.max(1, slot * 0.12));
+    const barW = Math.max(1, slot - gap);
     const barH = (count / maxCount) * plotH;
     ctx.fillStyle = index === counts.indexOf(maxCount) ? COLORS.accent : COLORS.accentSoft;
-    ctx.fillRect(pad.left + index * (plotW / bins) + gap / 2, pad.top + plotH - barH, barW, barH);
+    crispRect(ctx, pad.left + index * slot + gap / 2, pad.top + plotH - barH, barW, barH);
   });
   if (threshold !== null && threshold >= min && threshold <= max) {
     const x = pad.left + ((threshold - min) / (max - min || 1)) * plotW;
@@ -47,19 +48,19 @@ export function drawCategoryChart(canvas, entries, label) {
   ctx.clearRect(0, 0, width, height);
   canvas._histogram = null;
   if (!entries.length) return;
-  const pad = { left: 40, right: 12, top: 16, bottom: 40 };
-  const plotW = width - pad.left - pad.right;
-  const plotH = height - pad.top - pad.bottom;
+  const pad = { left: 40, right: 14, top: 16, bottom: 40 };
+  const plotW = Math.max(1, width - pad.left - pad.right);
+  const plotH = Math.max(1, height - pad.top - pad.bottom);
   const maxCount = Math.max(...entries.map((entry) => entry.count));
   drawAxes(ctx, width, height, pad, "0", String(maxCount), label);
   entries.forEach((entry, index) => {
-    const gap = 8;
     const slot = plotW / entries.length;
-    const barW = Math.max(10, slot - gap);
+    const gap = Math.min(10, Math.max(3, slot * 0.18));
+    const barW = Math.max(3, slot - gap);
     const barH = (entry.count / maxCount) * plotH;
     const x = pad.left + index * slot + gap / 2;
     ctx.fillStyle = COLORS.accentSoft;
-    ctx.fillRect(x, pad.top + plotH - barH, barW, barH);
+    crispRect(ctx, x, pad.top + plotH - barH, barW, barH);
     ctx.fillStyle = COLORS.muted;
     ctx.font = "10px DM Mono, monospace";
     ctx.textAlign = "center";
@@ -74,11 +75,12 @@ function prepare(canvas) {
   const ratio = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
   const width = Math.max(1, Math.round(rect.width));
-  const height = Math.max(1, Math.round(Number(canvas.getAttribute("height")) || rect.height || 220));
+  const height = Math.max(1, Math.round(rect.height || Number(canvas.getAttribute("height")) || 160));
   const backingWidth = Math.max(1, Math.round(width * ratio));
   const backingHeight = Math.max(1, Math.round(height * ratio));
   if (canvas.width !== backingWidth) canvas.width = backingWidth;
   if (canvas.height !== backingHeight) canvas.height = backingHeight;
+  canvas.style.width = `${width}px`;
   canvas.style.height = `${height}px`;
   const ctx = canvas.getContext("2d");
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -90,9 +92,9 @@ function drawAxes(ctx, width, height, pad, min, max, label) {
   ctx.strokeStyle = COLORS.line;
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(pad.left, pad.top);
-  ctx.lineTo(pad.left, height - pad.bottom);
-  ctx.lineTo(width - pad.right, height - pad.bottom);
+  ctx.moveTo(pixel(pad.left), pixel(pad.top));
+  ctx.lineTo(pixel(pad.left), pixel(height - pad.bottom));
+  ctx.lineTo(pixel(width - pad.right), pixel(height - pad.bottom));
   ctx.stroke();
   ctx.fillStyle = COLORS.muted;
   ctx.font = "11px DM Mono, monospace";
@@ -102,4 +104,16 @@ function drawAxes(ctx, width, height, pad, min, max, label) {
   ctx.textAlign = "center";
   ctx.fillText(label, pad.left + (width - pad.left - pad.right) / 2, height - 12);
   ctx.textAlign = "left";
+}
+
+function pixel(value) {
+  return Math.round(value) + 0.5;
+}
+
+function crispRect(ctx, x, y, width, height) {
+  const left = Math.round(x);
+  const top = Math.round(y);
+  const right = Math.round(x + width);
+  const bottom = Math.round(y + height);
+  ctx.fillRect(left, top, Math.max(1, right - left), Math.max(1, bottom - top));
 }

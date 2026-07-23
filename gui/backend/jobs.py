@@ -368,13 +368,17 @@ class LocalJobManager:
                 job["status_note"] = f"Post-run evaluators completed: {completed}/{len(requests)}."
             self._write_job(paths, job)
 
-    def export_job(self, job_id: str) -> dict:
+    def export_job(self, job_id: str, payload: dict | None = None) -> dict:
         paths = self._paths(job_id)
         job = self.get_job(job_id)
         if not job:
             raise ValueError("Unknown job.")
         if job.get("status") != "completed":
             raise ValueError("Only completed jobs can be exported.")
+        payload = payload or {}
+        selected_paths = payload.get("selected_paths") or []
+        if selected_paths:
+            return self._export_filtered_job(paths, job_id, selected_paths, payload)
         archive = paths.outputs / f"{job_id}_study.zip"
         with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
             for path in sorted(paths.root.rglob("*")):
@@ -382,6 +386,48 @@ class LocalJobManager:
                     continue
                 bundle.write(path, path.relative_to(paths.root))
         return {"path": str(archive), "relative_path": str(archive.relative_to(paths.root)), "size": archive.stat().st_size}
+
+    def _export_filtered_job(self, paths: JobPaths, job_id: str, selected_paths: list, payload: dict) -> dict:
+        output_sdfs = {str(path.relative_to(paths.root)): path for path in self._output_sdfs(paths)}
+        selected = []
+        for item in selected_paths[:10000]:
+            rel = str(item).strip()
+            if rel in output_sdfs:
+                selected.append(output_sdfs[rel])
+        if not selected:
+            raise ValueError("No selected generated SDF files matched this completed job.")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        export_root = paths.root / "filtered_exports" / timestamp
+        structures_root = export_root / "generated_structures"
+        structures_root.mkdir(parents=True, exist_ok=True)
+        for path in selected:
+            shutil.copy2(path, structures_root / path.name)
+        metadata = {
+            "job_id": job_id,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "selected_count": len(selected),
+            "selected_paths": [str(path.relative_to(paths.root)) for path in selected],
+            "filters": payload.get("filters") or [],
+            "tool_runs": payload.get("tool_runs") or [],
+            "metrics_csv": payload.get("metrics_csv") or "",
+            "run_config": payload.get("run_config") or {},
+        }
+        (export_root / "export_metadata.json").write_text(json.dumps(metadata, indent=2))
+        if metadata["metrics_csv"]:
+            (export_root / "metrics.csv").write_text(metadata["metrics_csv"])
+        archive = export_root.with_suffix(".zip")
+        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+            for path in sorted(export_root.rglob("*")):
+                if path.is_file():
+                    bundle.write(path, path.relative_to(export_root.parent))
+        return {
+            "path": str(archive),
+            "relative_path": str(archive.relative_to(paths.root)),
+            "directory": str(export_root),
+            "relative_directory": str(export_root.relative_to(paths.root)),
+            "size": archive.stat().st_size,
+            "selected_count": len(selected),
+        }
 
     def archive_job(self, job_id: str) -> dict:
         paths = self._paths(job_id)

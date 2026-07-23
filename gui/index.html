@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="./media/logo/conditar-logo-highres-transparent.png">
   <link rel="apple-touch-icon" href="./media/logo/conditar-logo-highres-transparent.png">
-  <link rel="stylesheet" href="./src/styles.css?v=20260715-source-branding-1">
+  <link rel="stylesheet" href="./src/styles.css?v=20260723-toolchest-2">
 </head>
 <body>
   <div class="app-shell">
@@ -158,27 +158,27 @@
                 </div>
                 <div class="slurm-controls" id="slurm-controls" hidden>
                   <div>
-                    <label class="field-label" for="slurm-time">Time limit</label>
+                    <label class="field-label" for="slurm-time">Time limit <span class="info-tip" tabindex="0" aria-label="Requested wall time for the Slurm job, using HH:MM:SS." data-tip="Requested wall time for the Slurm job, using HH:MM:SS.">?</span></label>
                     <input id="slurm-time" type="text" value="04:00:00">
                   </div>
                   <div>
-                    <label class="field-label" for="slurm-mem">Memory</label>
+                    <label class="field-label" for="slurm-mem">Memory <span class="info-tip" tabindex="0" aria-label="Requested memory for the Slurm job, such as 32G. Match your cluster partition limits." data-tip="Requested memory for the Slurm job, such as 32G. Match your cluster partition limits.">?</span></label>
                     <input id="slurm-mem" type="text" value="32G">
                   </div>
                   <div>
-                    <label class="field-label" for="slurm-cpus">CPUs</label>
+                    <label class="field-label" for="slurm-cpus">CPUs <span class="info-tip" tabindex="0" aria-label="CPU cores requested from Slurm for the container job and postprocessing support." data-tip="CPU cores requested from Slurm for the container job and postprocessing support.">?</span></label>
                     <input id="slurm-cpus" type="number" value="4" min="1">
                   </div>
                   <div>
-                    <label class="field-label" for="slurm-gpus">GPUs</label>
+                    <label class="field-label" for="slurm-gpus">GPUs <span class="info-tip" tabindex="0" aria-label="Number of GPUs requested from Slurm. conDitar usually expects one GPU per job." data-tip="Number of GPUs requested from Slurm. conDitar usually expects one GPU per job.">?</span></label>
                     <input id="slurm-gpus" type="number" value="1" min="1">
                   </div>
                   <div>
-                    <label class="field-label" for="slurm-partition">Partition</label>
+                    <label class="field-label" for="slurm-partition">Partition <span class="info-tip" tabindex="0" aria-label="Optional Slurm partition or queue name. Leave blank to use the configured cluster default." data-tip="Optional Slurm partition or queue name. Leave blank to use the configured cluster default.">?</span></label>
                     <input id="slurm-partition" type="text" placeholder="optional">
                   </div>
                   <div>
-                    <label class="field-label" for="slurm-account">Account</label>
+                    <label class="field-label" for="slurm-account">Account <span class="info-tip" tabindex="0" aria-label="Slurm allocation or account to charge for GPU jobs. Required on clusters that enforce accounts." data-tip="Slurm allocation or account to charge for GPU jobs. Required on clusters that enforce accounts.">?</span></label>
                     <input id="slurm-account" type="text" placeholder="required" required>
                   </div>
                 </div>
@@ -395,6 +395,6 @@
   <script async src="https://cdn.jsdelivr.net/npm/3dmol@2.4.2/build/3Dmol-min.js"></script>
   <script async src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script defer src="https://unpkg.com/@rdkit/rdkit/dist/RDKit_minimal.js"></script>
-  <script type="module" src="./src/app.js?v=20260715-source-branding-1"></script>
+  <script type="module" src="./src/app.js?v=20260723-toolchest-2"></script>
 </body>
 </html>
