@@ -23,9 +23,17 @@ for required in python3 "$DOCKER_COMMAND"; do
   if ! command -v "$required" >/dev/null 2>&1; then
     echo "ERROR: required local CPU command not found: $required" >&2
     echo "Install Python 3 and Docker Desktop, then retry." >&2
+    echo "Tip: run ./setup_gui.sh for a guided setup check." >&2
     exit 2
   fi
 done
+
+if ! "$DOCKER_COMMAND" info >/dev/null 2>&1; then
+  echo "ERROR: Docker is installed but does not appear to be running." >&2
+  echo "Start Docker Desktop, then retry." >&2
+  echo "Tip: run ./setup_gui.sh for a guided setup check." >&2
+  exit 2
+fi
 
 PYTHON_COMMAND=(python3)
 if [[ -n "${CONDITAR_GUI_PYTHON:-}" ]]; then
@@ -37,6 +45,10 @@ fi
 if ! "$DOCKER_COMMAND" image inspect "$CONDITAR_DOCKER_IMAGE" >/dev/null 2>&1; then
   echo "ERROR: conDitar container image not found: $CONDITAR_DOCKER_IMAGE" >&2
   echo "Load or build the image first, or set CONDITAR_DOCKER_IMAGE to an available image." >&2
+  echo "Example:" >&2
+  echo "  docker load -i /path/to/localhost_conditar-dev_container-dev.tar.gz" >&2
+  echo "Then retry:" >&2
+  echo "  ./start_cpu_gui.sh" >&2
   exit 2
 fi
 

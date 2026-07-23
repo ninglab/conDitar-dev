@@ -53,20 +53,7 @@ class ConDitarRequestHandler(SimpleHTTPRequestHandler):
         parts = self.path.split("?")[0].strip("/").split("/")
         try:
             if parts == ["api", "health"]:
-                self._send_json({
-                    "ok": True,
-                    "container_backend": JOB_MANAGER.container_runtime_kind,
-                    "container_runtime": JOB_MANAGER.container_runtime,
-                    "gpu_available": bool(Path("/dev/nvidia0").exists()),
-                    "docker_image": JOB_MANAGER.docker_image,
-                    "docker_tar": JOB_MANAGER.docker_tar,
-                    "slurm": {
-                        "sbatch": JOB_MANAGER.sbatch_bin,
-                        "squeue": JOB_MANAGER.squeue_bin,
-                        "sacct": JOB_MANAGER.sacct_bin,
-                        "defaults": JOB_MANAGER.slurm_defaults,
-                    },
-                })
+                self._send_json(JOB_MANAGER.health())
             elif parts == ["api", "jobs"]:
                 self._send_json({"jobs": JOB_MANAGER.list_jobs()})
             elif parts == ["api", "tools"]:

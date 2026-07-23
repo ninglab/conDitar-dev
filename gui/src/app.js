@@ -1,8 +1,8 @@
-import { ADVANCED_PARAMETERS, EXAMPLES, PARAMETERS } from "./config.js?v=20260723-toolchest-2";
-import { drawCategoryChart, drawHistogram } from "./charts.js?v=20260723-toolchest-2";
-import { ExampleDataService } from "./data-service.js?v=20260723-toolchest-2";
-import { vinaWasRun } from "./sdf.js?v=20260723-toolchest-2";
-import { render2D, render3D } from "./viewers.js?v=20260723-toolchest-2";
+import { ADVANCED_PARAMETERS, EXAMPLES, PARAMETERS } from "./config.js?v=20260723-launch-3";
+import { drawCategoryChart, drawHistogram } from "./charts.js?v=20260723-launch-3";
+import { ExampleDataService } from "./data-service.js?v=20260723-launch-3";
+import { vinaWasRun } from "./sdf.js?v=20260723-launch-3";
+import { render2D, render3D } from "./viewers.js?v=20260723-launch-3";
 
 const service = new ExampleDataService();
 const ACTIVE_JOB_STATUSES = new Set(["queued", "running"]);
@@ -102,6 +102,7 @@ function bindEvents() {
   });
   $("#reset-params").addEventListener("click", resetParameters);
   $("#preview-run").addEventListener("click", submitGenerationJob);
+  $("#refresh-health").addEventListener("click", () => refreshRuntime(true));
   $("#job-target").addEventListener("change", () => {
     state.targetTouched = true;
     updateJobTargetControls();
@@ -194,14 +195,49 @@ async function refreshRuntime(showMessage = false) {
     }
     const slurm = health.slurm?.sbatch ? "sbatch available" : "sbatch not found";
     const gpu = health.gpu_available ? "GPU device visible" : "no local GPU visible";
-    status.textContent = slurmAvailable ? "Slurm GPU available" : "Local CPU available";
-    detail.textContent = `${gpu}; ${slurm}. Selected target: ${slurmAvailable ? "Slurm GPU" : "Local CPU"}.`;
-    if (showMessage) showToast("Runtime selection refreshed.");
+    const imageReady = Boolean(health.container_image?.exists);
+    status.textContent = slurmAvailable ? "Slurm GPU available" : imageReady ? "Local CPU available" : "Setup needs attention";
+    detail.textContent = `${gpu}; ${slurm}; ${imageReady ? "container image found" : "container image missing"}. Selected target: ${slurmAvailable ? "Slurm GPU" : "Local CPU"}.`;
+    renderSetupHealth(health);
+    if (showMessage) showToast("Setup checklist refreshed.");
   } catch (error) {
     status.textContent = "Backend unavailable";
     detail.textContent = error.message;
+    renderSetupHealth(null, error);
     if (showMessage) showToast(`Runtime check failed: ${error.message}`);
   }
+}
+
+function renderSetupHealth(health, error = null) {
+  const status = $("#setup-health-status");
+  const detail = $("#setup-health-detail");
+  const list = $("#setup-health-list");
+  if (!status || !detail || !list) return;
+  if (error) {
+    status.textContent = "Backend unavailable";
+    detail.textContent = error.message;
+    list.innerHTML = "";
+    return;
+  }
+  const checks = health?.checks || [];
+  const failing = checks.filter((check) => check.status === "fail").length;
+  const warnings = checks.filter((check) => check.status === "warn").length;
+  status.textContent = failing ? "Setup needs attention" : warnings ? "Ready with optional warnings" : "Ready to run";
+  detail.textContent = failing
+    ? "Fix the missing required items before submitting a local job."
+    : warnings
+      ? "Local runs can work; optional GPU or Tool Chest items may need setup."
+      : "Python, container runtime, conDitar image, and optional tools look ready.";
+  list.innerHTML = checks.map((check) => `
+    <div class="setup-health-item" data-status="${escapeHtml(check.status)}">
+      <i aria-hidden="true"></i>
+      <div>
+        <strong>${escapeHtml(check.label)}</strong>
+        <span>${escapeHtml(check.detail || "")}</span>
+        ${check.action ? `<small>${escapeHtml(check.action)}</small>` : ""}
+      </div>
+    </div>
+  `).join("");
 }
 
 function resolvedTarget() {

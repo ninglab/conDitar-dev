@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import queue
 import re
 import shlex
 import shutil
 import smtplib
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -95,6 +97,79 @@ class LocalJobManager:
         self._worker = threading.Thread(target=self._work_loop, daemon=True)
         self._worker.start()
 
+    def health(self) -> dict:
+        image = self._container_image_status()
+        tools = self.tool_chest.list_tools()
+        available_tools = [tool for tool in tools if tool.get("available")]
+        runtime_ok = bool(self.container_runtime)
+        image_ok = bool(image.get("exists"))
+        slurm_ok = bool(self.sbatch_bin)
+        tool_summary = f"{len(available_tools)}/{len(tools)} optional tools available" if tools else "No optional tools installed"
+        checks = [
+            {
+                "id": "python",
+                "label": "Python",
+                "status": "ok",
+                "detail": f"{platform.python_version()} at {sys.executable}",
+                "action": "",
+            },
+            {
+                "id": "container_runtime",
+                "label": "Docker or Podman",
+                "status": "ok" if runtime_ok else "fail",
+                "detail": f"{self.container_runtime_kind}: {self.container_runtime}" if runtime_ok else "No Docker/Podman command found",
+                "action": "" if runtime_ok else "Install Docker Desktop for local CPU runs, or load Podman on a Linux/Slurm host.",
+            },
+            {
+                "id": "container_image",
+                "label": "conDitar image",
+                "status": "ok" if image_ok else "fail",
+                "detail": image.get("detail") or f"Image not found: {self.docker_image}",
+                "action": "" if image_ok else f"Load or build the image, then check with: docker image inspect {self.docker_image}",
+            },
+            {
+                "id": "slurm",
+                "label": "Slurm GPU tools",
+                "status": "ok" if slurm_ok else "warn",
+                "detail": "sbatch available" if slurm_ok else "sbatch not found; local CPU runs can still work",
+                "action": "" if slurm_ok else "Use the local CPU target, or start the GUI from a cluster session with Slurm loaded.",
+            },
+            {
+                "id": "tool_chest",
+                "label": "Tool Chest",
+                "status": "ok" if len(available_tools) == len(tools) else "warn",
+                "detail": tool_summary,
+                "action": "" if len(available_tools) == len(tools) else "Run ./setup_tool_chest.sh to enable optional GUI-side tools.",
+            },
+        ]
+        return {
+            "ok": runtime_ok and image_ok,
+            "platform": {
+                "system": platform.system(),
+                "machine": platform.machine(),
+                "python": platform.python_version(),
+                "python_executable": sys.executable,
+            },
+            "container_backend": self.container_runtime_kind,
+            "container_runtime": self.container_runtime,
+            "container_image": image,
+            "gpu_available": bool(Path("/dev/nvidia0").exists()),
+            "docker_image": self.docker_image,
+            "docker_tar": self.docker_tar,
+            "slurm": {
+                "sbatch": self.sbatch_bin,
+                "squeue": self.squeue_bin,
+                "sacct": self.sacct_bin,
+                "defaults": self.slurm_defaults,
+            },
+            "tools": {
+                "available": len(available_tools),
+                "total": len(tools),
+                "items": tools,
+            },
+            "checks": checks,
+        }
+
     def submit(self, payload: dict, defer_slurm_submit: bool = False) -> dict:
         payload = self._validated_payload(payload)
         target = payload.get("target", "local_cpu")
@@ -127,6 +202,14 @@ class LocalJobManager:
         parameters["device"] = "cuda:0" if is_slurm_gpu_target(target) else "cpu"
         postprocess = self._postprocess_options(payload.get("postprocess") or {})
         tool_requests = payload.get("tools") or []
+        if target == "local_cpu":
+            image_status = self._container_image_status()
+            if image_status.get("checked") and not image_status.get("exists"):
+                raise ValueError(
+                    f"conDitar container image not found: {self.docker_image}. "
+                    f"Load it with `docker load -i /path/to/image.tar.gz`, or build it, then restart the GUI. "
+                    f"Details: {image_status.get('detail') or image_status.get('error') or 'image inspect failed'}"
+                )
         command = self._build_command(paths, pdb_path, sdf_path, parameters, target, postprocess)
         slurm_options = self._slurm_options(payload.get("slurm") or {}) if is_slurm_gpu_target(target) else None
         if is_slurm_gpu_target(target) and not slurm_options["account"]:
@@ -611,6 +694,38 @@ class LocalJobManager:
         if configured:
             return configured if shutil.which(configured) else None
         return shutil.which(fallback)
+
+    def _container_image_status(self) -> dict:
+        if not self.container_runtime:
+            return {
+                "checked": False,
+                "exists": False,
+                "detail": "Docker/Podman command was not found.",
+                "error": None,
+            }
+        try:
+            result = subprocess.run(
+                [self.container_runtime, "image", "inspect", self.docker_image],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return {
+                "checked": True,
+                "exists": False,
+                "detail": f"Could not inspect image with {self.container_runtime}.",
+                "error": str(error),
+            }
+        exists = result.returncode == 0
+        detail = f"Image available: {self.docker_image}" if exists else (result.stderr.strip() or result.stdout.strip() or f"Image not found: {self.docker_image}")
+        return {
+            "checked": True,
+            "exists": exists,
+            "detail": detail,
+            "error": None if exists else detail,
+        }
 
     def _postprocess_options(self, payload_options: dict) -> dict:
         vina_enabled = bool(payload_options.get("vina"))

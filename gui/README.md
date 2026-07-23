@@ -29,9 +29,10 @@ conDitar-dev container/source
 Typical local flow:
 
 1. Build or load the `conDitar-dev` container image.
-2. Start this GUI folder with `./start_cpu_gui.sh`.
-3. Open `http://127.0.0.1:4173`.
-4. Choose inputs, settings, and target, then click **Generate molecules**.
+2. Run `./setup_gui.sh` to check Python, Docker, the image, and optional tools.
+3. Start this GUI folder with `./start_cpu_gui.sh`.
+4. Open `http://127.0.0.1:4173`.
+5. Choose inputs, settings, and target, then click **Generate molecules**.
 
 Job folders are written under `job_data/jobs/<job-id>/`. That directory is
 ignored by git and contains staged inputs, logs, metadata, generated SDFs, and
@@ -39,7 +40,13 @@ export ZIPs.
 
 ## Quick start
 
-For local CPU runs with Docker:
+For first-time local CPU setup with Docker:
+
+```bash
+./setup_gui.sh
+```
+
+Then start the GUI:
 
 ```bash
 ./start_cpu_gui.sh
@@ -70,6 +77,10 @@ Requirements:
 - Docker Desktop
 - A loaded conDitar image named `localhost/conditar-dev:container-dev`
 
+Linux and macOS are supported for local GUI use. On Windows, use WSL2 with
+Docker Desktop integration; native PowerShell launchers are not currently
+provided.
+
 From the GUI folder inside your conDitar checkout:
 
 ```bash
@@ -93,6 +104,10 @@ Start the GUI:
 ```bash
 ./start_cpu_gui.sh
 ```
+
+The Setup page includes a **Launch checklist** that reports whether Python,
+Docker/Podman, the conDitar image, Slurm, and optional Tool Chest tools are
+available.
 
 If the browser does not open automatically, visit:
 

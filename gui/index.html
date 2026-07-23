@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="./media/logo/conditar-logo-highres-transparent.png">
   <link rel="apple-touch-icon" href="./media/logo/conditar-logo-highres-transparent.png">
-  <link rel="stylesheet" href="./src/styles.css?v=20260723-toolchest-2">
+  <link rel="stylesheet" href="./src/styles.css?v=20260723-launch-3">
 </head>
 <body>
   <div class="app-shell">
@@ -57,6 +57,18 @@
           <strong id="batch-mode-title">Batch ready</strong>
           <span id="batch-mode-message">Each selected folder will submit as a separate job.</span>
         </div>
+
+        <article class="panel setup-health-panel" id="setup-health-panel">
+          <div class="panel-heading list-heading">
+            <div><h3>Launch checklist</h3></div>
+            <button class="secondary-button compact-action" id="refresh-health" type="button">Check again</button>
+          </div>
+          <div class="setup-health-summary">
+            <strong id="setup-health-status">Checking setup</strong>
+            <span id="setup-health-detail">Looking for Python, Docker/Podman, the conDitar image, Slurm, and optional tools.</span>
+          </div>
+          <div class="setup-health-list" id="setup-health-list"></div>
+        </article>
 
         <div class="setup-grid">
           <article class="panel input-panel">
@@ -395,6 +407,6 @@
   <script async src="https://cdn.jsdelivr.net/npm/3dmol@2.4.2/build/3Dmol-min.js"></script>
   <script async src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script defer src="https://unpkg.com/@rdkit/rdkit/dist/RDKit_minimal.js"></script>
-  <script type="module" src="./src/app.js?v=20260723-toolchest-2"></script>
+  <script type="module" src="./src/app.js?v=20260723-launch-3"></script>
 </body>
 </html>
