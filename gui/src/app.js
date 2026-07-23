@@ -1,8 +1,8 @@
-import { ADVANCED_PARAMETERS, EXAMPLES, PARAMETERS } from "./config.js?v=20260723-layout-5";
-import { drawCategoryChart, drawHistogram } from "./charts.js?v=20260723-layout-5";
-import { ExampleDataService } from "./data-service.js?v=20260723-layout-5";
-import { vinaWasRun } from "./sdf.js?v=20260723-layout-5";
-import { render2D, render3D } from "./viewers.js?v=20260723-layout-5";
+import { ADVANCED_PARAMETERS, EXAMPLES, PARAMETERS } from "./config.js?v=20260723-theme-1";
+import { drawCategoryChart, drawHistogram } from "./charts.js?v=20260723-theme-1";
+import { ExampleDataService } from "./data-service.js?v=20260723-theme-1";
+import { vinaWasRun } from "./sdf.js?v=20260723-theme-1";
+import { render2D, render3D } from "./viewers.js?v=20260723-theme-1";
 
 const service = new ExampleDataService();
 const ACTIVE_JOB_STATUSES = new Set(["queued", "running"]);
@@ -11,6 +11,7 @@ const CLEANUP_JOB_STATUSES = new Set(["failed", "canceled"]);
 const SLURM_GPU_TARGET = "slurm_gpu";
 const LEGACY_SLURM_GPU_TARGET = "osc_gpu";
 const MAX_CATEGORICAL_FILTER_VALUES = 24;
+const THEME_STORAGE_KEY = "conditar-theme";
 
 const state = {
   study: null,
@@ -47,6 +48,7 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 
 function initialize() {
+  initializeTheme();
   const commonKeys = new Set(["num_samples", "pocket_radius"]);
   renderParameterFields(PARAMETERS.filter((parameter) => commonKeys.has(parameter.key)), $("#parameter-fields"));
   renderParameterFields(
@@ -150,7 +152,7 @@ function bindEvents() {
   $("#reset-export-filters").addEventListener("click", resetExportFilters);
   $("#select-all-candidates").addEventListener("click", () => { state.exportSelection = new Set(state.study?.candidates?.map((item) => item.id) || []); renderResultsTable(); });
   $("#clear-candidate-selection").addEventListener("click", () => { state.exportSelection.clear(); renderResultsTable(); });
-  $("#theme-toggle").addEventListener("click", () => document.body.classList.toggle("high-contrast"));
+  $("#theme-toggle").addEventListener("click", toggleTheme);
   $("#pdb-input").addEventListener("change", handlePdbUpload);
   $("#sdf-input").addEventListener("change", handleSdfUpload);
   $("#folder-input").addEventListener("change", handleFolderUpload);
@@ -2154,6 +2156,27 @@ function debounce(fn, wait) {
     clearTimeout(timeout);
     timeout = setTimeout(() => fn(...args), wait);
   };
+}
+
+function initializeTheme() {
+  const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+  setTheme(savedTheme === "dark" ? "dark" : "light");
+}
+
+function toggleTheme() {
+  setTheme(document.body.classList.contains("dark-mode") ? "light" : "dark", { persist: true });
+}
+
+function setTheme(theme, options = {}) {
+  const isDark = theme === "dark";
+  document.body.classList.toggle("dark-mode", isDark);
+  const toggle = $("#theme-toggle");
+  if (toggle) {
+    toggle.textContent = isDark ? "☼" : "◐";
+    toggle.setAttribute("aria-label", isDark ? "Switch to light mode" : "Switch to dark mode");
+    toggle.title = isDark ? "Switch to light mode" : "Switch to dark mode";
+  }
+  if (options.persist) localStorage.setItem(THEME_STORAGE_KEY, isDark ? "dark" : "light");
 }
 
 initialize();
