@@ -39,7 +39,6 @@ if [[ -z "$CONDITAR_DOCKER_TAR" ]]; then
     "$HOME"/containers/conditar*.tar.gz
     "$HOME"/containers/localhost_conditar-dev*.tar
     "$HOME"/containers/localhost_conditar-dev*.tar.gz
-    "/fs/ess/PCON0041/mey200/container_images/localhost_conditar-dev_container-dev-20260710-105038.tar.gz"
   )
   shopt -u nullglob
   for candidate in "${archive_candidates[@]}"; do

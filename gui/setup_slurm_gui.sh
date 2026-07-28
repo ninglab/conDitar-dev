@@ -15,11 +15,25 @@ ARCHIVE="${CONDITAR_DOCKER_TAR:-}"
 PODMAN_COMMAND="${PODMAN_BIN:-podman}"
 SBATCH_COMMAND="${SBATCH_BIN:-sbatch}"
 
-# Match the launcher convenience path when the OSC shared filesystem is mounted.
+# Match the launcher convenience path search.
 if [[ -z "$ARCHIVE" ]]; then
-  for candidate in \
-    "/fs/ess/PCON0041/mey200/container_images/localhost_conditar-dev_container-dev-20260710-105038.tar.gz" \
-    "$HOME/containers/localhost_conditar-dev_container-dev-20260710-105038.tar.gz"; do
+  shopt -s nullglob
+  archive_candidates=(
+    "$PWD"/conditar*.tar
+    "$PWD"/conditar*.tar.gz
+    "$PWD"/localhost_conditar-dev*.tar
+    "$PWD"/localhost_conditar-dev*.tar.gz
+    "$PWD"/../containers/conditar*.tar
+    "$PWD"/../containers/conditar*.tar.gz
+    "$PWD"/../containers/localhost_conditar-dev*.tar
+    "$PWD"/../containers/localhost_conditar-dev*.tar.gz
+    "$HOME"/containers/conditar*.tar
+    "$HOME"/containers/conditar*.tar.gz
+    "$HOME"/containers/localhost_conditar-dev*.tar
+    "$HOME"/containers/localhost_conditar-dev*.tar.gz
+  )
+  shopt -u nullglob
+  for candidate in "${archive_candidates[@]}"; do
     if [[ -f "$candidate" ]]; then
       ARCHIVE="$candidate"
       break
@@ -43,16 +57,34 @@ check_command() {
   fi
 }
 
-check_command python3 "Load Python 3.9 or newer."
 check_command "$PODMAN_COMMAND" "Load Podman or set PODMAN_BIN=/path/to/podman."
 check_command "$SBATCH_COMMAND" "Load Slurm or set SBATCH_BIN=/path/to/sbatch."
+
+if command -v python3 >/dev/null 2>&1; then
+  echo "OK    python3 found: $(command -v python3)"
+elif command -v conda >/dev/null 2>&1; then
+  echo "OK    conda found; the optional Tool Chest environment can provide GUI Python"
+else
+  echo "MISS  Python was not found"
+  echo "      Load Python 3.9 or newer, or install Miniconda/Mambaforge."
+  missing=1
+fi
+
+remove_env_value() {
+  local key="$1"
+  if [[ ! -f .conditar-slurm.env ]]; then
+    return
+  fi
+  local tmp
+  tmp="$(mktemp .conditar-slurm.env.XXXXXX)"
+  grep -v -E "^[[:space:]]*${key}=" .conditar-slurm.env > "$tmp" || true
+  mv "$tmp" .conditar-slurm.env
+}
 
 save_env_value() {
   local key="$1"
   local value="$2"
-  if [[ -f .conditar-slurm.env ]]; then
-    sed -i "/^[[:space:]]*${key}=/d" .conditar-slurm.env
-  fi
+  remove_env_value "$key"
   printf '%s=%q\n' "$key" "$value" >> .conditar-slurm.env
 }
 
@@ -92,10 +124,7 @@ if [[ -z "${CONDITAR_SLURM_ACCOUNT:-}" && -t 0 ]]; then
   read -r -p "Slurm account (required for GPU jobs): " entered_account
   if [[ -n "$entered_account" ]]; then
     CONDITAR_SLURM_ACCOUNT="$entered_account"
-    if [[ -f .conditar-slurm.env ]]; then
-      sed -i '/^[[:space:]]*CONDITAR_SLURM_ACCOUNT=/d' .conditar-slurm.env
-    fi
-    printf 'CONDITAR_SLURM_ACCOUNT=%q\n' "$CONDITAR_SLURM_ACCOUNT" >> .conditar-slurm.env
+    save_env_value CONDITAR_SLURM_ACCOUNT "$CONDITAR_SLURM_ACCOUNT"
     echo "Saved Slurm account to .conditar-slurm.env"
   fi
 fi
