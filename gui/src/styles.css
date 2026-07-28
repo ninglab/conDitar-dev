@@ -342,7 +342,12 @@ select, input[type="text"], input[type="number"], input[type="search"] { border:
 .tool-card-actions { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
 .tool-card-actions span, .tool-empty { color: var(--muted); font-size: 13px; }
 .tool-property-chip { display: inline-flex; max-width: 170px; min-height: 24px; align-items: center; padding: 0 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-soft); color: var(--muted); font: 500 11px "DM Mono"; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
-.export-filter-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; padding: 12px 0 4px; }
+.export-filter-list { display: grid; gap: 14px; padding: 12px 0 4px; }
+.export-filter-group { display: grid; gap: 8px; }
+.export-filter-group-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 0 2px; }
+.export-filter-group-heading strong { color: var(--accent-dark); font: 700 12px "DM Mono"; letter-spacing: .08em; text-transform: uppercase; }
+.export-filter-group-heading span { color: var(--muted); font-size: 13px; text-align: right; }
+.export-filter-group-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; }
 .export-filter-row { min-height: 94px; display: grid; grid-template-columns: 1fr; align-items: stretch; gap: 7px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); }
 .export-filter-row.active { border-color: var(--accent); background: var(--accent-soft); }
 .export-filter-row .check-control { min-width: 0; }
@@ -457,6 +462,8 @@ body.dark-mode .brand-logo, body.dark-mode .hero-mark { filter: drop-shadow(0 12
   .help-grid { grid-template-columns: 1fr; }
   .parameter-fields, .advanced-grid { grid-template-columns: 1fr 1fr; }
   .metric-strip { grid-template-columns: 1fr; }
+  .export-filter-group-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .export-filter-group-heading span { text-align: left; }
   .export-filter-row { grid-template-columns: 1fr; align-items: stretch; }
   .export-filter-controls { grid-template-columns: 62px minmax(0, 1fr) minmax(0, 1fr); }
   .export-filter-row small { text-align: left; }

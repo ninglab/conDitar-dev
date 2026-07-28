@@ -316,10 +316,12 @@ Tool Chest evaluators can also be selected before submission from
 the GUI backend after conDitar generation completes, without rebuilding the
 conDitar sampling image.
 
-The first included tool is the Lilly Medchem Rules filter. Its dependency is
-listed in `gui/environment.yml`, keeping this post-processing layer separate
-from the conDitar sampling image. Users can add or update GUI tools without
-rebuilding the model container.
+Included tools currently cover Lilly Medchem Rules plus the medchem tutorial
+filter set: Ro5, Ghose, Veber, ZINC, BMS alerts, PAINS alerts, SureChEMBL
+alerts, NIBR, complexity, Bredt, molecular graph, and Lilly demerit. Their
+dependencies are listed in `gui/environment.yml`, keeping this post-processing
+layer separate from the conDitar sampling image. Users can add or update GUI
+tools without rebuilding the model container.
 
 The basic GUI only needs Python because structure viewing runs in the browser
 with JavaScript libraries. Tool Chest evaluators run on the GUI backend, so
@@ -331,9 +333,10 @@ environment. To enable the included tools, run once:
 ```
 
 After that, `./start_cpu_gui.sh` and `./start_slurm_gui.sh` automatically use
-the `conditar-gui-dev` environment when it is available. Without that
-environment, the GUI still starts with system Python and marks missing optional
-tools as unavailable.
+the `conditar-gui-dev` environment when it is available. On macOS,
+`start_gui.command` will also try to create/update that optional environment
+before launching. Without that environment, the GUI still starts with system
+Python and marks missing optional tools as unavailable.
 
 The GUI still starts if optional tools are missing; unavailable tools are shown
 disabled until their command-line dependency is available in the GUI

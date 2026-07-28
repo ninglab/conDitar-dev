@@ -1016,6 +1016,13 @@ function toolOptionControl(tool, input, context = "results") {
 
 function toolRunSummary(run) {
   const result = run.result || {};
+  if (run.tool_id === "medchem_filters" && Number.isFinite(Number(result.molecules))) {
+    const molecules = Number(result.molecules);
+    const allPassed = Number(result.all_passed ?? 0);
+    const filterCount = Array.isArray(result.filters) ? result.filters.length : Number(result.filters_total || 0);
+    const filterText = filterCount ? ` all ${filterCount} filters` : " all filters";
+    return `${run.status === "completed" ? "Last run" : "Last attempt"}: ${escapeHtml(allPassed)}/${escapeHtml(molecules)} passed${filterText}`;
+  }
   const totals = Number.isFinite(Number(result.molecules))
     ? `${result.passed ?? 0}/${result.molecules} passed`
     : run.status;
@@ -1085,18 +1092,52 @@ function toolQualityRows(candidates) {
 }
 
 function toolPropertyBadges(item) {
+  const medchemPassed = propertyMetric(item, "MEDCHEM_FILTERS_PASSED");
+  const medchemTotal = propertyMetric(item, "MEDCHEM_FILTERS_TOTAL");
+  const medchemSummary = Number.isFinite(medchemPassed) && Number.isFinite(medchemTotal)
+    ? `<span class="tool-property-chip" title="MedChem filters passed">MedChem: ${escapeHtml(medchemPassed)}/${escapeHtml(medchemTotal)}</span>`
+    : "";
   const values = toolOutputDefinitions()
+    .filter((output) => output.name !== "MEDCHEM_FILTERS_PASSED")
+    .filter((output) => output.name !== "MEDCHEM_FILTERS_TOTAL")
+    .filter((output) => !output.name.startsWith("MEDCHEM_"))
+    .filter((output) => !output.name.endsWith("_STATUS"))
+    .filter((output) => !output.name.endsWith("_REASONS"))
+    .filter((output) => !output.name.endsWith("_FAILURES"))
     .map((output) => ({ output, value: item.properties?.[output.name] }))
     .filter((entry) => entry.value);
-  if (!values.length) return "-";
-  return values.map(({ output, value }) => {
-    const text = toolPropertyDisplay(value);
-    if (output.type === "boolean") {
-      const passed = isTruthyProperty(value);
-      return `<span class="status-badge compact-badge" data-status="${passed ? "completed" : "failed"}" title="${escapeHtml(output.label)}">${escapeHtml(output.label)}: ${passed ? "Pass" : "Fail"}</span>`;
-    }
-    return `<span class="tool-property-chip" title="${escapeHtml(text)}">${escapeHtml(output.label)}: ${escapeHtml(text)}</span>`;
-  }).join(" ");
+  if (!values.length && !medchemSummary) return "-";
+  return [
+    medchemSummary,
+    ...values.map(({ output, value }) => {
+      const text = toolPropertyDisplay(value);
+      if (output.type === "boolean") {
+        const passed = isTruthyProperty(value);
+        return `<span class="status-badge compact-badge" data-status="${passed ? "completed" : "failed"}" title="${escapeHtml(output.label)}">${escapeHtml(output.label)}: ${passed ? "Pass" : "Fail"}</span>`;
+      }
+      return `<span class="tool-property-chip" title="${escapeHtml(text)}">${escapeHtml(output.label)}: ${escapeHtml(text)}</span>`;
+    }),
+  ].filter(Boolean).join(" ");
+}
+
+function viewerToolMetricRows(item) {
+  const medchemPassed = propertyMetric(item, "MEDCHEM_FILTERS_PASSED");
+  const medchemTotal = propertyMetric(item, "MEDCHEM_FILTERS_TOTAL");
+  const rows = Number.isFinite(medchemPassed) && Number.isFinite(medchemTotal)
+    ? [["MedChem", `${formatMetric(medchemPassed, 0)}/${formatMetric(medchemTotal, 0)} passed`]]
+    : [];
+  toolOutputDefinitions()
+    .filter((output) => output.name !== "MEDCHEM_FILTERS_PASSED")
+    .filter((output) => output.name !== "MEDCHEM_FILTERS_TOTAL")
+    .filter((output) => !output.name.startsWith("MEDCHEM_"))
+    .filter((output) => !output.name.endsWith("_STATUS"))
+    .filter((output) => !output.name.endsWith("_REASONS"))
+    .filter((output) => !output.name.endsWith("_FAILURES"))
+    .forEach((output) => {
+      const value = item.properties?.[output.name];
+      if (value) rows.push([output.label || propertyLabel(output.name), toolPropertyDisplay(value)]);
+    });
+  return rows;
 }
 
 function toolPropertyDisplay(value) {
@@ -1138,7 +1179,18 @@ function renderExportFilters() {
     status.textContent = "No metrics";
     return;
   }
-  list.innerHTML = definitions.map((metric) => exportFilterControl(metric)).join("");
+  const groups = exportFilterGroups(definitions);
+  list.innerHTML = groups.map((group) => `
+    <section class="export-filter-group" aria-label="${escapeHtml(group.title)}">
+      <div class="export-filter-group-heading">
+        <strong>${escapeHtml(group.title)}</strong>
+        <span>${escapeHtml(group.description)}</span>
+      </div>
+      <div class="export-filter-group-grid">
+        ${group.metrics.map((metric) => exportFilterControl(metric)).join("")}
+      </div>
+    </section>
+  `).join("");
   $$(".export-filter-row").forEach((row) => {
     const id = row.dataset.metricId;
     row.querySelectorAll("input, select").forEach((control) => control.addEventListener("input", () => {
@@ -1156,6 +1208,15 @@ function renderExportFilters() {
     }));
   });
   updateExportFilterStatus();
+}
+
+function exportFilterGroups(definitions) {
+  const values = definitions.filter((metric) => metric.type === "number");
+  const filters = definitions.filter((metric) => metric.type !== "number");
+  return [
+    { title: "Values", description: "Numeric thresholds and ranges", metrics: values },
+    { title: "Filters", description: "Pass/fail and category requirements", metrics: filters },
+  ].filter((group) => group.metrics.length);
 }
 
 function exportFilterControl(metric) {
@@ -1285,7 +1346,9 @@ function updateExportFilterStatus() {
   const activeCount = Object.values(state.exportFilters).filter((filter) => filter.enabled).length;
   const selectedCount = state.exportSelection?.size || 0;
   const total = state.study?.candidates?.length || 0;
-  status.textContent = activeCount ? `${activeCount} active · ${selectedCount}/${total} selected` : total ? `No filters · ${selectedCount}/${total} selected` : "No job loaded";
+  status.textContent = activeCount
+    ? `${selectedCount}/${total} passed all ${activeCount} filter${activeCount === 1 ? "" : "s"}`
+    : total ? `No filters · ${selectedCount}/${total} selected` : "No job loaded";
   $$(".export-filter-row").forEach((row) => {
     const filter = state.exportFilters[row.dataset.metricId];
     row.classList.toggle("active", Boolean(filter?.enabled));
@@ -1626,10 +1689,7 @@ function renderSelectedStructure() {
   if (vinaDock !== null) metrics.push(["Vina redocked", formatMetric(vinaDock)]);
   const qvina = propertyMetric(molecule, "QVINA");
   if (qvina !== null) metrics.push(["QVina", formatMetric(qvina)]);
-  toolOutputDefinitions().forEach((output) => {
-    const value = molecule.properties?.[output.name];
-    if (value) metrics.push([output.label || propertyLabel(output.name), toolPropertyDisplay(value)]);
-  });
+  metrics.push(...viewerToolMetricRows(molecule));
   $("#selected-metrics").innerHTML = metrics.map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join("");
   render2D($("#viewer-2d"), molecule);
   render3D($("#viewer-3d"), molecule, state.study.pdbText, {

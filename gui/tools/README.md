@@ -2,6 +2,10 @@
 
 Drop Python tool modules in this folder to make them available in the Results tab.
 
+Built-in examples include `lilly_medchem.py` and `medchem_filters.py`. Both
+write SDF properties that the GUI can use for Results-table display,
+distribution plots, export filters, CSV export, and filtered SDF/ZIP exports.
+
 ## Fast path
 
 1. Copy `_tool_template.py` to a new file name, for example `my_filter.py`.
