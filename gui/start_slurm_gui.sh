@@ -13,6 +13,14 @@ fi
 export CONDITAR_RUNTIME="${CONDITAR_RUNTIME:-podman}"
 export CONDITAR_DOCKER_IMAGE="${CONDITAR_DOCKER_IMAGE:-localhost/conditar-dev:container-dev}"
 export CONDITAR_DOCKER_TAR="${CONDITAR_DOCKER_TAR:-}"
+configured_tar="$CONDITAR_DOCKER_TAR"
+
+# A stale path can remain in .conditar-slurm.env after moving to a new VM.
+# Clear it temporarily so the shared/default archive search can recover.
+if [[ -n "$CONDITAR_DOCKER_TAR" && ! -f "$CONDITAR_DOCKER_TAR" ]]; then
+  echo "WARNING: configured GPU container archive is not readable: $CONDITAR_DOCKER_TAR" >&2
+  export CONDITAR_DOCKER_TAR=""
+fi
 
 # Prefer a nearby exported image archive when one is available. This prevents a
 # later Slurm task from trying to pull a localhost image from a registry.
@@ -31,6 +39,7 @@ if [[ -z "$CONDITAR_DOCKER_TAR" ]]; then
     "$HOME"/containers/conditar*.tar.gz
     "$HOME"/containers/localhost_conditar-dev*.tar
     "$HOME"/containers/localhost_conditar-dev*.tar.gz
+    "/fs/ess/PCON0041/mey200/container_images/localhost_conditar-dev_container-dev-20260710-105038.tar.gz"
   )
   shopt -u nullglob
   for candidate in "${archive_candidates[@]}"; do
@@ -39,6 +48,9 @@ if [[ -z "$CONDITAR_DOCKER_TAR" ]]; then
       break
     fi
   done
+fi
+if [[ -z "$CONDITAR_DOCKER_TAR" && -n "$configured_tar" ]]; then
+  export CONDITAR_DOCKER_TAR="$configured_tar"
 fi
 if [[ -z "${CONDITAR_SOURCE_MOUNT:-}" && -d ../conDitar-dev ]]; then
   export CONDITAR_SOURCE_MOUNT="$(cd ../conDitar-dev && pwd)"
