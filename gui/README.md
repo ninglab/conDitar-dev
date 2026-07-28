@@ -59,8 +59,14 @@ available.
 For GPU runs through Slurm and Podman:
 
 ```bash
+./setup_slurm_gui.sh
 ./start_slurm_gui.sh
 ```
+
+On OSC, these scripts automatically use the canonical shared archive when it
+is mounted at `/fs/ess/PCON0041/mey200/container_images/`. You do not need to
+type an archive path manually. If your site uses a different shared location,
+set `CONDITAR_DOCKER_TAR` in `.conditar-slurm.env` before running the scripts.
 
 Both launchers start the GUI at:
 
@@ -146,9 +152,10 @@ Fresh Slurm/GPU setup:
    launcher also checks common nearby `conditar*.tar`/`.tar.gz` locations such
    as the GUI folder, `../containers/`, and `$HOME/containers/`.
 4. Confirm the cluster tools are available (`python3`, `podman`, and `sbatch`),
-   then start the GUI:
+   then run the GPU setup check and start the GUI:
 
    ```bash
+   ./setup_slurm_gui.sh
    ./start_slurm_gui.sh
    ```
 

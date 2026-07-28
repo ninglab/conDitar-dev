@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+if [[ -f .conditar-slurm.env ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .conditar-slurm.env
+  set +a
+fi
+
+IMAGE="${CONDITAR_DOCKER_IMAGE:-localhost/conditar-dev:container-dev}"
+ARCHIVE="${CONDITAR_DOCKER_TAR:-}"
+PODMAN_COMMAND="${PODMAN_BIN:-podman}"
+SBATCH_COMMAND="${SBATCH_BIN:-sbatch}"
+
+# Match the launcher convenience path when the OSC shared filesystem is mounted.
+if [[ -z "$ARCHIVE" ]]; then
+  for candidate in \
+    "/fs/ess/PCON0041/mey200/container_images/localhost_conditar-dev_container-dev-20260710-105038.tar.gz" \
+    "$HOME/containers/localhost_conditar-dev_container-dev-20260710-105038.tar.gz"; do
+    if [[ -f "$candidate" ]]; then
+      ARCHIVE="$candidate"
+      break
+    fi
+  done
+fi
+
+echo "conDitar Slurm/GPU setup check"
+echo
+missing=0
+
+check_command() {
+  local name="$1"
+  local hint="$2"
+  if command -v "$name" >/dev/null 2>&1; then
+    echo "OK    $name found: $(command -v "$name")"
+  else
+    echo "MISS  $name not found"
+    echo "      $hint"
+    missing=1
+  fi
+}
+
+check_command python3 "Load Python 3.9 or newer."
+check_command "$PODMAN_COMMAND" "Load Podman or set PODMAN_BIN=/path/to/podman."
+check_command "$SBATCH_COMMAND" "Load Slurm or set SBATCH_BIN=/path/to/sbatch."
+
+if [[ -n "$ARCHIVE" ]]; then
+  if [[ -r "$ARCHIVE" ]]; then
+    echo "OK    container archive readable: $ARCHIVE"
+  else
+    echo "MISS  container archive is not readable: $ARCHIVE"
+    echo "      Set CONDITAR_DOCKER_TAR to a compute-node-visible .tar/.tar.gz archive."
+    missing=1
+  fi
+elif command -v "$PODMAN_COMMAND" >/dev/null 2>&1 && "$PODMAN_COMMAND" image exists "$IMAGE" >/dev/null 2>&1; then
+  echo "OK    preloaded container image found: $IMAGE"
+else
+  echo "MISS  no container archive or preloaded image found: $IMAGE"
+  echo "      Set CONDITAR_DOCKER_TAR to a shared archive, or preload the image with podman load."
+  missing=1
+fi
+
+if [[ -n "${CONDITAR_SLURM_ACCOUNT:-}" ]]; then
+  echo "OK    Slurm account configured: $CONDITAR_SLURM_ACCOUNT"
+else
+  echo "WARN  Slurm account is not configured"
+  echo "      Enter it in the GUI before submitting a GPU job, or set CONDITAR_SLURM_ACCOUNT."
+fi
+
+echo
+if [[ "$missing" -eq 0 ]]; then
+  echo "Slurm/GPU setup is ready. Start the GUI with:"
+  echo "  ./start_slurm_gui.sh"
+else
+  echo "Setup check finished with missing requirements. Fix the items above, then rerun:"
+  echo "  ./setup_slurm_gui.sh"
+  exit 2
+fi

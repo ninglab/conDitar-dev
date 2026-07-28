@@ -1002,6 +1002,14 @@ class LocalJobManager:
                 f"  {podman_command} load -i {shlex.quote(self.docker_tar)}",
                 "fi",
             ])
+        else:
+            image_check = "\n".join([
+                f"if ! {podman_command} image exists {shlex.quote(self.docker_image)}; then",
+                f"  echo \"Container image {self.docker_image} is not available on the compute node.\" >&2",
+                "  echo \"Set CONDITAR_DOCKER_TAR to a compute-node-visible .tar/.tar.gz archive, or preload the image on the compute node.\" >&2",
+                "  exit 125",
+                "fi",
+            ])
 
         fallback_tmp = shlex.quote(str(paths.root / "tmp"))
         runtime_setup = "\n".join([
