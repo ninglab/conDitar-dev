@@ -63,6 +63,18 @@ else
   missing=1
 fi
 
+if [[ -z "${CONDITAR_SLURM_ACCOUNT:-}" && -t 0 ]]; then
+  read -r -p "Slurm account (required for GPU jobs): " entered_account
+  if [[ -n "$entered_account" ]]; then
+    CONDITAR_SLURM_ACCOUNT="$entered_account"
+    if [[ -f .conditar-slurm.env ]]; then
+      sed -i '/^[[:space:]]*CONDITAR_SLURM_ACCOUNT=/d' .conditar-slurm.env
+    fi
+    printf 'CONDITAR_SLURM_ACCOUNT=%q\n' "$CONDITAR_SLURM_ACCOUNT" >> .conditar-slurm.env
+    echo "Saved Slurm account to .conditar-slurm.env"
+  fi
+fi
+
 if [[ -n "${CONDITAR_SLURM_ACCOUNT:-}" ]]; then
   echo "OK    Slurm account configured: $CONDITAR_SLURM_ACCOUNT"
 else
