@@ -23,8 +23,17 @@ check_command() {
   fi
 }
 
-check_command python3 "Install Python 3.9 or newer."
 check_command "$DOCKER_COMMAND" "Install Docker Desktop, then restart this terminal."
+
+if command -v python3 >/dev/null 2>&1; then
+  echo "OK    python3 found: $(command -v python3)"
+elif command -v conda >/dev/null 2>&1; then
+  echo "OK    conda found; the optional Tool Chest environment can provide GUI Python"
+else
+  echo "MISS  Python was not found"
+  echo "      Install Python 3.9 or newer, Miniconda, or Mambaforge."
+  missing=1
+fi
 
 if command -v "$DOCKER_COMMAND" >/dev/null 2>&1; then
   if "$DOCKER_COMMAND" info >/dev/null 2>&1; then

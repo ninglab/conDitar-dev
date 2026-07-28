@@ -64,20 +64,26 @@ if [[ -z "$CONDITAR_DOCKER_TAR" ]] && command -v podman >/dev/null 2>&1 \
   echo "Example: podman load -i /shared/path/localhost_conditar-dev_container-dev.tar.gz" >&2
   exit 2
 fi
-for required in python3 podman sbatch; do
-  if ! command -v "$required" >/dev/null 2>&1; then
-    echo "ERROR: required Slurm GPU command not found: $required" >&2
-    echo "Load the appropriate Python, Podman, and Slurm modules, then retry." >&2
-    exit 2
-  fi
-done
-
 PYTHON_COMMAND=(python3)
 if [[ -n "${CONDITAR_GUI_PYTHON:-}" ]]; then
   PYTHON_COMMAND=("$CONDITAR_GUI_PYTHON")
 elif command -v conda >/dev/null 2>&1 && conda run -n conditar-gui-dev python -c "import sys" >/dev/null 2>&1; then
   PYTHON_COMMAND=(conda run --no-capture-output -n conditar-gui-dev python)
 fi
+
+if ! "${PYTHON_COMMAND[@]}" -c "import sys" >/dev/null 2>&1; then
+  echo "ERROR: Python was not found." >&2
+  echo "Load Python or install Miniconda/Mambaforge, then retry." >&2
+  exit 2
+fi
+
+for required in podman sbatch; do
+  if ! command -v "$required" >/dev/null 2>&1; then
+    echo "ERROR: required Slurm GPU command not found: $required" >&2
+    echo "Load the appropriate Podman and Slurm modules, then retry." >&2
+    exit 2
+  fi
+done
 
 echo "Starting conDitar GUI"
 echo "Container image: $CONDITAR_DOCKER_IMAGE"
