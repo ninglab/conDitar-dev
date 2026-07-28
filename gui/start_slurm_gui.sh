@@ -13,6 +13,20 @@ fi
 export CONDITAR_RUNTIME="${CONDITAR_RUNTIME:-podman}"
 export CONDITAR_DOCKER_IMAGE="${CONDITAR_DOCKER_IMAGE:-localhost/conditar-dev:container-dev}"
 export CONDITAR_DOCKER_TAR="${CONDITAR_DOCKER_TAR:-}"
+
+# Prefer the shared OSC archive automatically when the shared filesystem is
+# mounted. This prevents a later Slurm task from trying to pull a localhost
+# image from a registry.
+if [[ -z "$CONDITAR_DOCKER_TAR" ]]; then
+  for candidate in \
+    "/fs/ess/PCON0041/mey200/container_images/localhost_conditar-dev_container-dev-20260710-105038.tar.gz" \
+    "$HOME/containers/localhost_conditar-dev_container-dev-20260710-105038.tar.gz"; do
+    if [[ -f "$candidate" ]]; then
+      export CONDITAR_DOCKER_TAR="$candidate"
+      break
+    fi
+  done
+fi
 if [[ -z "${CONDITAR_SOURCE_MOUNT:-}" && -d ../conDitar-dev ]]; then
   export CONDITAR_SOURCE_MOUNT="$(cd ../conDitar-dev && pwd)"
 elif [[ -z "${CONDITAR_SOURCE_MOUNT:-}" && -d ../docker && -d ../scripts ]]; then
@@ -27,6 +41,14 @@ export CONDITAR_SLURM_GPUS="${CONDITAR_SLURM_GPUS:-1}"
 if [[ -n "$CONDITAR_DOCKER_TAR" && ! -f "$CONDITAR_DOCKER_TAR" ]]; then
   echo "ERROR: GPU container archive not found: $CONDITAR_DOCKER_TAR" >&2
   echo "Set CONDITAR_DOCKER_TAR to a readable .tar/.tar.gz archive, or leave it empty when the image is already available." >&2
+  exit 2
+fi
+
+if [[ -z "$CONDITAR_DOCKER_TAR" ]] && command -v podman >/dev/null 2>&1 \
+  && ! podman image exists "$CONDITAR_DOCKER_IMAGE" >/dev/null 2>&1; then
+  echo "ERROR: Slurm GPU image is unavailable: $CONDITAR_DOCKER_IMAGE" >&2
+  echo "Set CONDITAR_DOCKER_TAR to a readable archive or load the image with podman load." >&2
+  echo "Example: podman load -i /fs/ess/PCON0041/mey200/container_images/localhost_conditar-dev_container-dev-20260710-105038.tar.gz" >&2
   exit 2
 fi
 for required in python3 podman sbatch; do
