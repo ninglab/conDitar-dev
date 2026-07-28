@@ -216,11 +216,15 @@ function renderRuntimeStatus(health) {
   if (!status || !detail || !health) return;
   const slurmAvailable = Boolean(health.slurm?.sbatch);
   const slurm = slurmAvailable ? "sbatch available" : "sbatch not found";
-  const imageReady = Boolean(health.container_image?.exists);
   const isSlurmGpu = isSlurmGpuTarget(resolvedTarget());
+  // Slurm tasks can load the image from the configured shared archive on the
+  // compute node; it does not need to be pre-loaded in the GUI host's image
+  // store.
+  const archiveReady = Boolean(health.container_archive?.exists);
+  const imageReady = Boolean(health.container_image?.exists) || (isSlurmGpu && archiveReady);
   status.textContent = isSlurmGpu ? (slurmAvailable ? "Slurm GPU available" : "Slurm setup needs attention") : imageReady ? "Local CPU available" : "Local setup needs attention";
   detail.textContent = isSlurmGpu
-    ? `${slurm}; ${imageReady ? "container image found" : "container image not confirmed"}. Selected target: Slurm GPU.`
+    ? `${slurm}; ${health.container_image?.exists ? "container image found" : archiveReady ? "shared container archive ready" : "container image not confirmed"}. Selected target: Slurm GPU.`
     : `${imageReady ? "container image found" : "container image missing"}. Selected target: Local CPU.`;
 }
 
@@ -270,6 +274,14 @@ function targetAwareHealthChecks(health) {
     return checks.filter((check) => check.id !== "slurm");
   }
   return checks.map((check) => {
+    if (check.id === "container_image" && check.status !== "ok" && health?.container_archive?.exists) {
+      return {
+        ...check,
+        status: "ok",
+        detail: "Shared container archive is ready; the image will be loaded on the Slurm compute node.",
+        action: "",
+      };
+    }
     if (check.id !== "slurm" || check.status === "ok") return check;
     return {
       ...check,

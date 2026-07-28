@@ -99,6 +99,8 @@ class LocalJobManager:
 
     def health(self) -> dict:
         image = self._container_image_status()
+        archive_path = Path(self.docker_tar).expanduser() if self.docker_tar else None
+        archive_exists = bool(archive_path and archive_path.is_file())
         tools = self.tool_chest.list_tools()
         available_tools = [tool for tool in tools if tool.get("available")]
         runtime_ok = bool(self.container_runtime)
@@ -153,6 +155,11 @@ class LocalJobManager:
             "container_backend": self.container_runtime_kind,
             "container_runtime": self.container_runtime,
             "container_image": image,
+            "container_archive": {
+                "path": str(archive_path) if archive_path else "",
+                "exists": archive_exists,
+                "detail": f"Archive available: {archive_path}" if archive_exists else (f"Archive not found: {archive_path}" if archive_path else "No container archive configured"),
+            },
             "gpu_available": bool(Path("/dev/nvidia0").exists()),
             "docker_image": self.docker_image,
             "docker_tar": self.docker_tar,

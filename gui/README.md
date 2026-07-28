@@ -124,6 +124,39 @@ PORT=4174 ./start_cpu_gui.sh
 
 ## Slurm GPU startup
 
+Fresh Slurm/GPU setup:
+
+1. Copy or clone this repository onto the cluster and enter the GUI folder.
+2. Make the Docker/OCI image available to compute nodes. Either preload
+   `localhost/conditar-dev:container-dev` with Podman, or place the exported
+   `.tar`/`.tar.gz` archive on a filesystem visible from compute nodes.
+3. Configure the image/archive and scheduler account in a local
+   `.conditar-slurm.env` file (this file is ignored and should not be committed):
+
+   ```bash
+   CONDITAR_DOCKER_TAR=/shared/path/conditar-image.tar.gz
+   CONDITAR_DOCKER_IMAGE=localhost/conditar-dev:container-dev
+   CONDITAR_SLURM_ACCOUNT=your_account
+   # CONDITAR_SLURM_PARTITION=your_gpu_partition   # if required by your site
+   ```
+
+   If the image is already loaded on every compute node, leave
+   `CONDITAR_DOCKER_TAR` empty. The archive path must resolve from the compute
+   node, not only from the login host.
+4. Confirm the cluster tools are available (`python3`, `podman`, and `sbatch`),
+   then start the GUI:
+
+   ```bash
+   ./start_slurm_gui.sh
+   ```
+
+5. Open the printed GUI URL, choose **Slurm GPU · Podman**, enter/confirm the
+   Slurm account, and click **Check again** in Launch readiness before submitting.
+
+The launcher validates the image/archive and required commands before starting.
+Each submitted GPU batch is sent to Slurm as an array job; scheduler delays or
+account/GPU limits are reported in the Jobs panel with the scheduler reason.
+
 Requirements:
 
 - A cluster session with Slurm available
