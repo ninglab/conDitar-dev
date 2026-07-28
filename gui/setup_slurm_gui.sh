@@ -47,6 +47,31 @@ check_command python3 "Load Python 3.9 or newer."
 check_command "$PODMAN_COMMAND" "Load Podman or set PODMAN_BIN=/path/to/podman."
 check_command "$SBATCH_COMMAND" "Load Slurm or set SBATCH_BIN=/path/to/sbatch."
 
+save_env_value() {
+  local key="$1"
+  local value="$2"
+  if [[ -f .conditar-slurm.env ]]; then
+    sed -i "/^[[:space:]]*${key}=/d" .conditar-slurm.env
+  fi
+  printf '%s=%q\n' "$key" "$value" >> .conditar-slurm.env
+}
+
+if [[ -n "$ARCHIVE" && ! -r "$ARCHIVE" && -t 0 ]]; then
+  echo "Configured archive is not readable: $ARCHIVE"
+  read -r -p "Enter a compute-node-visible archive path (or press Enter to keep it): " entered_archive
+  [[ -n "$entered_archive" ]] && ARCHIVE="$entered_archive"
+fi
+
+if [[ -z "$ARCHIVE" ]] && command -v "$PODMAN_COMMAND" >/dev/null 2>&1 \
+  && ! "$PODMAN_COMMAND" image exists "$IMAGE" >/dev/null 2>&1 && -t 0; then
+  read -r -p "Path to a shared Docker/OCI archive (or press Enter if preloaded on compute nodes): " entered_archive
+  if [[ -n "$entered_archive" ]]; then
+    ARCHIVE="$entered_archive"
+    save_env_value CONDITAR_DOCKER_TAR "$ARCHIVE"
+    echo "Saved container archive path to .conditar-slurm.env"
+  fi
+fi
+
 if [[ -n "$ARCHIVE" ]]; then
   if [[ -r "$ARCHIVE" ]]; then
     echo "OK    container archive readable: $ARCHIVE"

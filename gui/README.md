@@ -159,6 +159,9 @@ Fresh Slurm/GPU setup:
    ./start_slurm_gui.sh
    ```
 
+   If no image or archive is detected, `setup_slurm_gui.sh` prompts for the
+   compute-node-visible archive path and saves it in `.conditar-slurm.env`.
+
 5. Open the printed GUI URL, choose **Slurm GPU · Podman**, enter/confirm the
    Slurm account, and click **Check again** in Launch readiness before submitting.
 
