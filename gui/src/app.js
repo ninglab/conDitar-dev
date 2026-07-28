@@ -1084,6 +1084,7 @@ function toolOutputDefinitions() {
 function toolQualityRows(candidates) {
   return toolOutputDefinitions()
     .filter((output) => output.type === "boolean")
+    .filter((output) => output.viewer !== "hidden")
     .map((output) => {
       const annotated = candidates.filter((item) => item.properties?.[output.name]);
       const passing = annotated.filter((item) => isTruthyProperty(item.properties?.[output.name])).length;
@@ -1092,23 +1093,14 @@ function toolQualityRows(candidates) {
 }
 
 function toolPropertyBadges(item) {
-  const medchemPassed = propertyMetric(item, "MEDCHEM_FILTERS_PASSED");
-  const medchemTotal = propertyMetric(item, "MEDCHEM_FILTERS_TOTAL");
-  const medchemSummary = Number.isFinite(medchemPassed) && Number.isFinite(medchemTotal)
-    ? `<span class="tool-property-chip" title="Number of MedChem filters passed by this molecule.">MedChem: ${escapeHtml(medchemPassed)}/${escapeHtml(medchemTotal)}</span>`
-    : "";
+  const summaries = toolSummaryBadges(item);
   const values = toolOutputDefinitions()
-    .filter((output) => output.name !== "MEDCHEM_FILTERS_PASSED")
-    .filter((output) => output.name !== "MEDCHEM_FILTERS_TOTAL")
-    .filter((output) => !output.name.startsWith("MEDCHEM_"))
-    .filter((output) => !output.name.endsWith("_STATUS"))
-    .filter((output) => !output.name.endsWith("_REASONS"))
-    .filter((output) => !output.name.endsWith("_FAILURES"))
+    .filter((output) => shouldShowToolOutput(output))
     .map((output) => ({ output, value: item.properties?.[output.name] }))
     .filter((entry) => entry.value);
-  if (!values.length && !medchemSummary) return "-";
+  if (!values.length && !summaries.length) return "-";
   return [
-    medchemSummary,
+    ...summaries,
     ...values.map(({ output, value }) => {
       const text = toolPropertyDisplay(value);
       const title = output.description || output.label;
@@ -1122,23 +1114,41 @@ function toolPropertyBadges(item) {
 }
 
 function viewerToolMetricRows(item) {
-  const medchemPassed = propertyMetric(item, "MEDCHEM_FILTERS_PASSED");
-  const medchemTotal = propertyMetric(item, "MEDCHEM_FILTERS_TOTAL");
-  const rows = Number.isFinite(medchemPassed) && Number.isFinite(medchemTotal)
-    ? [["MedChem", `${formatMetric(medchemPassed, 0)}/${formatMetric(medchemTotal, 0)} passed`]]
-    : [];
+  const rows = toolSummaryRows(item);
   toolOutputDefinitions()
-    .filter((output) => output.name !== "MEDCHEM_FILTERS_PASSED")
-    .filter((output) => output.name !== "MEDCHEM_FILTERS_TOTAL")
-    .filter((output) => !output.name.startsWith("MEDCHEM_"))
-    .filter((output) => !output.name.endsWith("_STATUS"))
-    .filter((output) => !output.name.endsWith("_REASONS"))
-    .filter((output) => !output.name.endsWith("_FAILURES"))
+    .filter((output) => shouldShowToolOutput(output))
     .forEach((output) => {
       const value = item.properties?.[output.name];
       if (value) rows.push([output.label || propertyLabel(output.name), toolPropertyDisplay(value)]);
     });
   return rows;
+}
+
+function shouldShowToolOutput(output) {
+  if (output.viewer === "hidden" || output.viewer === "summary") return false;
+  return !/_STATUS$|_REASONS$|_FAILURES$|_OUTPUT$/i.test(output.name || "");
+}
+
+function toolSummaryRows(item) {
+  return toolOutputDefinitions()
+    .filter((output) => output.viewer === "summary")
+    .map((output) => {
+      const value = propertyMetric(item, output.name);
+      const total = output.summary_total ? propertyMetric(item, output.summary_total) : null;
+      if (!Number.isFinite(value)) return null;
+      const suffix = output.summary_suffix ? ` ${output.summary_suffix}` : "";
+      const display = Number.isFinite(total)
+        ? `${formatMetric(value, 0)}/${formatMetric(total, 0)}${suffix}`
+        : `${formatMetric(value)}${suffix}`;
+      return [output.summary_label || output.label || propertyLabel(output.name), display, output.description || ""];
+    })
+    .filter(Boolean);
+}
+
+function toolSummaryBadges(item) {
+  return toolSummaryRows(item).map(([label, value, title]) => (
+    `<span class="tool-property-chip" title="${escapeHtml(title || label)}">${escapeHtml(label)}: ${escapeHtml(value)}</span>`
+  ));
 }
 
 function toolPropertyDisplay(value) {

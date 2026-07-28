@@ -142,7 +142,9 @@ Fresh Slurm/GPU setup:
 
    If the image is already loaded on every compute node, leave
    `CONDITAR_DOCKER_TAR` empty. The archive path must resolve from the compute
-   node, not only from the login host.
+   node, not only from the login host. If `CONDITAR_DOCKER_TAR` is unset, the
+   launcher also checks common nearby `conditar*.tar`/`.tar.gz` locations such
+   as the GUI folder, `../containers/`, and `$HOME/containers/`.
 4. Confirm the cluster tools are available (`python3`, `podman`, and `sbatch`),
    then start the GUI:
 
