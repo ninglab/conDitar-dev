@@ -7,21 +7,21 @@ from typing import Callable
 
 
 FILTERS = [
-    ("MEDCHEM_RO5_PASS", "Ro5", "rule"),
-    ("MEDCHEM_GHOSE_PASS", "Ghose", "rule"),
-    ("MEDCHEM_VEBER_PASS", "Veber", "rule"),
-    ("MEDCHEM_ZINC_PASS", "ZINC", "rule"),
-    ("MEDCHEM_BMS_ALERTS_PASS", "BMS Alerts", "functional"),
-    ("MEDCHEM_PAINS_ALERTS_PASS", "PAINS Alerts", "functional"),
-    ("MEDCHEM_SURECHEMBL_ALERTS_PASS", "SureChEMBL Alerts", "functional"),
-    ("MEDCHEM_NIBR_PASS", "NIBR", "functional"),
-    ("MEDCHEM_COMPLEXITY_PASS", "Complexity", "functional"),
-    ("MEDCHEM_BREDT_PASS", "Bredt", "functional"),
-    ("MEDCHEM_GRAPH_PASS", "Molecular Graph", "functional"),
-    ("MEDCHEM_LILLY_DEMERIT_PASS", "Lilly Demerit", "functional"),
+    ("MEDCHEM_RO5_PASS", "Ro5", "rule", "Lipinski rule-of-five check: pass means MW <= 500, LogP <= 5, HBD <= 5, and HBA <= 10."),
+    ("MEDCHEM_GHOSE_PASS", "Ghose", "rule", "Ghose drug-likeness check: pass means MW, LogP, atom count, and molar refractivity are within MedChem's Ghose ranges."),
+    ("MEDCHEM_VEBER_PASS", "Veber", "rule", "Veber oral-drug-likeness check: pass means rotatable bonds <= 10 and TPSA < 140."),
+    ("MEDCHEM_ZINC_PASS", "ZINC", "rule", "ZINC drug-likeness rule of thumb covering MW, LogP, HBD/HBA, TPSA, rotatable bonds, rings, carbon count, ratio, and charge limits."),
+    ("MEDCHEM_BMS_ALERTS_PASS", "BMS Alerts", "functional", "Structural-alert filter using the BMS alert collection; pass means no matching BMS alert was found."),
+    ("MEDCHEM_PAINS_ALERTS_PASS", "PAINS Alerts", "functional", "Structural-alert filter using the PAINS alert collection; pass means no matching PAINS alert was found."),
+    ("MEDCHEM_SURECHEMBL_ALERTS_PASS", "SureChEMBL Alerts", "functional", "Structural-alert filter using the SureChEMBL alert collection; pass means no matching SureChEMBL alert was found."),
+    ("MEDCHEM_NIBR_PASS", "NIBR", "functional", "Novartis screening-deck curation filter; pass means accumulated alert severity is below the configured cutoff."),
+    ("MEDCHEM_COMPLEXITY_PASS", "Complexity", "functional", "Complexity filter using MedChem's configured Bertz complexity metric against ZINC reference statistics."),
+    ("MEDCHEM_BREDT_PASS", "Bredt", "functional", "Bredt-rule filter; pass means the molecule does not violate Bredt's rules."),
+    ("MEDCHEM_GRAPH_PASS", "Molecular Graph", "functional", "Unstable molecular-graph filter; pass means no disallowed graph pattern exceeds the configured severity cutoff."),
+    ("MEDCHEM_LILLY_DEMERIT_PASS", "Lilly Demerit", "functional", "Eli Lilly demerit filter; pass means the molecule does not violate MedChem's Lilly demerit rules at the configured cutoff."),
 ]
 
-PROPERTY_NAMES = [name for name, _, _ in FILTERS] + [
+PROPERTY_NAMES = [name for name, _, _, _ in FILTERS] + [
     "MEDCHEM_FILTERS_PASSED",
     "MEDCHEM_FILTERS_TOTAL",
     "MEDCHEM_STATUS",
@@ -39,8 +39,8 @@ def describe() -> dict:
         "error": error,
         "inputs": [],
         "outputs": [
-            *[{"name": name, "label": label, "type": "boolean"} for name, label, _ in FILTERS],
-            {"name": "MEDCHEM_FILTERS_PASSED", "label": "MedChem Passed", "type": "number"},
+            *[{"name": name, "label": label, "type": "boolean", "description": description} for name, label, _, description in FILTERS],
+            {"name": "MEDCHEM_FILTERS_PASSED", "label": "MedChem Passed", "type": "number", "description": "Number of MedChem filters passed by this molecule."},
             {"name": "MEDCHEM_FILTERS_TOTAL", "label": "MedChem Total", "type": "number", "filterable": False},
             {"name": "MEDCHEM_STATUS", "type": "text"},
             {"name": "MEDCHEM_FAILURES", "type": "text", "filterable": False},
@@ -75,7 +75,7 @@ def run(job_root: str, run_root: str, options: dict) -> dict:
 
         results: dict[str, bool] = {}
         failures = []
-        for name, label, _ in FILTERS:
+        for name, label, _, _ in FILTERS:
             try:
                 passed = bool(evaluators[name](mol))
             except Exception as error:  # Keep one problematic filter/molecule from killing the whole run.
@@ -108,7 +108,7 @@ def run(job_root: str, run_root: str, options: dict) -> dict:
     summary = {
         "molecules": len(sdf_paths),
         "parsed": len(records),
-        "filters": [{"property": name, "label": label} for name, label, _ in FILTERS],
+        "filters": [{"property": name, "label": label} for name, label, _, _ in FILTERS],
         "all_passed": sum(1 for item in records if item["passed"] == len(FILTERS)),
         "mean_filters_passed": round(sum(item["passed"] for item in records) / len(records), 3) if records else 0,
         "errors": errors,
@@ -170,7 +170,7 @@ def _mol_from_sdf_text(sdf_text: str, chem):
 
 
 def _invalid_properties(reason: str) -> dict[str, str]:
-    props = {name: "false" for name, _, _ in FILTERS}
+    props = {name: "false" for name, _, _, _ in FILTERS}
     props.update({
         "MEDCHEM_FILTERS_PASSED": "0",
         "MEDCHEM_FILTERS_TOTAL": str(len(FILTERS)),

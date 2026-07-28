@@ -349,6 +349,7 @@ select, input[type="text"], input[type="number"], input[type="search"] { border:
 .export-filter-group-heading span { color: var(--muted); font-size: 13px; text-align: right; }
 .export-filter-group-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; }
 .export-filter-row { min-height: 94px; display: grid; grid-template-columns: 1fr; align-items: stretch; gap: 7px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); }
+.export-filter-row.boolean-filter-row { min-height: 64px; align-content: center; }
 .export-filter-row.active { border-color: var(--accent); background: var(--accent-soft); }
 .export-filter-row .check-control { min-width: 0; }
 .export-filter-row .check-control input { flex: 0 0 16px; }

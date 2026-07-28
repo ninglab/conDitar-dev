@@ -1095,7 +1095,7 @@ function toolPropertyBadges(item) {
   const medchemPassed = propertyMetric(item, "MEDCHEM_FILTERS_PASSED");
   const medchemTotal = propertyMetric(item, "MEDCHEM_FILTERS_TOTAL");
   const medchemSummary = Number.isFinite(medchemPassed) && Number.isFinite(medchemTotal)
-    ? `<span class="tool-property-chip" title="MedChem filters passed">MedChem: ${escapeHtml(medchemPassed)}/${escapeHtml(medchemTotal)}</span>`
+    ? `<span class="tool-property-chip" title="Number of MedChem filters passed by this molecule.">MedChem: ${escapeHtml(medchemPassed)}/${escapeHtml(medchemTotal)}</span>`
     : "";
   const values = toolOutputDefinitions()
     .filter((output) => output.name !== "MEDCHEM_FILTERS_PASSED")
@@ -1111,11 +1111,12 @@ function toolPropertyBadges(item) {
     medchemSummary,
     ...values.map(({ output, value }) => {
       const text = toolPropertyDisplay(value);
+      const title = output.description || output.label;
       if (output.type === "boolean") {
         const passed = isTruthyProperty(value);
-        return `<span class="status-badge compact-badge" data-status="${passed ? "completed" : "failed"}" title="${escapeHtml(output.label)}">${escapeHtml(output.label)}: ${passed ? "Pass" : "Fail"}</span>`;
+        return `<span class="status-badge compact-badge" data-status="${passed ? "completed" : "failed"}" title="${escapeHtml(title)}">${escapeHtml(output.label)}: ${passed ? "Pass" : "Fail"}</span>`;
       }
-      return `<span class="tool-property-chip" title="${escapeHtml(text)}">${escapeHtml(output.label)}: ${escapeHtml(text)}</span>`;
+      return `<span class="tool-property-chip" title="${escapeHtml(`${title}: ${text}`)}">${escapeHtml(output.label)}: ${escapeHtml(text)}</span>`;
     }),
   ].filter(Boolean).join(" ");
 }
@@ -1246,6 +1247,17 @@ function exportFilterControl(metric) {
       </div>
     `;
   }
+  if (metric.type === "boolean") {
+    return `
+      <div class="export-filter-row boolean-filter-row" data-metric-id="${escapeHtml(metric.id)}" title="${escapeHtml(exportFilterHelp(metric, filter))}">
+        <label class="check-control">
+          <input type="checkbox" data-filter-field="enabled" ${active}>
+          <span>${escapeHtml(metric.label)}</span>
+        </label>
+        <small>Require pass</small>
+      </div>
+    `;
+  }
   return `
     <div class="export-filter-row" data-metric-id="${escapeHtml(metric.id)}" title="${escapeHtml(exportFilterHelp(metric, filter))}">
       <label class="check-control">
@@ -1331,13 +1343,18 @@ function exportFilterText(metric, filter) {
   if (metric.type === "number") {
     return `${metric.label} ${filter.operator || ">="} ${formatFilterValue(filter.value)}`;
   }
+  if (metric.type === "boolean") {
+    return `${metric.label} must pass`;
+  }
   return `${metric.label} = ${metricValueLabel(metric, filter.value)}`;
 }
 
 function exportFilterHelp(metric, filter) {
+  const description = metric.description ? `${metric.description} ` : "";
   if (filter.enabled) return exportFilterText(metric, filter);
-  if (metric.type === "number") return `Enable to filter exported molecules by ${metric.label}.`;
-  return `Enable to require a ${metric.label} value for exported molecules.`;
+  if (metric.type === "number") return `${description}Enable to filter exported molecules by ${metric.label}.`;
+  if (metric.type === "boolean") return `${description}Enable to require ${metric.label} to pass for exported molecules.`;
+  return `${description}Enable to require a ${metric.label} value for exported molecules.`;
 }
 
 function updateExportFilterStatus() {
@@ -1386,7 +1403,7 @@ function candidatePassesExportFilter(item, metric, filter) {
     return filter.operator === "<=" ? numericValue <= threshold : numericValue >= threshold;
   }
   if (metric.type === "boolean") {
-    return String(filter.value) === "true" ? isTruthyProperty(value) : isFalseyProperty(value);
+    return isTruthyProperty(value);
   }
   return String(value ?? "") === String(filter.value ?? "");
 }
@@ -1417,6 +1434,7 @@ function availableExportMetrics() {
     const metric = metricWithValues({
       id: `tool:${output.name}`,
       label: output.label || propertyLabel(output.name),
+      description: output.description || "",
       type,
       property: output.name,
       defaultOperator: type === "number" ? ">=" : "=",
@@ -1552,7 +1570,7 @@ function renderHistogramMetricOptions() {
     return;
   }
   select.disabled = false;
-  select.innerHTML = metrics.map((metric) => `<option value="${escapeHtml(metric.id)}">${escapeHtml(metric.label)}</option>`).join("");
+  select.innerHTML = metrics.map((metric) => `<option value="${escapeHtml(metric.id)}" title="${escapeHtml(metric.description || metric.label)}">${escapeHtml(metric.label)}</option>`).join("");
   select.value = metrics.some((metric) => metric.id === current) ? current : metrics[0].id;
 }
 
