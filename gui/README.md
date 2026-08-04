@@ -52,9 +52,10 @@ Then start the GUI:
 ./start_cpu_gui.sh
 ```
 
-On macOS, you can also double-click `start_gui.command` from Finder. It starts
-the local CPU GUI and sets up the optional Tool Chest environment when conda is
-available.
+On macOS, you can also double-click `START_HERE_MAC.command` from Finder. It
+checks Docker Desktop, sets up the optional Tool Chest environment when conda
+is available, finds or asks for the container archive if the image is missing,
+and starts the local CPU GUI.
 
 For GPU runs through Slurm and Podman:
 
@@ -369,9 +370,9 @@ environment. To enable the included tools, run once:
 
 After that, `./start_cpu_gui.sh` and `./start_slurm_gui.sh` automatically use
 the `conditar-gui-dev` environment when it is available. On macOS,
-`start_gui.command` will also try to create/update that optional environment
-before launching. Without that environment, the GUI still starts with system
-Python and marks missing optional tools as unavailable.
+`START_HERE_MAC.command` will also try to create/update that optional
+environment before launching. Without that environment, the GUI still starts
+with system Python and marks missing optional tools as unavailable.
 
 The GUI still starts if optional tools are missing; unavailable tools are shown
 disabled until their command-line dependency is available in the GUI
