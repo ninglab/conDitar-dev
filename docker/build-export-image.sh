@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 image_tag="${CONDITAR_DOCKER_TAG:-localhost/conditar-dev:container-dev}"
-output_dir="${CONDITAR_IMAGE_OUTPUT_DIR:-/fs/ess/PCON0041/mey200/container_images}"
+output_dir="${CONDITAR_IMAGE_OUTPUT_DIR:-$repo_root/container_images}"
 stamp="${CONDITAR_IMAGE_STAMP:-$(date +%Y%m%d-%H%M%S)}"
 safe_tag="$(echo "$image_tag" | tr '/:' '__')"
 tar_path="$output_dir/${safe_tag}-${stamp}.tar"

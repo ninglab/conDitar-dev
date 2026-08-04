@@ -4,9 +4,9 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 image_tag="${CONDITAR_DOCKER_TAG:-localhost/conditar-dev:container-dev}"
 platform="${CONDITAR_DOCKER_PLATFORM:-linux/amd64}"
-checkpoint_src="${CONDITAR_CHECKPOINT_DIR:-/fs/ess/PCON0041/gruoxi/SBDDcode/checkpoints}"
+checkpoint_src="${CONDITAR_CHECKPOINT_DIR:-$repo_root/checkpoints}"
 checkpoint_dest="$repo_root/docker/checkpoints"
-qvina_src="${CONDITAR_QVINA_BIN:-/fs/ess/PCON0041/gruoxi/qvina/bin/qvina2.1}"
+qvina_src="${CONDITAR_QVINA_BIN:-}"
 qvina_dest="$repo_root/docker/qvina/qvina2.1"
 container_engine="${CONDITAR_CONTAINER_ENGINE:-auto}"
 buildah_isolation="${CONDITAR_BUILDAH_ISOLATION:-chroot}"
@@ -90,7 +90,11 @@ elif [[ -f "$qvina_dest" ]]; then
     chmod 0755 "$qvina_dest"
     echo "Using previously staged QuickVina2 at $qvina_dest"
 else
-    echo "QuickVina2 binary not found at $qvina_src" >&2
+    if [[ -n "$qvina_src" ]]; then
+        echo "QuickVina2 binary not found at $qvina_src" >&2
+    else
+        echo "QuickVina2 binary was not provided." >&2
+    fi
     echo "The image will still build, but --vina-mode qvina/all will require CONDITAR_QVINA_BIN or --qvina-bin at runtime." >&2
 fi
 
