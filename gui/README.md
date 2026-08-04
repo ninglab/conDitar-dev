@@ -83,9 +83,32 @@ Requirements:
 - Docker Desktop
 - A loaded conDitar image named `localhost/conditar-dev:container-dev`
 
-Linux and macOS are supported for local GUI use. On Windows, use WSL2 with
-Docker Desktop integration; native PowerShell launchers are not currently
-provided.
+Linux, macOS, and Windows through WSL2 are supported for local GUI use. On
+Windows, run the shell scripts from WSL2, not native PowerShell. Install Docker
+Desktop, enable its WSL2 integration, and leave Docker Desktop running while
+you use the GUI.
+
+### Windows CPU setup
+
+Use this path for a local Windows CPU run:
+
+1. Install Docker Desktop and WSL2.
+2. In Docker Desktop, open **Settings > Resources > WSL Integration** and turn
+   on integration for the WSL distribution you will use.
+3. Install Miniconda or Miniforge inside WSL, then open a fresh WSL terminal.
+4. Put the `gui/` folder and the downloaded container `.tar.gz` somewhere WSL
+   can read, such as your WSL home directory or `/mnt/c/Users/<you>/Downloads`.
+5. From the GUI folder, run:
+
+   ```bash
+   ./setup_gui.sh
+   docker load -i /path/to/localhost_conditar-dev_container-dev.tar.gz
+   ./start_cpu_gui.sh
+   ```
+
+The Windows-tested path uses the same `setup_gui.sh` and `start_cpu_gui.sh`
+launchers as macOS/Linux. If Docker commands fail inside WSL, first confirm
+Docker Desktop is open and WSL integration is enabled for that distribution.
 
 From the GUI folder inside your conDitar checkout:
 
