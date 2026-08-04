@@ -42,7 +42,7 @@ def score_molecule(
         task = task or VinaDockingTask(str(protein), mol, tmp_dir=str(tmp_dir))
         vina_results["score_only"] = task.run(mode="score_only", exhaustiveness=exhaustiveness, cpu=cpu)
         vina_results["minimize"] = task.run(mode="minimize", exhaustiveness=exhaustiveness, cpu=cpu)
-        if mode == "vina_dock":
+        if mode in {"vina_dock", "all"}:
             vina_results["dock"] = task.run(mode="dock", exhaustiveness=exhaustiveness, cpu=cpu)
     if mode in {"qvina", "all"}:
         task = task or VinaDockingTask(str(protein), mol, tmp_dir=str(tmp_dir))

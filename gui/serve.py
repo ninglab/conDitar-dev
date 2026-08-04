@@ -53,22 +53,11 @@ class ConDitarRequestHandler(SimpleHTTPRequestHandler):
         parts = self.path.split("?")[0].strip("/").split("/")
         try:
             if parts == ["api", "health"]:
-                self._send_json({
-                    "ok": True,
-                    "container_backend": JOB_MANAGER.container_runtime_kind,
-                    "container_runtime": JOB_MANAGER.container_runtime,
-                    "gpu_available": bool(Path("/dev/nvidia0").exists()),
-                    "docker_image": JOB_MANAGER.docker_image,
-                    "docker_tar": JOB_MANAGER.docker_tar,
-                    "slurm": {
-                        "sbatch": JOB_MANAGER.sbatch_bin,
-                        "squeue": JOB_MANAGER.squeue_bin,
-                        "sacct": JOB_MANAGER.sacct_bin,
-                        "defaults": JOB_MANAGER.slurm_defaults,
-                    },
-                })
+                self._send_json(JOB_MANAGER.health())
             elif parts == ["api", "jobs"]:
                 self._send_json({"jobs": JOB_MANAGER.list_jobs()})
+            elif parts == ["api", "tools"]:
+                self._send_json({"tools": JOB_MANAGER.list_tools()})
             elif len(parts) == 3 and parts[:2] == ["api", "jobs"]:
                 job = JOB_MANAGER.get_job(parts[2])
                 self._send_json({"job": job} if job else {"error": "Job not found."}, 200 if job else 404)
@@ -93,13 +82,15 @@ class ConDitarRequestHandler(SimpleHTTPRequestHandler):
             elif len(parts) == 4 and parts[:2] == ["api", "jobs"] and parts[3] == "cancel":
                 self._send_json({"job": JOB_MANAGER.cancel(parts[2])})
             elif len(parts) == 4 and parts[:2] == ["api", "jobs"] and parts[3] == "export":
-                self._send_json(JOB_MANAGER.export_job(parts[2]))
+                self._send_json(JOB_MANAGER.export_job(parts[2], self._read_json()))
             elif len(parts) == 4 and parts[:2] == ["api", "jobs"] and parts[3] in {"archive", "cleanup"}:
                 self._send_json({"job": JOB_MANAGER.archive_job(parts[2])})
             elif len(parts) == 4 and parts[:2] == ["api", "jobs"] and parts[3] == "rerun":
                 self._send_json({"job": JOB_MANAGER.rerun_job(parts[2])}, 201)
             elif len(parts) == 4 and parts[:3] == ["api", "jobs", "rerun"]:
                 self._send_json({"job": JOB_MANAGER.rerun_job(parts[3])}, 201)
+            elif len(parts) == 5 and parts[:2] == ["api", "jobs"] and parts[3] == "tools":
+                self._send_json(JOB_MANAGER.run_tool(parts[2], parts[4], self._read_json()))
             else:
                 self._send_json({"error": "Unknown API endpoint."}, 404)
         except ValueError as error:

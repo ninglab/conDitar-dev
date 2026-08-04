@@ -1,5 +1,6 @@
 
 checkpoints/
+container_images/
 results/
 results_qvina*/
 validation_runs/

@@ -29,9 +29,10 @@ conDitar-dev container/source
 Typical local flow:
 
 1. Build or load the `conDitar-dev` container image.
-2. Start this GUI folder with `./start_cpu_gui.sh`.
-3. Open `http://127.0.0.1:4173`.
-4. Choose inputs, settings, and target, then click **Generate molecules**.
+2. Run `./setup_gui.sh` to check Python, Docker, the image, and optional tools.
+3. Start this GUI folder with `./start_cpu_gui.sh`.
+4. Open `http://127.0.0.1:4173`.
+5. Choose inputs, settings, and target, then click **Generate molecules**.
 
 Job folders are written under `job_data/jobs/<job-id>/`. That directory is
 ignored by git and contains staged inputs, logs, metadata, generated SDFs, and
@@ -39,17 +40,34 @@ export ZIPs.
 
 ## Quick start
 
-For local CPU runs with Docker:
+For first-time local CPU setup with Docker:
+
+```bash
+./setup_gui.sh
+```
+
+Then start the GUI:
 
 ```bash
 ./start_cpu_gui.sh
 ```
 
+On macOS, you can also double-click `START_HERE_MAC.command` from Finder. It
+checks Docker Desktop, sets up the optional Tool Chest environment when conda
+is available, finds or asks for the container archive if the image is missing,
+and starts the local CPU GUI.
+
 For GPU runs through Slurm and Podman:
 
 ```bash
+./setup_slurm_gui.sh
 ./start_slurm_gui.sh
 ```
+
+These scripts can automatically find container archives in common nearby
+locations such as the GUI folder, `../containers/`, and `$HOME/containers/`.
+For site-specific shared storage, set `CONDITAR_DOCKER_TAR` in
+`.conditar-slurm.env` before running the scripts.
 
 Both launchers start the GUI at:
 
@@ -65,6 +83,33 @@ Requirements:
 - Python 3.9 or newer
 - Docker Desktop
 - A loaded conDitar image named `localhost/conditar-dev:container-dev`
+
+Linux, macOS, and Windows through WSL2 are supported for local GUI use. On
+Windows, run the shell scripts from WSL2, not native PowerShell. Install Docker
+Desktop, enable its WSL2 integration, and leave Docker Desktop running while
+you use the GUI.
+
+### Windows CPU setup
+
+Use this path for a local Windows CPU run:
+
+1. Install Docker Desktop and WSL2.
+2. In Docker Desktop, open **Settings > Resources > WSL Integration** and turn
+   on integration for the WSL distribution you will use.
+3. Install Miniconda or Miniforge inside WSL, then open a fresh WSL terminal.
+4. Put the `gui/` folder and the downloaded container `.tar.gz` somewhere WSL
+   can read, such as your WSL home directory or `/mnt/c/Users/<you>/Downloads`.
+5. From the GUI folder, run:
+
+   ```bash
+   ./setup_gui.sh
+   docker load -i /path/to/localhost_conditar-dev_container-dev.tar.gz
+   ./start_cpu_gui.sh
+   ```
+
+The Windows-tested path uses the same `setup_gui.sh` and `start_cpu_gui.sh`
+launchers as macOS/Linux. If Docker commands fail inside WSL, first confirm
+Docker Desktop is open and WSL integration is enabled for that distribution.
 
 From the GUI folder inside your conDitar checkout:
 
@@ -90,6 +135,10 @@ Start the GUI:
 ./start_cpu_gui.sh
 ```
 
+The Setup page includes a **Launch checklist** that reports whether Python,
+Docker/Podman, the conDitar image, Slurm, and optional Tool Chest tools are
+available.
+
 If the browser does not open automatically, visit:
 
 ```text
@@ -104,6 +153,45 @@ PORT=4174 ./start_cpu_gui.sh
 ```
 
 ## Slurm GPU startup
+
+Fresh Slurm/GPU setup:
+
+1. Copy or clone this repository onto the cluster and enter the GUI folder.
+2. Make the Docker/OCI image available to compute nodes. Either preload
+   `localhost/conditar-dev:container-dev` with Podman, or place the exported
+   `.tar`/`.tar.gz` archive on a filesystem visible from compute nodes.
+3. Configure the image/archive and scheduler account in a local
+   `.conditar-slurm.env` file (this file is ignored and should not be committed):
+
+   ```bash
+   CONDITAR_DOCKER_TAR=/shared/path/conditar-image.tar.gz
+   CONDITAR_DOCKER_IMAGE=localhost/conditar-dev:container-dev
+   CONDITAR_SLURM_ACCOUNT=your_account
+   # CONDITAR_SLURM_PARTITION=your_gpu_partition   # if required by your site
+   ```
+
+   If the image is already loaded on every compute node, leave
+   `CONDITAR_DOCKER_TAR` empty. The archive path must resolve from the compute
+   node, not only from the login host. If `CONDITAR_DOCKER_TAR` is unset, the
+   launcher also checks common nearby `conditar*.tar`/`.tar.gz` locations such
+   as the GUI folder, `../containers/`, and `$HOME/containers/`.
+4. Confirm the cluster tools are available (`python3` or `conda`, `podman`, and `sbatch`),
+   then run the GPU setup check and start the GUI:
+
+   ```bash
+   ./setup_slurm_gui.sh
+   ./start_slurm_gui.sh
+   ```
+
+   If no image or archive is detected, `setup_slurm_gui.sh` prompts for the
+   compute-node-visible archive path and saves it in `.conditar-slurm.env`.
+
+5. Open the printed GUI URL, choose **Slurm GPU · Podman**, enter/confirm the
+   Slurm account, and click **Check again** in Launch readiness before submitting.
+
+The launcher validates the image/archive and required commands before starting.
+Each submitted GPU batch is sent to Slurm as an array job; scheduler delays or
+account/GPU limits are reported in the Jobs panel with the scheduler reason.
 
 Requirements:
 
@@ -222,12 +310,17 @@ NVIDIA runtime. For normal GPU throughput, use the Slurm/Podman path.
 5. Enable Vina scoring if desired, then review Slurm options when using the GPU target.
 6. Click **Generate molecules**.
 7. Use the **Jobs** tab to monitor status and load completed outputs.
-8. Use the **Results** and **Export** tabs to inspect molecules and download
-   SDF/CSV/ZIP artifacts.
+8. Use the **Results** and **Export** tabs to inspect molecules, filter
+   candidates, and download SDF/CSV/ZIP artifacts.
 
 CPU email notifications are intentionally disabled in the GUI until a local
 SMTP/sendmail path is configured. Slurm GPU jobs can use scheduler email notifications
 when an email address is provided.
+
+Filtered exports are saved both by the browser and, for completed backend jobs,
+under the job folder at `job_data/jobs/<job-id>/filtered_exports/`. Each
+filtered export includes copied SDFs, `metrics.csv`, and `export_metadata.json`
+with the active thresholds and tool runs used for that subset.
 
 If a Slurm job is `PENDING`, the scheduler has accepted it but is waiting for account,
 partition, or GPU capacity. If it fails before producing container output,
@@ -246,6 +339,45 @@ The GUI can accept folders of paired inputs.
 
 The browser never passes arbitrary client filesystem paths into the container.
 Uploaded files are copied into each job's private `inputs/` directory first.
+
+## Tool Chest
+
+Completed jobs can be annotated with optional molecule-evaluation tools from the
+Results tab. Tool runs write logs and summaries under
+`job_data/jobs/<job-id>/tool_runs/` and can add new SDF properties that appear
+in the table, selected-molecule details, and CSV export.
+
+Tool Chest evaluators can also be selected before submission from
+**Advanced run settings** under **Evaluate molecules**. Those evaluators run on
+the GUI backend after conDitar generation completes, without rebuilding the
+conDitar sampling image.
+
+Included tools currently cover Lilly Medchem Rules plus the medchem tutorial
+filter set: Ro5, Ghose, Veber, ZINC, BMS alerts, PAINS alerts, SureChEMBL
+alerts, NIBR, complexity, Bredt, molecular graph, and Lilly demerit. Their
+dependencies are listed in `gui/environment.yml`, keeping this post-processing
+layer separate from the conDitar sampling image. Users can add or update GUI
+tools without rebuilding the model container.
+
+The basic GUI only needs Python because structure viewing runs in the browser
+with JavaScript libraries. Tool Chest evaluators run on the GUI backend, so
+tools with command-line dependencies need those dependencies in the GUI
+environment. To enable the included tools, run once:
+
+```bash
+./setup_tool_chest.sh
+```
+
+After that, `./start_cpu_gui.sh` and `./start_slurm_gui.sh` automatically use
+the `conditar-gui-dev` environment when it is available. On macOS,
+`START_HERE_MAC.command` will also try to create/update that optional
+environment before launching. Without that environment, the GUI still starts
+with system Python and marks missing optional tools as unavailable.
+
+The GUI still starts if optional tools are missing; unavailable tools are shown
+disabled until their command-line dependency is available in the GUI
+environment. See [`tools/README.md`](tools/README.md) for the plug-in contract
+for adding custom evaluators.
 
 ## Vina post-processing
 

@@ -13,6 +13,44 @@ fi
 export CONDITAR_RUNTIME="${CONDITAR_RUNTIME:-podman}"
 export CONDITAR_DOCKER_IMAGE="${CONDITAR_DOCKER_IMAGE:-localhost/conditar-dev:container-dev}"
 export CONDITAR_DOCKER_TAR="${CONDITAR_DOCKER_TAR:-}"
+configured_tar="$CONDITAR_DOCKER_TAR"
+
+# A stale path can remain in .conditar-slurm.env after moving to a new VM.
+# Clear it temporarily so the shared/default archive search can recover.
+if [[ -n "$CONDITAR_DOCKER_TAR" && ! -f "$CONDITAR_DOCKER_TAR" ]]; then
+  echo "WARNING: configured GPU container archive is not readable: $CONDITAR_DOCKER_TAR" >&2
+  export CONDITAR_DOCKER_TAR=""
+fi
+
+# Prefer a nearby exported image archive when one is available. This prevents a
+# later Slurm task from trying to pull a localhost image from a registry.
+if [[ -z "$CONDITAR_DOCKER_TAR" ]]; then
+  shopt -s nullglob
+  archive_candidates=(
+    "$PWD"/conditar*.tar
+    "$PWD"/conditar*.tar.gz
+    "$PWD"/localhost_conditar-dev*.tar
+    "$PWD"/localhost_conditar-dev*.tar.gz
+    "$PWD"/../containers/conditar*.tar
+    "$PWD"/../containers/conditar*.tar.gz
+    "$PWD"/../containers/localhost_conditar-dev*.tar
+    "$PWD"/../containers/localhost_conditar-dev*.tar.gz
+    "$HOME"/containers/conditar*.tar
+    "$HOME"/containers/conditar*.tar.gz
+    "$HOME"/containers/localhost_conditar-dev*.tar
+    "$HOME"/containers/localhost_conditar-dev*.tar.gz
+  )
+  shopt -u nullglob
+  for candidate in "${archive_candidates[@]}"; do
+    if [[ -f "$candidate" ]]; then
+      export CONDITAR_DOCKER_TAR="$candidate"
+      break
+    fi
+  done
+fi
+if [[ -z "$CONDITAR_DOCKER_TAR" && -n "$configured_tar" ]]; then
+  export CONDITAR_DOCKER_TAR="$configured_tar"
+fi
 if [[ -z "${CONDITAR_SOURCE_MOUNT:-}" && -d ../conDitar-dev ]]; then
   export CONDITAR_SOURCE_MOUNT="$(cd ../conDitar-dev && pwd)"
 elif [[ -z "${CONDITAR_SOURCE_MOUNT:-}" && -d ../docker && -d ../scripts ]]; then
@@ -29,10 +67,31 @@ if [[ -n "$CONDITAR_DOCKER_TAR" && ! -f "$CONDITAR_DOCKER_TAR" ]]; then
   echo "Set CONDITAR_DOCKER_TAR to a readable .tar/.tar.gz archive, or leave it empty when the image is already available." >&2
   exit 2
 fi
-for required in python3 podman sbatch; do
+
+if [[ -z "$CONDITAR_DOCKER_TAR" ]] && command -v podman >/dev/null 2>&1 \
+  && ! podman image exists "$CONDITAR_DOCKER_IMAGE" >/dev/null 2>&1; then
+  echo "ERROR: Slurm GPU image is unavailable: $CONDITAR_DOCKER_IMAGE" >&2
+  echo "Set CONDITAR_DOCKER_TAR to a readable archive or load the image with podman load." >&2
+  echo "Example: podman load -i /shared/path/localhost_conditar-dev_container-dev.tar.gz" >&2
+  exit 2
+fi
+PYTHON_COMMAND=(python3)
+if [[ -n "${CONDITAR_GUI_PYTHON:-}" ]]; then
+  PYTHON_COMMAND=("$CONDITAR_GUI_PYTHON")
+elif command -v conda >/dev/null 2>&1 && conda run -n conditar-gui-dev python -c "import sys" >/dev/null 2>&1; then
+  PYTHON_COMMAND=(conda run --no-capture-output -n conditar-gui-dev python)
+fi
+
+if ! "${PYTHON_COMMAND[@]}" -c "import sys" >/dev/null 2>&1; then
+  echo "ERROR: Python was not found." >&2
+  echo "Load Python or install Miniconda/Mambaforge, then retry." >&2
+  exit 2
+fi
+
+for required in podman sbatch; do
   if ! command -v "$required" >/dev/null 2>&1; then
     echo "ERROR: required Slurm GPU command not found: $required" >&2
-    echo "Load the appropriate Python, Podman, and Slurm modules, then retry." >&2
+    echo "Load the appropriate Podman and Slurm modules, then retry." >&2
     exit 2
   fi
 done
@@ -42,8 +101,9 @@ echo "Container image: $CONDITAR_DOCKER_IMAGE"
 echo "Container archive: ${CONDITAR_DOCKER_TAR:-none}"
 echo "Source mount: ${CONDITAR_SOURCE_MOUNT:-none}"
 echo "Runtime: $CONDITAR_RUNTIME"
+echo "GUI Python: ${PYTHON_COMMAND[*]}"
 echo "Slurm defaults: account=${CONDITAR_SLURM_ACCOUNT:-none} time=$CONDITAR_SLURM_TIME mem=$CONDITAR_SLURM_MEM cpus=$CONDITAR_SLURM_CPUS gpus=$CONDITAR_SLURM_GPUS"
 echo "GPU mode: select Slurm GPU in the Setup panel"
 echo
 
-python3 serve.py --host 127.0.0.1 --port "${PORT:-4173}" --open
+"${PYTHON_COMMAND[@]}" serve.py --host 127.0.0.1 --port "${PORT:-4173}" --open

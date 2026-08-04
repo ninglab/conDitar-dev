@@ -1,8 +1,8 @@
-import { ADVANCED_PARAMETERS, EXAMPLES, PARAMETERS } from "./config.js?v=20260715-source-branding-1";
-import { drawHistogram } from "./charts.js?v=20260715-source-branding-1";
-import { ExampleDataService } from "./data-service.js?v=20260715-source-branding-1";
-import { vinaWasRun } from "./sdf.js?v=20260715-source-branding-1";
-import { render2D, render3D } from "./viewers.js?v=20260715-source-branding-1";
+import { ADVANCED_PARAMETERS, EXAMPLES, PARAMETERS } from "./config.js?v=20260723-theme-1";
+import { drawCategoryChart, drawHistogram } from "./charts.js?v=20260723-theme-1";
+import { ExampleDataService } from "./data-service.js?v=20260723-theme-1";
+import { vinaWasRun } from "./sdf.js?v=20260723-theme-1";
+import { render2D, render3D } from "./viewers.js?v=20260723-theme-1";
 
 const service = new ExampleDataService();
 const ACTIVE_JOB_STATUSES = new Set(["queued", "running"]);
@@ -10,6 +10,8 @@ const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "canceled"]);
 const CLEANUP_JOB_STATUSES = new Set(["failed", "canceled"]);
 const SLURM_GPU_TARGET = "slurm_gpu";
 const LEGACY_SLURM_GPU_TARGET = "osc_gpu";
+const MAX_CATEGORICAL_FILTER_VALUES = 24;
+const THEME_STORAGE_KEY = "conditar-theme";
 
 const state = {
   study: null,
@@ -32,17 +34,21 @@ const state = {
   runtimeHealth: null,
   targetTouched: false,
   histogramThreshold: null,
+  exportFilters: {},
   exportSelection: new Set(),
-  exportSelectionInitialized: false,
   notifiedJobs: new Set(),
   watchedJobs: new Set(),
   thresholdFrame: null,
+  exportFilterTimer: null,
+  tools: [],
+  toolsLoaded: false,
 };
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 
 function initialize() {
+  initializeTheme();
   const commonKeys = new Set(["num_samples", "pocket_radius"]);
   renderParameterFields(PARAMETERS.filter((parameter) => commonKeys.has(parameter.key)), $("#parameter-fields"));
   renderParameterFields(
@@ -62,8 +68,12 @@ function renderParameterFields(parameters, container) {
     const control = parameter.type === "select"
       ? `<select id="param-${parameter.key}">${parameter.options.map((option) => `<option ${option === parameter.value ? "selected" : ""}>${option}</option>`).join("")}</select>`
       : `<input id="param-${parameter.key}" type="${parameter.type}" value="${parameter.value}" ${parameter.min !== undefined ? `min="${parameter.min}"` : ""} ${parameter.max !== undefined ? `max="${parameter.max}"` : ""} ${parameter.step ? `step="${parameter.step}"` : ""}>`;
-    return `<div class="parameter-field"><label for="param-${parameter.key}">${parameter.label}${parameter.suffix ? `<span>${parameter.suffix}</span>` : ""}</label>${control}<small>${parameter.help || ""}</small></div>`;
+    return `<div class="parameter-field" data-parameter-key="${escapeHtml(parameter.key)}"><label for="param-${parameter.key}">${parameter.label}${tooltip(parameter.tooltip)}${parameter.suffix ? `<span>${parameter.suffix}</span>` : ""}</label>${control}<small>${parameter.help || ""}</small></div>`;
   }).join("");
+}
+
+function tooltip(text) {
+  return text ? `<span class="info-tip" tabindex="0" aria-label="${escapeHtml(text)}" data-tip="${escapeHtml(text)}">?</span>` : "";
 }
 
 function bindEvents() {
@@ -72,9 +82,11 @@ function bindEvents() {
       state.exampleId = "custom";
       state.study = null;
       state.selected = null;
+      state.exportFilters = {};
       state.resultSource = "upload";
       updateInputLabels(null);
       renderSummary();
+      renderExportFilters();
       renderResultsTable();
       showToast("Upload custom input structures, then submit a local CPU job.");
       return;
@@ -92,14 +104,19 @@ function bindEvents() {
   });
   $("#reset-params").addEventListener("click", resetParameters);
   $("#preview-run").addEventListener("click", submitGenerationJob);
+  $("#refresh-health").addEventListener("click", () => refreshRuntime(true));
   $("#job-target").addEventListener("change", () => {
     state.targetTouched = true;
     updateJobTargetControls();
+    if (state.runtimeHealth) {
+      renderRuntimeStatus(state.runtimeHealth);
+      renderSetupHealth(state.runtimeHealth);
+    }
   });
   $("#refresh-pdb").addEventListener("click", () => chooseFileAgain("#pdb-input"));
   $("#refresh-sdf").addEventListener("click", () => chooseFileAgain("#sdf-input"));
-  $("#vina-enabled").addEventListener("change", updateVinaControls);
-  ["#vina-mode", "#vina-exhaustiveness", "#vina-cpu"].forEach((selector) => {
+  $$(".builtin-evaluation-toggle").forEach((input) => input.addEventListener("change", updateVinaControls));
+  ["#vina-exhaustiveness", "#vina-cpu"].forEach((selector) => {
     $(selector).addEventListener("input", updateCommand);
   });
   $("#refresh-jobs").addEventListener("click", () => refreshJobs(true));
@@ -109,17 +126,17 @@ function bindEvents() {
   });
   $("#result-search").addEventListener("input", renderResultsTable);
   $("#result-sort").addEventListener("change", renderResultsTable);
-  $("#histogram-metric").addEventListener("change", renderCharts);
+  $("#histogram-metric").addEventListener("change", () => {
+    state.histogramThreshold = null;
+    renderCharts();
+  });
   $("#histogram-threshold").addEventListener("input", (event) => {
     state.histogramThreshold = Number(event.target.value);
     $("#histogram-threshold-value").textContent = Number(event.target.value).toFixed(1);
-    const metric = $("#histogram-metric").value;
-    state.exportSelection = new Set((state.study?.candidates || []).filter((item) => {
-      const value = thresholdMetricValue(item, metric);
-      return Number.isFinite(value) && (metric === "vinaScore" ? value <= state.histogramThreshold : value >= state.histogramThreshold);
-    }).map((item) => item.id));
+    syncHistogramThresholdToExportFilter({ defer: true });
     scheduleThresholdRender();
   });
+  $("#histogram-threshold").addEventListener("change", () => syncHistogramThresholdToExportFilter());
   $("#histogram").addEventListener("mousemove", handleHistogramHover);
   $("#histogram").addEventListener("mouseleave", () => { $("#histogram-tooltip").textContent = "Hover a bar to see its range and count."; });
   $(".analytics-details").addEventListener("toggle", (event) => {
@@ -132,9 +149,10 @@ function bindEvents() {
   $("#download-config").addEventListener("click", downloadConfig);
   $("#download-all").addEventListener("click", downloadAll);
   $("#export-filtered").addEventListener("change", updateExportScope);
+  $("#reset-export-filters").addEventListener("click", resetExportFilters);
   $("#select-all-candidates").addEventListener("click", () => { state.exportSelection = new Set(state.study?.candidates?.map((item) => item.id) || []); renderResultsTable(); });
   $("#clear-candidate-selection").addEventListener("click", () => { state.exportSelection.clear(); renderResultsTable(); });
-  $("#theme-toggle").addEventListener("click", () => document.body.classList.toggle("high-contrast"));
+  $("#theme-toggle").addEventListener("click", toggleTheme);
   $("#pdb-input").addEventListener("change", handlePdbUpload);
   $("#sdf-input").addEventListener("change", handleSdfUpload);
   $("#folder-input").addEventListener("change", handleFolderUpload);
@@ -143,6 +161,29 @@ function bindEvents() {
   updateJobTargetControls();
   updateVinaControls();
   refreshRuntime(false);
+  loadTools();
+}
+
+async function loadTools() {
+  const status = $("#tool-chest-status");
+  if (status) status.textContent = "Loading tools";
+  try {
+    state.tools = await service.listTools();
+    state.toolsLoaded = true;
+  } catch (error) {
+    state.tools = [];
+    state.toolsLoaded = false;
+    if (status) status.textContent = "Tools unavailable";
+    console.warn("Tool Chest failed to load", error);
+  }
+  renderEvaluationTools();
+  renderToolChest();
+  renderExportFilters();
+  renderHistogramMetricOptions();
+  if (state.study?.candidates?.length) {
+    applyExportFilters(false);
+    renderResultsTable();
+  }
 }
 
 async function refreshRuntime(showMessage = false) {
@@ -158,16 +199,97 @@ async function refreshRuntime(showMessage = false) {
       $("#job-target").value = slurmAvailable ? SLURM_GPU_TARGET : "local_cpu";
       updateJobTargetControls();
     }
-    const slurm = health.slurm?.sbatch ? "sbatch available" : "sbatch not found";
-    const gpu = health.gpu_available ? "GPU device visible" : "no local GPU visible";
-    status.textContent = slurmAvailable ? "Slurm GPU available" : "Local CPU available";
-    detail.textContent = `${gpu}; ${slurm}. Selected target: ${slurmAvailable ? "Slurm GPU" : "Local CPU"}.`;
-    if (showMessage) showToast("Runtime selection refreshed.");
+    renderRuntimeStatus(health);
+    renderSetupHealth(health);
+    if (showMessage) showToast("Setup checklist refreshed.");
   } catch (error) {
     status.textContent = "Backend unavailable";
     detail.textContent = error.message;
+    renderSetupHealth(null, error);
     if (showMessage) showToast(`Runtime check failed: ${error.message}`);
   }
+}
+
+function renderRuntimeStatus(health) {
+  const status = $("#runtime-status");
+  const detail = $("#runtime-detail");
+  if (!status || !detail || !health) return;
+  const slurmAvailable = Boolean(health.slurm?.sbatch);
+  const slurm = slurmAvailable ? "sbatch available" : "sbatch not found";
+  const isSlurmGpu = isSlurmGpuTarget(resolvedTarget());
+  // Slurm tasks can load the image from the configured shared archive on the
+  // compute node; it does not need to be pre-loaded in the GUI host's image
+  // store.
+  const archiveReady = Boolean(health.container_archive?.exists);
+  const imageReady = Boolean(health.container_image?.exists) || (isSlurmGpu && archiveReady);
+  status.textContent = isSlurmGpu ? (slurmAvailable ? "Slurm GPU available" : "Slurm setup needs attention") : imageReady ? "Local CPU available" : "Local setup needs attention";
+  detail.textContent = isSlurmGpu
+    ? `${slurm}; ${health.container_image?.exists ? "container image found" : archiveReady ? "shared container archive ready" : "container image not confirmed"}. Selected target: Slurm GPU.`
+    : `${imageReady ? "container image found" : "container image missing"}. Selected target: Local CPU.`;
+}
+
+function renderSetupHealth(health, error = null) {
+  const panel = $("#setup-health-panel");
+  const status = $("#setup-health-status");
+  const detail = $("#setup-health-detail");
+  const list = $("#setup-health-list");
+  if (!status || !detail || !list) return;
+  if (error) {
+    panel?.setAttribute("data-status", "fail");
+    if (panel) panel.open = true;
+    status.textContent = "Backend unavailable";
+    detail.textContent = error.message;
+    list.innerHTML = "";
+    return;
+  }
+  const checks = targetAwareHealthChecks(health);
+  const failing = checks.filter((check) => check.status === "fail").length;
+  const warnings = checks.filter((check) => check.status === "warn").length;
+  panel?.setAttribute("data-status", failing ? "fail" : warnings ? "warn" : "ready");
+  if (panel && failing) panel.open = true;
+  const isSlurmGpu = isSlurmGpuTarget(resolvedTarget());
+  status.textContent = failing ? "Setup needs attention" : warnings ? "Ready with optional warnings" : "Ready to run";
+  detail.textContent = failing
+    ? `Fix the missing required items before submitting a ${isSlurmGpu ? "Slurm GPU" : "local CPU"} job.`
+    : warnings
+      ? `${isSlurmGpu ? "Slurm GPU" : "Local CPU"} runs can work; optional Tool Chest items may need setup.`
+      : `${isSlurmGpu ? "Slurm GPU" : "Local CPU"} launch requirements look ready.`;
+  list.innerHTML = checks.map((check) => `
+    <div class="setup-health-item" data-status="${escapeHtml(check.status)}">
+      <i aria-hidden="true"></i>
+      <div>
+        <strong>${escapeHtml(check.label)}</strong>
+        <span>${escapeHtml(check.detail || "")}</span>
+        ${check.action ? `<small>${escapeHtml(check.action)}</small>` : ""}
+      </div>
+    </div>
+  `).join("");
+}
+
+function targetAwareHealthChecks(health) {
+  const target = resolvedTarget();
+  const isSlurmGpu = isSlurmGpuTarget(target);
+  const checks = (health?.checks || []).map((check) => ({ ...check }));
+  if (!isSlurmGpu) {
+    return checks.filter((check) => check.id !== "slurm");
+  }
+  return checks.map((check) => {
+    if (check.id === "container_image" && check.status !== "ok" && health?.container_archive?.exists) {
+      return {
+        ...check,
+        status: "ok",
+        detail: "Shared container archive is ready; the image will be loaded on the Slurm compute node.",
+        action: "",
+      };
+    }
+    if (check.id !== "slurm" || check.status === "ok") return check;
+    return {
+      ...check,
+      status: "fail",
+      detail: "sbatch not found for the selected Slurm GPU target",
+      action: "Start the GUI from a cluster session with Slurm loaded, or switch to This computer · CPU.",
+    };
+  });
 }
 
 function resolvedTarget() {
@@ -221,7 +343,7 @@ async function loadExample(exampleId) {
     });
     state.selected = state.study.candidates[0] || null;
     state.exportSelection = new Set();
-    state.exportSelectionInitialized = false;
+    state.exportFilters = {};
     state.resultSource = "example";
     state.selectedJob = null;
     $("#hero-candidate-count").textContent = state.study.candidates.length;
@@ -239,6 +361,8 @@ function setMode(mode, updateSelect = true) {
   state.mode = mode;
   $$(".mode-toggle button").forEach((button) => button.classList.toggle("active", button.dataset.mode === mode));
   $("#sdf-dropzone").hidden = mode === "pocket";
+  const pocketRadiusField = $("[data-parameter-key='pocket_radius']");
+  if (pocketRadiusField) pocketRadiusField.hidden = mode === "pocket";
   $("#mode-note").textContent = mode === "reference"
     ? "The reference ligand defines the generation center. Pocket radius controls the surrounding protein context."
     : "The prepared pocket PDB supplies the generation region without a reference ligand.";
@@ -248,6 +372,7 @@ function setMode(mode, updateSelect = true) {
       state.exampleId = "custom";
       state.study = null;
       state.selected = null;
+      state.exportFilters = {};
       state.resultSource = "upload";
       updateInputLabels(null);
     }
@@ -265,6 +390,10 @@ function updateInputLabels(example) {
 
 function renderStudy() {
   renderSummary();
+  renderToolChest();
+  renderExportFilters();
+  renderHistogramMetricOptions();
+  applyExportFilters(false);
   renderResultsTable();
   renderCharts();
   renderSelectedStructure();
@@ -336,6 +465,7 @@ function buildJobPayload(inputOverride = null) {
     sdf,
     slurm: buildSlurmPayload(),
     postprocess: buildPostprocessPayload(),
+    tools: buildEvaluationToolsPayload(),
     parameters: {
       ...state.parameters,
       device: isSlurmGpuTarget(resolvedTarget()) ? "cuda:0" : "cpu",
@@ -361,12 +491,50 @@ function buildSlurmPayload() {
 }
 
 function buildPostprocessPayload() {
+  const selected = selectedBuiltinEvaluations();
   return {
-    vina: $("#vina-enabled").checked,
-    vina_mode: $("#vina-mode").value,
+    vina: selected.length > 0,
+    vina_mode: selectedVinaMode(selected),
     vina_exhaustiveness: $("#vina-exhaustiveness").value,
     vina_cpu: $("#vina-cpu").value,
+    metrics: selected,
   };
+}
+
+function buildEvaluationToolsPayload() {
+  return $$(".evaluation-tool-toggle:checked").map((input) => ({
+    id: input.dataset.toolId,
+    options: {},
+  }));
+}
+
+function selectedBuiltinEvaluations() {
+  return $$(".builtin-evaluation-toggle:checked").map((input) => input.value);
+}
+
+function selectedVinaMode(selected = selectedBuiltinEvaluations()) {
+  const chosen = new Set(selected);
+  const wantsScore = chosen.has("vina_score");
+  const wantsDock = chosen.has("vina_dock");
+  const wantsQvina = chosen.has("qvina");
+  if ((wantsScore || wantsDock) && wantsQvina) return "all";
+  if (wantsDock) return "vina_dock";
+  if (wantsQvina) return "qvina";
+  if (wantsScore) return "vina_score";
+  return "none";
+}
+
+function selectedEvaluationLabel(selected = selectedBuiltinEvaluations()) {
+  if (!selected.length) return "None";
+  const mode = selectedVinaMode(selected);
+  const labels = [];
+  if (mode === "all") labels.push("Vina + QVina");
+  else if (mode === "vina_dock") labels.push("Vina redock");
+  else if (mode === "qvina") labels.push("QVina");
+  else if (mode === "vina_score") labels.push("Vina score");
+  const chemistry = selected.filter((item) => ["qed", "sa", "logp", "lipinski"].includes(item)).length;
+  if (chemistry) labels.push(`${chemistry} chemistry metric${chemistry === 1 ? "" : "s"}`);
+  return labels.join(" + ") || "Chemistry only";
 }
 
 async function pollJob(jobId) {
@@ -433,19 +601,20 @@ async function loadCompletedJob(job) {
     artifacts: result.artifacts || [],
     logs: result.logs || {},
     summary: result.summary || {},
+    toolRuns: result.toolRuns || [],
   };
   state.currentJob = job;
   state.selectedJob = job;
   state.resultSource = "job";
   state.selected = candidates[0];
   state.exportSelection = new Set();
-  state.exportSelectionInitialized = false;
+  state.exportFilters = {};
   $("#hero-candidate-count").textContent = candidates.length;
   $("#hero-status").textContent = "Completed";
   renderStudy();
   setActiveTab("results");
   showToast(vinaFailures.length
-    ? `${candidates.length} result${candidates.length === 1 ? "" : "s"} loaded; ${vinaFailures.length} molecule${vinaFailures.length === 1 ? "" : "s"} had no docking score.`
+    ? `${candidates.length} result${candidates.length === 1 ? "" : "s"} loaded; ${vinaFailures.length} molecule${vinaFailures.length === 1 ? "" : "s"} had incomplete Vina annotations.`
     : `Job completed with ${candidates.length} result${candidates.length === 1 ? "" : "s"}.`);
 }
 
@@ -718,37 +887,625 @@ function renderSummary() {
     ["Loaded structures", candidates.length, "SDF"],
     ["Mean molecular weight", formatMetric(average("molecularWeight"), 1), "Da"],
     ["Mean heavy atoms", formatMetric(average("heavyAtoms"), 1), "atoms"],
-    ["Ring-containing", candidates.filter((item) => item.rings > 0).length, "molecules"],
   ];
-  const dockingValues = candidates.map(dockingMetric).filter(Number.isFinite);
-  if (dockingValues.length) {
-    cards.push(["Mean docking score", formatMetric(dockingValues.reduce((sum, value) => sum + value, 0) / dockingValues.length), "kcal/mol"]);
-  }
+  const vinaScoreValues = candidates.map((item) => propertyMetric(item, "VINA_SCORE_ONLY")).filter(Number.isFinite);
+  if (vinaScoreValues.length) cards[2] = ["Mean Vina score", formatMetric(mean(vinaScoreValues)), "kcal/mol"];
   $("#metric-strip").innerHTML = cards.map(([label, value, unit]) => `<div class="metric-card"><span>${label}</span><strong>${value}</strong><small>${unit}</small></div>`).join("");
   renderQualitySummary(candidates);
 }
 
 function renderQualitySummary(candidates) {
-  const vinaValues = candidates.map(dockingMetric).filter(Number.isFinite);
+  const vinaScoreValues = candidates.map((item) => propertyMetric(item, "VINA_SCORE_ONLY")).filter(Number.isFinite);
+  const vinaMinimizeValues = candidates.map((item) => propertyMetric(item, "VINA_MINIMIZE")).filter(Number.isFinite);
+  const vinaDockValues = candidates.map((item) => propertyMetric(item, "VINA_DOCK")).filter(Number.isFinite);
   const qedValues = propertyValues(candidates, "QED");
   const saValues = propertyValues(candidates, "SA");
   const logpValues = propertyValues(candidates, "LOGP");
   const lipinskiValues = propertyValues(candidates, "LIPINSKI");
-  const uniqueFormulas = new Set(candidates.map((item) => item.formula).filter(Boolean)).size;
-  const scored = candidates.filter((item) => dockingMetric(item) !== null).length;
+  const scored = candidates.filter((item) => propertyMetric(item, "VINA_SCORE_ONLY") !== null).length;
+  const minimized = candidates.filter((item) => propertyMetric(item, "VINA_MINIMIZE") !== null).length;
+  const docked = candidates.filter((item) => propertyMetric(item, "VINA_DOCK") !== null).length;
   const lipinskiPasses = lipinskiValues.filter((value) => value >= 4).length;
-  const bestVina = vinaValues.length ? Math.min(...vinaValues) : null;
   const rows = [
-    ["Scored by docking", scored ? `${scored}/${candidates.length}` : "Not run"],
-    ["Best docking", bestVina === null ? "n/a" : `${formatMetric(bestVina)} kcal/mol`],
-    ["QED range", rangeLabel(qedValues)],
-    ["SA range", rangeLabel(saValues)],
-    ["LogP range", rangeLabel(logpValues)],
+    ["Vina scored", scored || minimized || docked ? `${scored} score · ${minimized} min · ${docked} redock` : "Not run"],
+    ["Best affinity", bestValueLabel(vinaDockValues.length ? vinaDockValues : vinaMinimizeValues.length ? vinaMinimizeValues : vinaScoreValues)],
+    ["QED", rangeLabel(qedValues)],
+    ["SA", rangeLabel(saValues)],
+    ["LogP", rangeLabel(logpValues)],
     ["Lipinski >=4", lipinskiValues.length ? `${lipinskiPasses}/${lipinskiValues.length}` : "n/a"],
-    ["Unique formulas", candidates.length ? `${uniqueFormulas}/${candidates.length}` : "n/a"],
-    ["Ring-containing", candidates.length ? `${candidates.filter((item) => item.rings > 0).length}/${candidates.length}` : "n/a"],
-  ];
+    ...toolQualityRows(candidates).slice(0, 2),
+  ].filter(([, value]) => value !== "n/a" && value !== "Not run");
+  if (!rows.length) rows.push(["Summary", candidates.length ? `${candidates.length} candidates loaded` : "No results loaded"]);
   $("#quality-summary").innerHTML = rows.map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join("");
+}
+
+function renderToolChest() {
+  const list = $("#tool-list");
+  const status = $("#tool-chest-status");
+  if (!list || !status) return;
+  const tools = state.tools || [];
+  const job = state.selectedJob || state.currentJob;
+  const isCompletedJob = state.resultSource === "job" && job?.status === "completed";
+  const runs = state.study?.toolRuns || job?.tool_runs || [];
+  status.textContent = !state.toolsLoaded
+    ? "Tools unavailable"
+    : isCompletedJob
+      ? `${tools.length} tool${tools.length === 1 ? "" : "s"} available`
+      : "Load a completed job";
+  if (!tools.length) {
+    list.innerHTML = `<p class="tool-empty">${state.toolsLoaded ? "No tools are installed in gui/tools." : "Tool discovery failed."}</p>`;
+    return;
+  }
+  list.innerHTML = tools.map((tool) => {
+    const toolRuns = runs.filter((run) => run.tool_id === tool.id);
+    const lastRun = toolRuns[toolRuns.length - 1];
+    const disabledReason = !isCompletedJob
+      ? "Load a completed job to run tools."
+      : !tool.available
+        ? (tool.error || "This tool is unavailable.")
+        : "";
+    return `
+      <div class="tool-card" data-tool-id="${escapeHtml(tool.id)}">
+        <div class="tool-card-main">
+          <div>
+            <h4>${escapeHtml(tool.name || tool.id)}</h4>
+            <p>${escapeHtml(tool.description || "")}</p>
+          </div>
+          <span class="status-badge" data-status="${tool.available ? "completed" : "failed"}">${tool.available ? "Ready" : "Unavailable"}</span>
+        </div>
+        ${disabledReason ? `<p class="tool-warning">${escapeHtml(disabledReason)}</p>` : ""}
+        ${tool.inputs?.length ? `<div class="tool-options">${tool.inputs.map((input) => toolOptionControl(tool, input, "results")).join("")}</div>` : ""}
+        <div class="tool-card-actions">
+          <button class="secondary-button compact-action tool-run-button" data-tool-id="${escapeHtml(tool.id)}" ${disabledReason ? "disabled" : ""}>Run tool</button>
+          <span>${lastRun ? toolRunSummary(lastRun) : "Not run on this job"}</span>
+        </div>
+      </div>
+    `;
+  }).join("");
+  $$(".tool-run-button").forEach((button) => button.addEventListener("click", () => runTool(button.dataset.toolId)));
+}
+
+function renderEvaluationTools() {
+  const list = $("#evaluation-tool-list");
+  const status = $("#evaluation-tool-status");
+  if (!list || !status) return;
+  const tools = state.tools || [];
+  status.textContent = !state.toolsLoaded
+    ? "Tools unavailable"
+    : tools.length
+      ? `${tools.length} tool${tools.length === 1 ? "" : "s"}`
+      : "No tools";
+  if (!tools.length) {
+    list.innerHTML = `<p class="tool-empty">${state.toolsLoaded ? "No Tool Chest evaluators are installed." : "Tool discovery failed."}</p>`;
+    return;
+  }
+  list.innerHTML = tools.map((tool) => `
+    <div class="evaluation-tool-card" data-tool-id="${escapeHtml(tool.id)}">
+      <label class="check-control">
+        <input class="evaluation-tool-toggle" type="checkbox" data-tool-id="${escapeHtml(tool.id)}" ${tool.available ? "" : "disabled"}>
+        <span>${escapeHtml(tool.name || tool.id)}</span>
+      </label>
+      <small>${escapeHtml(tool.available ? (tool.description || "") : (tool.error || "Tool unavailable."))}</small>
+    </div>
+  `).join("");
+}
+
+function toolOptionControl(tool, input, context = "results") {
+  const inputId = `tool-${context}-${tool.id}-${input.name}`;
+  if (input.type === "boolean") {
+    return `
+      <label class="check-control" for="${escapeHtml(inputId)}">
+        <input id="${escapeHtml(inputId)}" data-tool-option="${escapeHtml(input.name)}" type="checkbox" ${input.default ? "checked" : ""}>
+        ${escapeHtml(input.label || input.name)}
+      </label>
+    `;
+  }
+  if (input.type === "number") {
+    return `
+      <label class="tool-field" for="${escapeHtml(inputId)}">${escapeHtml(input.label || input.name)}
+        <input id="${escapeHtml(inputId)}" data-tool-option="${escapeHtml(input.name)}" type="number" value="${escapeHtml(input.default ?? "")}">
+      </label>
+    `;
+  }
+  return `
+    <label class="tool-field" for="${escapeHtml(inputId)}">${escapeHtml(input.label || input.name)}
+      <input id="${escapeHtml(inputId)}" data-tool-option="${escapeHtml(input.name)}" type="text" value="${escapeHtml(input.default ?? "")}">
+    </label>
+  `;
+}
+
+function toolRunSummary(run) {
+  const result = run.result || {};
+  if (run.tool_id === "medchem_filters" && Number.isFinite(Number(result.molecules))) {
+    const molecules = Number(result.molecules);
+    const allPassed = Number(result.all_passed ?? 0);
+    const filterCount = Array.isArray(result.filters) ? result.filters.length : Number(result.filters_total || 0);
+    const filterText = filterCount ? ` all ${filterCount} filters` : " all filters";
+    return `${run.status === "completed" ? "Last run" : "Last attempt"}: ${escapeHtml(allPassed)}/${escapeHtml(molecules)} passed${filterText}`;
+  }
+  const totals = Number.isFinite(Number(result.molecules))
+    ? `${result.passed ?? 0}/${result.molecules} passed`
+    : run.status;
+  return `${run.status === "completed" ? "Last run" : "Last attempt"}: ${escapeHtml(totals)}`;
+}
+
+function collectToolOptions(toolId, context = "results") {
+  const selector = context === "evaluation" ? ".evaluation-tool-card" : ".tool-card";
+  const card = $(`${selector}[data-tool-id="${CSS.escape(toolId)}"]`);
+  const options = {};
+  if (!card) return options;
+  card.querySelectorAll("[data-tool-option]").forEach((input) => {
+    options[input.dataset.toolOption] = input.type === "checkbox" ? input.checked : input.value;
+  });
+  return options;
+}
+
+async function runTool(toolId) {
+  const job = state.selectedJob || state.currentJob;
+  if (!job?.id) {
+    showToast("Load a completed job before running a tool.");
+    return;
+  }
+  const button = $(`.tool-run-button[data-tool-id="${CSS.escape(toolId)}"]`);
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Running...";
+  }
+  try {
+    const options = collectToolOptions(toolId);
+    const body = await service.runTool(job.id, toolId, options);
+    showToast(`${body.run?.tool_name || "Tool"} ${body.run?.status || "completed"}. Reloading results...`);
+    await loadCompletedJob(body.job || job);
+  } catch (error) {
+    showToast(error.message, 7000);
+    renderToolChest();
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Run tool";
+    }
+  }
+}
+
+function toolOutputDefinitions() {
+  const outputs = [];
+  const seen = new Set();
+  (state.tools || []).forEach((tool) => (tool.outputs || []).forEach((output) => {
+    if (!output?.name || seen.has(output.name)) return;
+    seen.add(output.name);
+    outputs.push({
+      ...output,
+      label: output.label || propertyLabel(output.name),
+    });
+  }));
+  return outputs;
+}
+
+function toolQualityRows(candidates) {
+  return toolOutputDefinitions()
+    .filter((output) => output.type === "boolean")
+    .filter((output) => output.viewer !== "hidden")
+    .map((output) => {
+      const annotated = candidates.filter((item) => item.properties?.[output.name]);
+      const passing = annotated.filter((item) => isTruthyProperty(item.properties?.[output.name])).length;
+      return [output.label, annotated.length ? `${passing}/${annotated.length}` : "Not run"];
+    });
+}
+
+function toolPropertyBadges(item) {
+  const summaries = toolSummaryBadges(item);
+  const values = toolOutputDefinitions()
+    .filter((output) => shouldShowToolOutput(output))
+    .map((output) => ({ output, value: item.properties?.[output.name] }))
+    .filter((entry) => entry.value);
+  if (!values.length && !summaries.length) return "-";
+  return [
+    ...summaries,
+    ...values.map(({ output, value }) => {
+      const text = toolPropertyDisplay(value);
+      const title = output.description || output.label;
+      if (output.type === "boolean") {
+        const passed = isTruthyProperty(value);
+        return `<span class="status-badge compact-badge" data-status="${passed ? "completed" : "failed"}" title="${escapeHtml(title)}">${escapeHtml(output.label)}: ${passed ? "Pass" : "Fail"}</span>`;
+      }
+      return `<span class="tool-property-chip" title="${escapeHtml(`${title}: ${text}`)}">${escapeHtml(output.label)}: ${escapeHtml(text)}</span>`;
+    }),
+  ].filter(Boolean).join(" ");
+}
+
+function viewerToolMetricRows(item) {
+  const rows = toolSummaryRows(item);
+  toolOutputDefinitions()
+    .filter((output) => shouldShowToolOutput(output))
+    .forEach((output) => {
+      const value = item.properties?.[output.name];
+      if (value) rows.push([output.label || propertyLabel(output.name), toolPropertyDisplay(value)]);
+    });
+  return rows;
+}
+
+function shouldShowToolOutput(output) {
+  if (output.viewer === "hidden" || output.viewer === "summary") return false;
+  return !/_STATUS$|_REASONS$|_FAILURES$|_OUTPUT$/i.test(output.name || "");
+}
+
+function toolSummaryRows(item) {
+  return toolOutputDefinitions()
+    .filter((output) => output.viewer === "summary")
+    .map((output) => {
+      const value = propertyMetric(item, output.name);
+      const total = output.summary_total ? propertyMetric(item, output.summary_total) : null;
+      if (!Number.isFinite(value)) return null;
+      const suffix = output.summary_suffix ? ` ${output.summary_suffix}` : "";
+      const display = Number.isFinite(total)
+        ? `${formatMetric(value, 0)}/${formatMetric(total, 0)}${suffix}`
+        : `${formatMetric(value)}${suffix}`;
+      return [output.summary_label || output.label || propertyLabel(output.name), display, output.description || ""];
+    })
+    .filter(Boolean);
+}
+
+function toolSummaryBadges(item) {
+  return toolSummaryRows(item).map(([label, value, title]) => (
+    `<span class="tool-property-chip" title="${escapeHtml(title || label)}">${escapeHtml(label)}: ${escapeHtml(value)}</span>`
+  ));
+}
+
+function toolPropertyDisplay(value) {
+  const text = String(value ?? "");
+  if (/^(true|yes|pass)$/i.test(text)) return "Pass";
+  if (/^(false|no|fail)$/i.test(text)) return "Fail";
+  return text || "-";
+}
+
+function isTruthyProperty(value) {
+  return /^(true|yes|pass|1)$/i.test(String(value ?? "").trim());
+}
+
+function isFalseyProperty(value) {
+  return /^(false|no|fail|0)$/i.test(String(value ?? "").trim());
+}
+
+function propertyLabel(name) {
+  return String(name || "")
+    .toLowerCase()
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part === "qvina" ? "QVina" : part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function renderExportFilters() {
+  const list = $("#export-filter-list");
+  const status = $("#export-filter-status");
+  if (!list || !status) return;
+  const definitions = availableExportMetrics();
+  if (!state.study?.candidates?.length) {
+    list.innerHTML = `<p class="tool-empty">Load results to build export requirements.</p>`;
+    status.textContent = "No job loaded";
+    return;
+  }
+  if (!definitions.length) {
+    list.innerHTML = `<p class="tool-empty">No filterable metrics are available for this job.</p>`;
+    status.textContent = "No metrics";
+    return;
+  }
+  const groups = exportFilterGroups(definitions);
+  list.innerHTML = groups.map((group) => `
+    <section class="export-filter-group" aria-label="${escapeHtml(group.title)}">
+      <div class="export-filter-group-heading">
+        <strong>${escapeHtml(group.title)}</strong>
+        <span>${escapeHtml(group.description)}</span>
+      </div>
+      <div class="export-filter-group-grid">
+        ${group.metrics.map((metric) => exportFilterControl(metric)).join("")}
+      </div>
+    </section>
+  `).join("");
+  $$(".export-filter-row").forEach((row) => {
+    const id = row.dataset.metricId;
+    row.querySelectorAll("input, select").forEach((control) => control.addEventListener("input", () => {
+      const filter = state.exportFilters[id] || defaultExportFilter(definitions.find((item) => item.id === id));
+      const operatorChanged = control.dataset.filterField === "operator" && filter.operator !== control.value;
+      if (control.dataset.filterField === "enabled") filter.enabled = control.checked;
+      if (control.dataset.filterField === "operator") filter.operator = control.value;
+      if (control.dataset.filterField === "value") filter.value = control.type === "number" ? Number(control.value) : control.value;
+      if (control.dataset.filterField === "min") filter.min = Number(control.value);
+      if (control.dataset.filterField === "max") filter.max = Number(control.value);
+      state.exportFilters[id] = filter;
+      if (operatorChanged) renderExportFilters();
+      applyExportFilters();
+      renderCharts();
+    }));
+  });
+  updateExportFilterStatus();
+}
+
+function exportFilterGroups(definitions) {
+  const values = definitions.filter((metric) => metric.type === "number");
+  const filters = definitions.filter((metric) => metric.type !== "number");
+  return [
+    { title: "Values", description: "Numeric thresholds and ranges", metrics: values },
+    { title: "Filters", description: "Pass/fail and category requirements", metrics: filters },
+  ].filter((group) => group.metrics.length);
+}
+
+function exportFilterControl(metric) {
+  const filter = ensureExportFilter(metric);
+  const active = filter.enabled ? "checked" : "";
+  const disabled = filter.enabled ? "" : "disabled";
+  const valueLabel = metric.type === "number" ? rangeLabel(metric.values) : `${metric.values.length} value${metric.values.length === 1 ? "" : "s"}`;
+  if (metric.type === "number") {
+    return `
+      <div class="export-filter-row" data-metric-id="${escapeHtml(metric.id)}" title="${escapeHtml(exportFilterHelp(metric, filter))}">
+        <label class="check-control">
+          <input type="checkbox" data-filter-field="enabled" ${active}>
+          <span>${escapeHtml(metric.label)}</span>
+        </label>
+        <div class="export-filter-controls">
+          <select class="compact-select operator-select" data-filter-field="operator" ${disabled}>
+            <option value="<=" ${filter.operator === "<=" ? "selected" : ""}>&le;</option>
+            <option value=">=" ${filter.operator === ">=" ? "selected" : ""}>&ge;</option>
+            <option value="range" ${filter.operator === "range" ? "selected" : ""}>range</option>
+          </select>
+          ${filter.operator === "range"
+            ? `<input type="number" data-filter-field="min" value="${escapeHtml(formatFilterValue(filter.min))}" step="${escapeHtml(metric.step || "0.1")}" aria-label="${escapeHtml(metric.label)} minimum" ${disabled}>
+               <input type="number" data-filter-field="max" value="${escapeHtml(formatFilterValue(filter.max))}" step="${escapeHtml(metric.step || "0.1")}" aria-label="${escapeHtml(metric.label)} maximum" ${disabled}>`
+            : `<input type="number" data-filter-field="value" value="${escapeHtml(formatFilterValue(filter.value))}" step="${escapeHtml(metric.step || "0.1")}" ${disabled}>`}
+        </div>
+        <small>${escapeHtml(valueLabel)}</small>
+      </div>
+    `;
+  }
+  if (metric.type === "boolean") {
+    return `
+      <div class="export-filter-row boolean-filter-row" data-metric-id="${escapeHtml(metric.id)}" title="${escapeHtml(exportFilterHelp(metric, filter))}">
+        <label class="check-control">
+          <input type="checkbox" data-filter-field="enabled" ${active}>
+          <span>${escapeHtml(metric.label)}</span>
+        </label>
+        <small>Require pass</small>
+      </div>
+    `;
+  }
+  return `
+    <div class="export-filter-row" data-metric-id="${escapeHtml(metric.id)}" title="${escapeHtml(exportFilterHelp(metric, filter))}">
+      <label class="check-control">
+        <input type="checkbox" data-filter-field="enabled" ${active}>
+        <span>${escapeHtml(metric.label)}</span>
+      </label>
+      <div class="export-filter-controls">
+        <select class="compact-select wide-filter-select" data-filter-field="value" ${disabled}>
+          ${metric.values.map((value) => `<option value="${escapeHtml(value)}" ${String(filter.value) === String(value) ? "selected" : ""}>${escapeHtml(metricValueLabel(metric, value))}</option>`).join("")}
+        </select>
+      </div>
+      <small>${escapeHtml(valueLabel)}</small>
+    </div>
+  `;
+}
+
+function ensureExportFilter(metric) {
+  if (!state.exportFilters[metric.id]) state.exportFilters[metric.id] = defaultExportFilter(metric);
+  return state.exportFilters[metric.id];
+}
+
+function defaultExportFilter(metric) {
+  if (!metric) return { enabled: false, operator: ">=", value: "" };
+  if (metric.type === "number") {
+    const values = metric.values.filter(Number.isFinite);
+    const fallback = values.length ? (metric.defaultOperator === "<=" ? Math.max(...values) : Math.min(...values)) : 0;
+    const min = values.length ? Math.min(...values) : 0;
+    const max = values.length ? Math.max(...values) : 0;
+    return {
+      enabled: false,
+      operator: metric.defaultOperator || ">=",
+      value: Number(fallback.toFixed(metric.digits ?? 2)),
+      min: Number(min.toFixed(metric.digits ?? 2)),
+      max: Number(max.toFixed(metric.digits ?? 2)),
+    };
+  }
+  const value = metric.defaultValue && metric.values.includes(metric.defaultValue) ? metric.defaultValue : metric.values[0] || "";
+  return { enabled: false, operator: "=", value };
+}
+
+function applyExportFilters(render = true) {
+  const candidates = state.study?.candidates || [];
+  const definitions = availableExportMetrics();
+  const definitionById = new Map(definitions.map((metric) => [metric.id, metric]));
+  const activeFilters = Object.entries(state.exportFilters)
+    .map(([id, filter]) => ({ metric: definitionById.get(id), filter }))
+    .filter((entry) => entry.metric && entry.filter.enabled);
+  if (!activeFilters.length) {
+    state.exportSelection = new Set(candidates.map((item) => item.id));
+  } else {
+    state.exportSelection = new Set(candidates
+      .filter((item) => activeFilters.every(({ metric, filter }) => candidatePassesExportFilter(item, metric, filter)))
+      .map((item) => item.id));
+  }
+  const checkbox = $("#export-filtered");
+  if (checkbox) checkbox.checked = true;
+  updateExportFilterStatus();
+  updateExportScope();
+  if (render) renderResultsTable();
+}
+
+function activeExportFilters() {
+  const definitionById = new Map(availableExportMetrics().map((metric) => [metric.id, metric]));
+  return Object.entries(state.exportFilters)
+    .map(([id, filter]) => ({ metric: definitionById.get(id), filter }))
+    .filter((entry) => entry.metric && entry.filter.enabled)
+    .map(({ metric, filter }) => ({
+      id: metric.id,
+      label: metric.label,
+      type: metric.type,
+      operator: filter.operator,
+      value: filter.value,
+      min: filter.min,
+      max: filter.max,
+      text: exportFilterText(metric, filter),
+    }));
+}
+
+function exportFilterText(metric, filter) {
+  if (metric.type === "number" && filter.operator === "range") {
+    return `${metric.label} between ${formatFilterValue(filter.min)} and ${formatFilterValue(filter.max)}`;
+  }
+  if (metric.type === "number") {
+    return `${metric.label} ${filter.operator || ">="} ${formatFilterValue(filter.value)}`;
+  }
+  if (metric.type === "boolean") {
+    return `${metric.label} must pass`;
+  }
+  return `${metric.label} = ${metricValueLabel(metric, filter.value)}`;
+}
+
+function exportFilterHelp(metric, filter) {
+  const description = metric.description ? `${metric.description} ` : "";
+  if (filter.enabled) return exportFilterText(metric, filter);
+  if (metric.type === "number") return `${description}Enable to filter exported molecules by ${metric.label}.`;
+  if (metric.type === "boolean") return `${description}Enable to require ${metric.label} to pass for exported molecules.`;
+  return `${description}Enable to require a ${metric.label} value for exported molecules.`;
+}
+
+function updateExportFilterStatus() {
+  const status = $("#export-filter-status");
+  if (!status) return;
+  const activeCount = Object.values(state.exportFilters).filter((filter) => filter.enabled).length;
+  const selectedCount = state.exportSelection?.size || 0;
+  const total = state.study?.candidates?.length || 0;
+  status.textContent = activeCount
+    ? `${selectedCount}/${total} passed all ${activeCount} filter${activeCount === 1 ? "" : "s"}`
+    : total ? `No filters · ${selectedCount}/${total} selected` : "No job loaded";
+  $$(".export-filter-row").forEach((row) => {
+    const filter = state.exportFilters[row.dataset.metricId];
+    row.classList.toggle("active", Boolean(filter?.enabled));
+    row.querySelectorAll("select, input[type='number']").forEach((control) => {
+      control.disabled = !filter?.enabled;
+    });
+  });
+}
+
+function resetExportFilters(event = null) {
+  event?.preventDefault();
+  event?.stopPropagation();
+  state.exportFilters = {};
+  state.histogramThreshold = null;
+  renderExportFilters();
+  renderHistogramMetricOptions();
+  applyExportFilters();
+  renderCharts();
+  showToast("Export filters reset.");
+}
+
+function candidatePassesExportFilter(item, metric, filter) {
+  const value = exportMetricValue(item, metric);
+  if (metric.type === "number") {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return false;
+    if (filter.operator === "range") {
+      const min = Number(filter.min);
+      const max = Number(filter.max);
+      if (!Number.isFinite(min) || !Number.isFinite(max)) return false;
+      return numericValue >= Math.min(min, max) && numericValue <= Math.max(min, max);
+    }
+    const threshold = Number(filter.value);
+    if (!Number.isFinite(threshold)) return false;
+    return filter.operator === "<=" ? numericValue <= threshold : numericValue >= threshold;
+  }
+  if (metric.type === "boolean") {
+    return isTruthyProperty(value);
+  }
+  return String(value ?? "") === String(filter.value ?? "");
+}
+
+function availableExportMetrics() {
+  const candidates = state.study?.candidates || [];
+  if (!candidates.length) return [];
+  const builtIn = [
+    { id: "field:molecularWeight", label: "Molecular weight", type: "number", field: "molecularWeight", defaultOperator: "<=", digits: 1, step: "0.1" },
+    { id: "field:heavyAtoms", label: "Heavy atoms", type: "number", field: "heavyAtoms", defaultOperator: "<=", digits: 0, step: "1" },
+    { id: "field:heteroAtoms", label: "Hetero atoms", type: "number", field: "heteroAtoms", defaultOperator: "<=", digits: 0, step: "1" },
+    { id: "field:rings", label: "Ring estimate", type: "number", field: "rings", defaultOperator: "<=", digits: 0, step: "1" },
+    { id: "prop:VINA_SCORE_ONLY", label: "Vina score", type: "number", property: "VINA_SCORE_ONLY", defaultOperator: "<=", digits: 2, step: "0.1" },
+    { id: "prop:VINA_MINIMIZE", label: "Vina minimize", type: "number", property: "VINA_MINIMIZE", defaultOperator: "<=", digits: 2, step: "0.1" },
+    { id: "prop:VINA_DOCK", label: "Vina redock", type: "number", property: "VINA_DOCK", defaultOperator: "<=", digits: 2, step: "0.1" },
+    { id: "prop:QVINA", label: "QVina", type: "number", property: "QVINA", defaultOperator: "<=", digits: 2, step: "0.1" },
+    { id: "prop:QED", label: "QED", type: "number", property: "QED", defaultOperator: ">=", digits: 2, step: "0.01" },
+    { id: "prop:SA", label: "SA", type: "number", property: "SA", defaultOperator: "<=", digits: 2, step: "0.1" },
+    { id: "prop:LOGP", label: "LogP", type: "number", property: "LOGP", defaultOperator: "<=", digits: 2, step: "0.1" },
+    { id: "prop:LIPINSKI", label: "Lipinski", type: "number", property: "LIPINSKI", defaultOperator: ">=", digits: 0, step: "1" },
+  ];
+  const knownProperties = new Set(builtIn.filter((metric) => metric.property).map((metric) => metric.property));
+  const metrics = builtIn.map((metric) => metricWithValues(metric, candidates)).filter(Boolean);
+  toolOutputDefinitions().forEach((output) => {
+    if (knownProperties.has(output.name)) return;
+    if (!isExportFilterOutput(output)) return;
+    const type = output.type === "boolean" ? "boolean" : inferPropertyMetricType(candidates, output.name);
+    const metric = metricWithValues({
+      id: `tool:${output.name}`,
+      label: output.label || propertyLabel(output.name),
+      description: output.description || "",
+      type,
+      property: output.name,
+      defaultOperator: type === "number" ? ">=" : "=",
+      defaultValue: type === "boolean" ? "true" : undefined,
+      digits: 2,
+      step: "0.1",
+    }, candidates);
+    if (metric) metrics.push(metric);
+  });
+  return metrics;
+}
+
+function isExportFilterOutput(output) {
+  if (output.filterable === false) return false;
+  if (output.type === "boolean") return true;
+  return !/_STATUS$|_REASONS$|_OUTPUT$/i.test(output.name || "");
+}
+
+function metricWithValues(metric, candidates) {
+  const rawValues = candidates.map((item) => exportMetricValue(item, metric)).filter((value) => value !== null && value !== undefined && value !== "");
+  if (!rawValues.length) return null;
+  const values = metric.type === "number"
+    ? rawValues.map(Number).filter(Number.isFinite)
+    : uniqueValues(rawValues.map((value) => metric.type === "boolean" ? booleanFilterValue(value) : String(value)));
+  if (!values.length) return null;
+  if (metric.type === "text" && values.length > MAX_CATEGORICAL_FILTER_VALUES) return null;
+  return { ...metric, values };
+}
+
+function exportMetricValue(item, metric) {
+  if (metric.field) return Number(item[metric.field]);
+  if (!metric.property) return null;
+  if (metric.property === "VINA_DOCK" || metric.property === "QVINA" || metric.property === "VINA_SCORE_ONLY" || metric.property === "VINA_MINIMIZE") {
+    return propertyMetric(item, metric.property);
+  }
+  const value = item.properties?.[metric.property];
+  return metric.type === "number" ? Number.parseFloat(value) : value;
+}
+
+function inferPropertyMetricType(candidates, property) {
+  const values = candidates.map((item) => item.properties?.[property]).filter((value) => value !== null && value !== undefined && value !== "");
+  if (values.length && values.every((value) => isTruthyProperty(value) || isFalseyProperty(value))) return "boolean";
+  if (values.length && values.every((value) => Number.isFinite(Number.parseFloat(value)))) return "number";
+  return "text";
+}
+
+function booleanFilterValue(value) {
+  return isTruthyProperty(value) ? "true" : "false";
+}
+
+function metricValueLabel(metric, value) {
+  if (metric.type !== "boolean") return value;
+  return value === "true" ? "Pass" : "Fail";
+}
+
+function uniqueValues(values) {
+  return [...new Set(values.map((value) => String(value)))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+}
+
+function formatFilterValue(value) {
+  return Number.isFinite(Number(value)) ? String(value) : "";
 }
 
 function filteredCandidates() {
@@ -765,6 +1522,7 @@ function filteredCandidates() {
         item.smiles,
         item.properties?.SMILES,
         item.properties?.VINA_STATUS,
+        ...toolOutputDefinitions().map((output) => item.properties?.[output.name]),
       ].some((value) => String(value || "").toLowerCase().includes(query));
     })
     .sort((a, b) => sort === "index" ? a.index - b.index : compareMetric(candidateMetric(b, sort), candidateMetric(a, sort)));
@@ -781,7 +1539,8 @@ function renderResultsTable() {
       <td class="smiles-cell" title="${escapeHtml(item.smiles || item.properties?.SMILES || "")}">${escapeHtml(item.smiles || item.properties?.SMILES || "-")}</td>
       <td>${formatMetric(propertyMetric(item, "VINA_SCORE_ONLY"))}</td>
       <td>${formatMetric(propertyMetric(item, "VINA_MINIMIZE"))}</td>
-      <td>${formatMetric(propertyMetric(item, "VINA_DOCK") ?? propertyMetric(item, "QVINA") ?? dockingMetric(item))}</td>
+      <td>${formatMetric(propertyMetric(item, "VINA_DOCK") ?? propertyMetric(item, "QVINA"))}</td>
+      <td>${toolPropertyBadges(item)}</td>
     </tr>`).join("");
   $$("#result-table .candidate-export-toggle").forEach((input) => input.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -802,14 +1561,6 @@ function propertyMetric(item, key) {
   return Number.isFinite(value) ? value : null;
 }
 
-function dockingMetric(item) {
-  if (!vinaWasRun(item.properties)) return null;
-  const value = Number(item.vinaScore);
-  // Older outputs without VINA_STATUS used 0.0 as a placeholder.
-  if (!item.properties?.VINA_STATUS && value === 0) return null;
-  return Number.isFinite(value) ? value : null;
-}
-
 function candidateMetric(item, key) {
   if (key === "vina_score_only") return propertyMetric(item, "VINA_SCORE_ONLY");
   if (key === "vina_minimize") return propertyMetric(item, "VINA_MINIMIZE");
@@ -818,14 +1569,36 @@ function candidateMetric(item, key) {
   return item[key];
 }
 
-function renderCharts() {
+function renderHistogramMetricOptions() {
+  const select = $("#histogram-metric");
+  if (!select) return;
+  const current = select.value;
+  const metrics = availableExportMetrics();
+  if (!metrics.length) {
+    select.innerHTML = `<option value="">No metrics</option>`;
+    select.disabled = true;
+    return;
+  }
+  select.disabled = false;
+  select.innerHTML = metrics.map((metric) => `<option value="${escapeHtml(metric.id)}" title="${escapeHtml(metric.description || metric.label)}">${escapeHtml(metric.label)}</option>`).join("");
+  select.value = metrics.some((metric) => metric.id === current) ? current : metrics[0].id;
+}
+
+function renderCharts({ refreshMetricOptions = true } = {}) {
   if (!state.study || state.activeTab !== "results" || !$(".analytics-details").open) return;
-  const metric = $("#histogram-metric").value;
-  const label = $("#histogram-metric").selectedOptions[0].textContent;
-  const values = metric === "vinaScore"
-    ? state.study.candidates.map(dockingMetric).filter(Number.isFinite)
-    : numericValues(state.study.candidates, metric);
+  if (refreshMetricOptions) renderHistogramMetricOptions();
+  const metric = exportMetricForHistogram($("#histogram-metric").value);
+  const label = metric?.label || $("#histogram-metric").selectedOptions[0]?.textContent || "Metric";
   const slider = $("#histogram-threshold");
+  if (metric && metric.type !== "number") {
+    slider.disabled = true;
+    $("#histogram-threshold-value").textContent = "—";
+    const entries = categoricalDistribution(state.study.candidates, metric);
+    $("#histogram-tooltip").textContent = `${entries.reduce((sum, entry) => sum + entry.count, 0)}/${state.study.candidates.length} molecules have ${label} annotations.`;
+    drawCategoryChart($("#histogram"), entries, label);
+    return;
+  }
+  const values = metric ? state.study.candidates.map((item) => exportMetricValue(item, metric)).filter(Number.isFinite) : [];
   if (!values.length) {
     slider.disabled = true;
     $("#histogram-threshold-value").textContent = "—";
@@ -834,33 +1607,81 @@ function renderCharts() {
   }
   const min = Math.min(...values); const max = Math.max(...values);
   slider.disabled = false; slider.min = min; slider.max = max; slider.step = (max - min || 1) / 100;
-  if (state.histogramThreshold === null || state.histogramThreshold < min || state.histogramThreshold > max) state.histogramThreshold = min;
-  if (!state.exportSelectionInitialized) {
-    const lowerIsBetter = metric === "vinaScore";
-    state.exportSelection = new Set(state.study.candidates.filter((item) => {
-      const value = thresholdMetricValue(item, metric);
-      return Number.isFinite(value) && (lowerIsBetter ? value <= state.histogramThreshold : value >= state.histogramThreshold);
-    }).map((item) => item.id));
-    state.exportSelectionInitialized = true;
+  const exportFilter = metric ? state.exportFilters[metric.id] : null;
+  if (exportFilter?.enabled && Number.isFinite(Number(exportFilter.value))) {
+    state.histogramThreshold = Number(exportFilter.value);
+  } else if (exportFilter?.enabled && exportFilter.operator === "range" && Number.isFinite(Number(exportFilter.max))) {
+    state.histogramThreshold = Number(exportFilter.max);
   }
+  if (state.histogramThreshold === null || state.histogramThreshold < min || state.histogramThreshold > max) state.histogramThreshold = min;
   slider.value = state.histogramThreshold;
   $("#histogram-threshold-value").textContent = Number(state.histogramThreshold).toFixed(1);
-  const lowerIsBetter = metric === "vinaScore";
-  const passing = values.filter((value) => lowerIsBetter ? value <= state.histogramThreshold : value >= state.histogramThreshold).length;
-  $("#histogram-tooltip").textContent = `${passing}/${values.length} molecules meet the threshold (${lowerIsBetter ? "at or below" : "at or above"}).`;
+  const lowerIsBetter = exportFilter?.operator ? exportFilter.operator === "<=" : metric.defaultOperator === "<=";
+  const passing = exportFilter?.enabled && exportFilter.operator === "range"
+    ? values.filter((value) => value >= Math.min(Number(exportFilter.min), Number(exportFilter.max)) && value <= Math.max(Number(exportFilter.min), Number(exportFilter.max))).length
+    : values.filter((value) => lowerIsBetter ? value <= state.histogramThreshold : value >= state.histogramThreshold).length;
+  $("#histogram-tooltip").textContent = `${passing}/${values.length} molecules meet the displayed ${exportFilter?.operator === "range" ? "range" : "threshold"}.`;
   drawHistogram($("#histogram"), values, label, state.histogramThreshold);
 }
 
-function thresholdMetricValue(item, metric) {
-  return metric === "vinaScore" ? dockingMetric(item) : Number(item[metric]);
+function categoricalDistribution(candidates, metric) {
+  const counts = new Map();
+  candidates.forEach((item) => {
+    const value = exportMetricValue(item, metric);
+    if (value === null || value === undefined || value === "") return;
+    const label = metric.type === "boolean" ? metricValueLabel(metric, booleanFilterValue(value)) : String(value);
+    counts.set(label, (counts.get(label) || 0) + 1);
+  });
+  return [...counts.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, undefined, { numeric: true }));
+}
+
+function syncHistogramThresholdToExportFilter({ defer = false } = {}) {
+  const metric = exportMetricForHistogram($("#histogram-metric").value);
+  if (!metric) return;
+  const filter = state.exportFilters[metric.id] || defaultExportFilter(metric);
+  filter.enabled = true;
+  filter.operator = filter.operator === "range" ? metric.defaultOperator || ">=" : filter.operator || metric.defaultOperator || ">=";
+  filter.value = Number(state.histogramThreshold);
+  state.exportFilters[metric.id] = filter;
+  if (defer) {
+    scheduleExportFilterApply();
+    return;
+  }
+  renderExportFilters();
+  applyExportFilters();
+}
+
+function scheduleExportFilterApply() {
+  if (state.exportFilterTimer) clearTimeout(state.exportFilterTimer);
+  state.exportFilterTimer = setTimeout(() => {
+    state.exportFilterTimer = null;
+    renderExportFilters();
+    applyExportFilters();
+  }, 140);
+}
+
+function exportMetricForHistogram(histogramMetric) {
+  const direct = {
+    molecularWeight: "field:molecularWeight",
+    heavyAtoms: "field:heavyAtoms",
+    heteroAtoms: "field:heteroAtoms",
+    rings: "field:rings",
+  }[histogramMetric];
+  const definitions = availableExportMetrics();
+  if (direct) return definitions.find((metric) => metric.id === direct) || null;
+  if (histogramMetric === "vinaScore") {
+    return definitions.find((metric) => ["prop:VINA_SCORE_ONLY", "prop:VINA_MINIMIZE", "prop:VINA_DOCK", "prop:QVINA"].includes(metric.id)) || null;
+  }
+  return definitions.find((metric) => metric.id === histogramMetric) || null;
 }
 
 function scheduleThresholdRender() {
   if (state.thresholdFrame) cancelAnimationFrame(state.thresholdFrame);
   state.thresholdFrame = requestAnimationFrame(() => {
     state.thresholdFrame = null;
-    renderCharts();
-    renderResultsTable();
+    renderCharts({ refreshMetricOptions: false });
   });
 }
 
@@ -888,22 +1709,15 @@ function renderSelectedStructure() {
   if (molecule.smiles) {
     metrics.push(["SMILES", molecule.smiles]);
   }
-  const dockingScore = dockingMetric(molecule);
-  if (dockingScore !== null) {
-    metrics.push(["Docking", formatMetric(dockingScore)]);
-  }
-  if (vinaWasRun(molecule.properties) && molecule.properties?.VINA_SCORE_ONLY && molecule.vinaScore === null) {
-    metrics.push(["Vina score", formatMetric(Number.parseFloat(molecule.properties.VINA_SCORE_ONLY))]);
-  }
-  if (vinaWasRun(molecule.properties) && molecule.properties?.VINA_MINIMIZE) {
-    metrics.push(["Vina min", formatMetric(Number.parseFloat(molecule.properties.VINA_MINIMIZE))]);
-  }
-  if (vinaWasRun(molecule.properties) && molecule.properties?.VINA_DOCK) {
-    metrics.push(["Vina dock", formatMetric(Number.parseFloat(molecule.properties.VINA_DOCK))]);
-  }
-  if (vinaWasRun(molecule.properties) && molecule.properties?.QVINA) {
-    metrics.push(["QVina", formatMetric(Number.parseFloat(molecule.properties.QVINA))]);
-  }
+  const vinaScore = propertyMetric(molecule, "VINA_SCORE_ONLY");
+  if (vinaScore !== null) metrics.push(["Vina score", formatMetric(vinaScore)]);
+  const vinaMinimized = propertyMetric(molecule, "VINA_MINIMIZE");
+  if (vinaMinimized !== null) metrics.push(["Vina minimized", formatMetric(vinaMinimized)]);
+  const vinaDock = propertyMetric(molecule, "VINA_DOCK");
+  if (vinaDock !== null) metrics.push(["Vina redocked", formatMetric(vinaDock)]);
+  const qvina = propertyMetric(molecule, "QVINA");
+  if (qvina !== null) metrics.push(["QVina", formatMetric(qvina)]);
+  metrics.push(...viewerToolMetricRows(molecule));
   $("#selected-metrics").innerHTML = metrics.map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join("");
   render2D($("#viewer-2d"), molecule);
   render3D($("#viewer-3d"), molecule, state.study.pdbText, {
@@ -987,7 +1801,12 @@ function updateJobTargetControls() {
 }
 
 function updateVinaControls() {
-  $("#vina-options").hidden = !$("#vina-enabled").checked;
+  const selected = selectedBuiltinEvaluations();
+  const enabled = selected.length > 0;
+  $("#vina-options").classList.toggle("is-disabled", !enabled);
+  $("#vina-exhaustiveness").disabled = !enabled;
+  $("#vina-cpu").disabled = !enabled;
+  $("#vina-mode-summary").textContent = selectedEvaluationLabel(selected);
   updateCommand();
 }
 
@@ -1005,6 +1824,14 @@ function formatDate(value) {
 
 function formatMetric(value, digits = 2) {
   return Number.isFinite(value) ? value.toFixed(digits) : "-";
+}
+
+function mean(values) {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+}
+
+function bestValueLabel(values) {
+  return values.length ? `${formatMetric(Math.min(...values))} kcal/mol` : "n/a";
 }
 
 function numericValues(items, key) {
@@ -1041,12 +1868,13 @@ function updateCommand() {
     `--device ${isSlurmGpuTarget(resolvedTarget()) ? "cuda:0" : "cpu"}`,
     `--num_samples ${state.parameters.num_samples}`,
     `--batch_size ${state.parameters.batch_size}`,
-    `--pocket_radius ${state.parameters.pocket_radius}`,
     `--pdb_filename ${pdbName}`,
   ];
+  if (state.mode !== "pocket") args.splice(4, 0, `--pocket_radius ${state.parameters.pocket_radius}`);
   if (state.mode === "reference" && sdfName) args.push(`--sdf_filename ${sdfName}`);
-  if ($("#vina-enabled").checked) {
-    args.push(`--vina_score --vina_mode ${$("#vina-mode").value} --vina_exhaustiveness ${$("#vina-exhaustiveness").value}`);
+  const selected = selectedBuiltinEvaluations();
+  if (selected.length) {
+    args.push(`--vina_score --vina_mode ${selectedVinaMode(selected)} --vina_exhaustiveness ${$("#vina-exhaustiveness").value}`);
   }
   $("#command-preview").textContent = args.join(" ");
   updateRunEstimate();
@@ -1241,22 +2069,35 @@ async function downloadAll() {
     return;
   }
   const button = $("#download-all");
+  const candidates = exportCandidates();
+  if (!candidates.length) {
+    showToast("No candidates match the current export filters. Reset or loosen filters before downloading.", 8000);
+    return;
+  }
   button.disabled = true;
-  button.textContent = "Packaging…";
+  button.textContent = "Packaging...";
+  const exportMetadata = buildExportMetadata(candidates);
   let archiveNotice = "The archive will be saved by your browser to its Downloads folder.";
   if (state.resultSource === "job" && state.selectedJob?.id) {
     try {
-      const saved = await service.exportJob(state.selectedJob.id);
-      archiveNotice = `A server copy was saved to ${saved.path}. The browser copy will be saved to its Downloads folder.`;
+      const saved = await service.exportJob(state.selectedJob.id, {
+        selected_paths: candidates.map((item) => item.path).filter(Boolean),
+        filters: exportMetadata.filters,
+        tool_runs: exportMetadata.tool_runs,
+        run_config: exportMetadata.run_config,
+        metrics_csv: csvText(candidates),
+      });
+      archiveNotice = `A filtered server copy was saved to ${saved.relative_directory || saved.relative_path}. The browser copy will be saved to its Downloads folder.`;
     } catch (error) {
       archiveNotice = `Browser copy will be saved to Downloads. Server archive was not created: ${error.message}`;
     }
   }
   const zip = new window.JSZip();
   const structures = zip.folder("generated_structures");
-  exportCandidates().forEach((item) => structures.file(item.name, item.text));
-  zip.file("metrics.csv", csvText(exportCandidates()));
-  zip.file("run_config.json", JSON.stringify(buildConfiguration(), null, 2));
+  candidates.forEach((item) => structures.file(item.name, item.text));
+  zip.file("metrics.csv", csvText(candidates));
+  zip.file("run_config.json", JSON.stringify(exportMetadata.run_config, null, 2));
+  zip.file("export_metadata.json", JSON.stringify(exportMetadata, null, 2));
   if (state.study.logs?.stdout) zip.file("logs/stdout.log", state.study.logs.stdout);
   if (state.study.logs?.stderr) zip.file("logs/stderr.log", state.study.logs.stderr);
   if (state.study.logs?.extra) zip.file("logs/additional_logs.txt", state.study.logs.extra);
@@ -1267,7 +2108,8 @@ async function downloadAll() {
   downloadBlob(blob, `${studyName()}_study.zip`, "application/zip");
   showToast(archiveNotice, 10000);
   button.disabled = false;
-  button.innerHTML = "Download ZIP <b>↓</b>";
+  button.innerHTML = "Download all <b>↓</b>";
+  updateExportScope();
 }
 
 function buildConfiguration() {
@@ -1286,10 +2128,29 @@ function buildConfiguration() {
         : null,
     },
     parameters: { ...(job?.parameters || state.parameters) },
+    export: {
+      selected_count: exportCandidates().length,
+      total_count: state.study?.candidates?.length || 0,
+      filters: activeExportFilters(),
+    },
+  };
+}
+
+function buildExportMetadata(candidates = exportCandidates()) {
+  return {
+    created_at: new Date().toISOString(),
+    job_id: state.selectedJob?.id || null,
+    selected_count: candidates.length,
+    total_count: state.study?.candidates?.length || 0,
+    selected_candidates: candidates.map((item) => ({ id: item.id, name: item.name, path: item.path || item.name })),
+    filters: activeExportFilters(),
+    tool_runs: state.study?.toolRuns || state.selectedJob?.tool_runs || [],
+    run_config: buildConfiguration(),
   };
 }
 
 function csvText(candidates = filteredCandidates()) {
+  const toolOutputs = toolOutputDefinitions();
   const header = [
     "candidate",
     "source_file",
@@ -1304,6 +2165,7 @@ function csvText(candidates = filteredCandidates()) {
     "vina_minimize",
     "vina_dock",
     "qvina",
+    ...toolOutputs.map((output) => output.name.toLowerCase()),
   ];
   const rows = candidates.map((item) => [
     item.id,
@@ -1319,6 +2181,7 @@ function csvText(candidates = filteredCandidates()) {
     item.properties?.VINA_MINIMIZE || "",
     item.properties?.VINA_DOCK || "",
     item.properties?.QVINA || "",
+    ...toolOutputs.map((output) => item.properties?.[output.name] || ""),
   ]);
   return [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
 }
@@ -1334,6 +2197,7 @@ function updateExportScope() {
   const filtered = $("#export-filtered")?.checked;
   if ($("#export-scope-count")) $("#export-scope-count").textContent = `(${count} of ${total} candidates)`;
   if ($("#download-all")) $("#download-all").firstChild.textContent = filtered ? "Download filtered " : "Download all ";
+  updateExportFilterStatus();
 }
 
 function csvCell(value) {
@@ -1392,6 +2256,27 @@ function debounce(fn, wait) {
     clearTimeout(timeout);
     timeout = setTimeout(() => fn(...args), wait);
   };
+}
+
+function initializeTheme() {
+  const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+  setTheme(savedTheme === "dark" ? "dark" : "light");
+}
+
+function toggleTheme() {
+  setTheme(document.body.classList.contains("dark-mode") ? "light" : "dark", { persist: true });
+}
+
+function setTheme(theme, options = {}) {
+  const isDark = theme === "dark";
+  document.body.classList.toggle("dark-mode", isDark);
+  const toggle = $("#theme-toggle");
+  if (toggle) {
+    toggle.textContent = isDark ? "☼" : "◐";
+    toggle.setAttribute("aria-label", isDark ? "Switch to light mode" : "Switch to dark mode");
+    toggle.title = isDark ? "Switch to light mode" : "Switch to dark mode";
+  }
+  if (options.persist) localStorage.setItem(THEME_STORAGE_KEY, isDark ? "dark" : "light");
 }
 
 initialize();

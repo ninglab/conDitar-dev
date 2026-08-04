@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-output_dir="${CONDITAR_IMAGE_OUTPUT_DIR:-/fs/ess/PCON0041/mey200/container_images}"
+output_dir="${CONDITAR_IMAGE_OUTPUT_DIR:-$repo_root/container_images}"
 stamp="${CONDITAR_IMAGE_STAMP:-$(date +%Y%m%d-%H%M%S)}"
 log_path="$output_dir/conditar-build-export-$stamp.log"
 
