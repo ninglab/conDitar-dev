@@ -74,4 +74,4 @@ echo "GUI Python: ${PYTHON_COMMAND[*]}"
 echo "CPU mode: select This computer · CPU in the Setup panel"
 echo
 
-"${PYTHON_COMMAND[@]}" serve.py --host 127.0.0.1 --port "${PORT:-4173}" --open
+"${PYTHON_COMMAND[@]}" serve.py --host 127.0.0.1 --port "${PORT:-4173}" --auto-port --open

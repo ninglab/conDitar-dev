@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import errno
 from functools import partial
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
@@ -103,6 +104,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Serve conDitar")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=4173)
+    parser.add_argument(
+        "--auto-port",
+        action="store_true",
+        help="If the requested port is busy, try the next available port.",
+    )
     parser.add_argument("--open", action="store_true", help="Open the GUI in the default browser")
     args = parser.parse_args()
     validate_project()
@@ -110,8 +116,23 @@ def main() -> None:
         ConDitarRequestHandler,
         directory=str(PROJECT_ROOT),
     )
-    server = ThreadingHTTPServer((args.host, args.port), handler)
-    url = f"http://{args.host}:{args.port}"
+    server = None
+    port_limit = args.port + 20 if args.auto_port else args.port
+    for port in range(args.port, port_limit + 1):
+        try:
+            server = ThreadingHTTPServer((args.host, port), handler)
+            break
+        except OSError as error:
+            if error.errno not in {errno.EADDRINUSE, 48, 98, 10048} or port == port_limit:
+                raise SystemExit(
+                    f"Could not start conDitar on {args.host}:{args.port}; the port is already in use. "
+                    "Close the other GUI window or retry with PORT=4174 ./start_cpu_gui.sh."
+                ) from error
+    assert server is not None
+    port = server.server_address[1]
+    if port != args.port:
+        print(f"Port {args.port} is already in use; using {port} instead.")
+    url = f"http://{args.host}:{port}"
     print(f"conDitar: {url}")
     print("Press Ctrl+C to stop the server.")
     if args.open:

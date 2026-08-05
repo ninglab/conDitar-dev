@@ -158,12 +158,17 @@ If the browser does not open automatically, visit:
 http://127.0.0.1:4173
 ```
 
-If port `4173` is already in use, either use the already-running GUI or start on
-a different port:
+If port `4173` is already in use, the launchers automatically try the next
+available port and print the URL they selected. Use the printed URL in your
+browser. To request a specific starting port:
 
 ```bash
 PORT=4174 ./start_cpu_gui.sh
 ```
+
+On Windows/WSL, seeing "port already in use" usually means another conDitar GUI
+terminal or browser session is still running. You can use that existing window,
+close the old terminal, or rerun the launcher and follow the newly printed URL.
 
 ## Slurm GPU startup
 
