@@ -28,7 +28,8 @@ conDitar-dev container/source
 
 Typical local flow:
 
-1. Build or load the `conDitar-dev` container image.
+1. Pull the `conDitar-dev` runtime image, then tag it with the local name used
+   by the GUI.
 2. Run `./setup_gui.sh` to check Python, Docker, the image, and optional tools.
 3. Start this GUI folder with `./start_cpu_gui.sh`.
 4. Open `http://127.0.0.1:4173`.
@@ -41,6 +42,20 @@ export ZIPs.
 ## Quick start
 
 For first-time local CPU setup with Docker:
+
+```bash
+docker pull averyemeyer/conditar-dev:2026-07-10
+docker tag averyemeyer/conditar-dev:2026-07-10 localhost/conditar-dev:container-dev
+```
+
+Then clone the repository and enter the GUI folder:
+
+```bash
+git clone https://github.com/ninglab/conDitar-dev.git
+cd conDitar-dev/gui
+```
+
+Check the GUI environment:
 
 ```bash
 ./setup_gui.sh
@@ -82,7 +97,7 @@ Requirements:
 - Git
 - Python 3.9 or newer
 - Docker Desktop
-- A loaded conDitar image named `localhost/conditar-dev:container-dev`
+- A pulled and locally tagged conDitar image named `localhost/conditar-dev:container-dev`
 
 Linux, macOS, and Windows through WSL2 are supported for local GUI use. On
 Windows, run the shell scripts from WSL2, not native PowerShell. Install Docker
@@ -97,13 +112,14 @@ Use this path for a local Windows CPU run:
 2. In Docker Desktop, open **Settings > Resources > WSL Integration** and turn
    on integration for the WSL distribution you will use.
 3. Install Miniconda or Miniforge inside WSL, then open a fresh WSL terminal.
-4. Put the `gui/` folder and the downloaded container `.tar.gz` somewhere WSL
-   can read, such as your WSL home directory or `/mnt/c/Users/<you>/Downloads`.
+4. Clone the repository inside WSL or put the `gui/` folder somewhere WSL can
+   read, such as your WSL home directory.
 5. From the GUI folder, run:
 
    ```bash
+   docker pull averyemeyer/conditar-dev:2026-07-10
+   docker tag averyemeyer/conditar-dev:2026-07-10 localhost/conditar-dev:container-dev
    ./setup_gui.sh
-   docker load -i /path/to/localhost_conditar-dev_container-dev.tar.gz
    ./start_cpu_gui.sh
    ```
 
@@ -117,15 +133,16 @@ From the GUI folder inside your conDitar checkout:
 cd /path/to/conDitar-dev/gui
 ```
 
-Load the conDitar image if needed:
+Pull the conDitar image if needed:
 
 ```bash
-docker load -i /path/to/localhost_conditar-dev_container-dev.tar.gz
+docker pull averyemeyer/conditar-dev:2026-07-10
+docker tag averyemeyer/conditar-dev:2026-07-10 localhost/conditar-dev:container-dev
 docker image inspect localhost/conditar-dev:container-dev >/dev/null \
   && echo "conDitar container loaded"
 ```
 
-Docker Desktop must be installed and running before `docker load`, `docker run`,
+Docker Desktop must be installed and running before `docker pull`, `docker run`,
 or GUI job submission. On Apple Silicon, use the `linux/amd64` image; emulation
 may be slower.
 
@@ -157,8 +174,15 @@ PORT=4174 ./start_cpu_gui.sh
 Fresh Slurm/GPU setup:
 
 1. Copy or clone this repository onto the cluster and enter the GUI folder.
-2. Make the Docker/OCI image available to compute nodes. Either preload
-   `localhost/conditar-dev:container-dev` with Podman, or place the exported
+2. Make the Docker/OCI image available to compute nodes. If your cluster allows
+   registry pulls, preload and locally tag the image with Podman:
+
+   ```bash
+   podman pull docker.io/averyemeyer/conditar-dev:2026-07-10
+   podman tag docker.io/averyemeyer/conditar-dev:2026-07-10 localhost/conditar-dev:container-dev
+   ```
+
+   If compute nodes cannot pull from Docker Hub, place the exported
    `.tar`/`.tar.gz` archive on a filesystem visible from compute nodes.
 3. Configure the image/archive and scheduler account in a local
    `.conditar-slurm.env` file (this file is ignored and should not be committed):

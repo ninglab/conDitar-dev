@@ -15,7 +15,39 @@ The image uses CUDA-enabled PyTorch wheels, so the same image can run on CPU or 
 
 ## Quick Start
 
-Build the container from the repository root:
+### Pull the released runtime image
+
+For most users, start from the published Docker image rather than rebuilding
+the container:
+
+```bash
+docker pull averyemeyer/conditar-dev:2026-07-10
+docker tag averyemeyer/conditar-dev:2026-07-10 localhost/conditar-dev:container-dev
+```
+
+The second command gives the pulled image the local name used by the GUI and
+example scripts.
+
+With Podman, use the same image and local tag:
+
+```bash
+podman pull docker.io/averyemeyer/conditar-dev:2026-07-10
+podman tag docker.io/averyemeyer/conditar-dev:2026-07-10 localhost/conditar-dev:container-dev
+```
+
+Run a small CPU sampling job:
+
+```bash
+INPUT_DIR=/path/to/input-data docker/run-examples.sh cpu-pocket
+```
+
+The examples write results to `./results` by default. Set
+`OUTPUT_DIR=/path/to/results` to use a different folder.
+
+### Build from source
+
+Build the container yourself only when you need to change dependencies,
+checkpoints, or container setup. From the repository root:
 
 ```bash
 docker/build-image.sh --checkpoint-dir /path/to/checkpoints
@@ -28,12 +60,6 @@ Diff.pt
 PocketAE.pt
 ```
 
-Run a small CPU sampling job:
-
-```bash
-INPUT_DIR=/path/to/input-data docker/run-examples.sh cpu-pocket
-```
-
 Use the example runner for other common modes:
 
 ```bash
@@ -42,8 +68,6 @@ INPUT_DIR=/path/to/input-data docker/run-examples.sh gpu
 INPUT_DIR=/path/to/input-data docker/run-examples.sh vina
 INPUT_DIR=/path/to/input-data docker/run-examples.sh podman-cpu
 ```
-
-The examples write results to `./results` by default. Set `OUTPUT_DIR=/path/to/results` to use a different folder.
 
 ---
 
