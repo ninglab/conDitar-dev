@@ -10,10 +10,12 @@ if [[ -f .conditar-slurm.env ]]; then
   set +a
 fi
 
-IMAGE="${CONDITAR_DOCKER_IMAGE:-localhost/conditar-dev:container-dev}"
 ARCHIVE="${CONDITAR_DOCKER_TAR:-}"
 PODMAN_COMMAND="${PODMAN_BIN:-podman}"
 SBATCH_COMMAND="${SBATCH_BIN:-sbatch}"
+PUBLIC_IMAGE="docker.io/averyemeyer/conditar-dev:2026-07-10"
+LEGACY_IMAGE="localhost/conditar-dev:container-dev"
+IMAGE="${CONDITAR_DOCKER_IMAGE:-$PUBLIC_IMAGE}"
 
 # Match the launcher convenience path search.
 if [[ -z "$ARCHIVE" ]]; then
@@ -114,9 +116,13 @@ if [[ -n "$ARCHIVE" ]]; then
   fi
 elif command -v "$PODMAN_COMMAND" >/dev/null 2>&1 && "$PODMAN_COMMAND" image exists "$IMAGE" >/dev/null 2>&1; then
   echo "OK    preloaded container image found: $IMAGE"
+elif [[ -z "${CONDITAR_DOCKER_IMAGE:-}" ]] && command -v "$PODMAN_COMMAND" >/dev/null 2>&1 \
+  && "$PODMAN_COMMAND" image exists "$LEGACY_IMAGE" >/dev/null 2>&1; then
+  echo "OK    preloaded container image found with legacy local tag: $LEGACY_IMAGE"
 else
   echo "MISS  no container archive or preloaded image found: $IMAGE"
-  echo "      Set CONDITAR_DOCKER_TAR to a shared archive, or preload the image with podman load."
+  echo "      Pull it with: podman pull $PUBLIC_IMAGE"
+  echo "      Or set CONDITAR_DOCKER_TAR to a shared archive."
   missing=1
 fi
 

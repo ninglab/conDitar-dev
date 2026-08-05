@@ -23,13 +23,12 @@ conDitar-dev/gui
 
 conDitar-dev container/source
   Docker/Podman image with conDitar code, dependencies, model files, and runtime entry point
-  Default image name: localhost/conditar-dev:container-dev
+  Default image name: averyemeyer/conditar-dev:2026-07-10
 ```
 
 Typical local flow:
 
-1. Pull the `conDitar-dev` runtime image, then tag it with the local name used
-   by the GUI.
+1. Pull the `conDitar-dev` runtime image.
 2. Run `./setup_gui.sh` to check Python, Docker, the image, and optional tools.
 3. Start this GUI folder with `./start_cpu_gui.sh`.
 4. Open `http://127.0.0.1:4173`.
@@ -45,7 +44,6 @@ For first-time local CPU setup with Docker:
 
 ```bash
 docker pull averyemeyer/conditar-dev:2026-07-10
-docker tag averyemeyer/conditar-dev:2026-07-10 localhost/conditar-dev:container-dev
 ```
 
 Then clone the repository and enter the GUI folder:
@@ -97,7 +95,7 @@ Requirements:
 - Git
 - Python 3.9 or newer
 - Docker Desktop
-- A pulled and locally tagged conDitar image named `localhost/conditar-dev:container-dev`
+- The pulled conDitar image `averyemeyer/conditar-dev:2026-07-10`
 
 Linux, macOS, and Windows through WSL2 are supported for local GUI use. On
 Windows, run the shell scripts from WSL2, not native PowerShell. Install Docker
@@ -118,7 +116,6 @@ Use this path for a local Windows CPU run:
 
    ```bash
    docker pull averyemeyer/conditar-dev:2026-07-10
-   docker tag averyemeyer/conditar-dev:2026-07-10 localhost/conditar-dev:container-dev
    ./setup_gui.sh
    ./start_cpu_gui.sh
    ```
@@ -137,8 +134,7 @@ Pull the conDitar image if needed:
 
 ```bash
 docker pull averyemeyer/conditar-dev:2026-07-10
-docker tag averyemeyer/conditar-dev:2026-07-10 localhost/conditar-dev:container-dev
-docker image inspect localhost/conditar-dev:container-dev >/dev/null \
+docker image inspect averyemeyer/conditar-dev:2026-07-10 >/dev/null \
   && echo "conDitar container loaded"
 ```
 
@@ -175,11 +171,10 @@ Fresh Slurm/GPU setup:
 
 1. Copy or clone this repository onto the cluster and enter the GUI folder.
 2. Make the Docker/OCI image available to compute nodes. If your cluster allows
-   registry pulls, preload and locally tag the image with Podman:
+   registry pulls, preload the image with Podman:
 
    ```bash
    podman pull docker.io/averyemeyer/conditar-dev:2026-07-10
-   podman tag docker.io/averyemeyer/conditar-dev:2026-07-10 localhost/conditar-dev:container-dev
    ```
 
    If compute nodes cannot pull from Docker Hub, place the exported
@@ -189,7 +184,7 @@ Fresh Slurm/GPU setup:
 
    ```bash
    CONDITAR_DOCKER_TAR=/shared/path/conditar-image.tar.gz
-   CONDITAR_DOCKER_IMAGE=localhost/conditar-dev:container-dev
+   CONDITAR_DOCKER_IMAGE=docker.io/averyemeyer/conditar-dev:2026-07-10
    CONDITAR_SLURM_ACCOUNT=your_account
    # CONDITAR_SLURM_PARTITION=your_gpu_partition   # if required by your site
    ```
@@ -221,7 +216,7 @@ Requirements:
 
 - A cluster session with Slurm available
 - Podman available on the login or compute environment
-- The conDitar image available as `localhost/conditar-dev:container-dev`, or a
+- The conDitar image available as `docker.io/averyemeyer/conditar-dev:2026-07-10`, or a
   shared image archive that can be loaded by the Slurm job
 - Any site-specific setup required for remote desktop or web access
 
@@ -247,7 +242,7 @@ The Slurm launcher defaults to:
 
 ```bash
 CONDITAR_RUNTIME=podman
-CONDITAR_DOCKER_IMAGE=localhost/conditar-dev:container-dev
+CONDITAR_DOCKER_IMAGE=docker.io/averyemeyer/conditar-dev:2026-07-10
 CONDITAR_DOCKER_TAR=                  # optional archive to load inside the job
 CONDITAR_SLURM_ACCOUNT=               # required by many Slurm sites
 CONDITAR_SLURM_TIME=04:00:00
@@ -349,8 +344,8 @@ with the active thresholds and tool runs used for that subset.
 If a Slurm job is `PENDING`, the scheduler has accepted it but is waiting for account,
 partition, or GPU capacity. If it fails before producing container output,
 inspect `logs/sbatch.stderr.log` and `logs/stderr.log`; a missing image archive
-or an attempted pull of `localhost/conditar-dev:container-dev` indicates that
-the GPU launcher was not used or the archive path is incorrect.
+or unavailable image indicates that the GPU launcher was not used, the image
+was not pulled, or the archive path is incorrect.
 
 ## Batch folders
 

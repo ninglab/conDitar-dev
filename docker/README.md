@@ -22,17 +22,12 @@ the container:
 
 ```bash
 docker pull averyemeyer/conditar-dev:2026-07-10
-docker tag averyemeyer/conditar-dev:2026-07-10 localhost/conditar-dev:container-dev
 ```
 
-The second command gives the pulled image the local name used by the GUI and
-example scripts.
-
-With Podman, use the same image and local tag:
+With Podman, use the same image:
 
 ```bash
 podman pull docker.io/averyemeyer/conditar-dev:2026-07-10
-podman tag docker.io/averyemeyer/conditar-dev:2026-07-10 localhost/conditar-dev:container-dev
 ```
 
 Run a small CPU sampling job:
@@ -184,7 +179,7 @@ Any unrecognized launcher options are passed through to `scripts.conDitar.sample
 Show the full launcher help:
 
 ```bash
-docker run --rm localhost/conditar-dev:container-dev --help
+docker run --rm averyemeyer/conditar-dev:2026-07-10 --help
 ```
 
 ---
@@ -242,7 +237,7 @@ The archive is large, so `-P` allows an interrupted transfer to resume.
 Verify core Python dependencies:
 
 ```bash
-docker run --rm --entrypoint python localhost/conditar-dev:container-dev - <<'PY'
+docker run --rm --entrypoint python averyemeyer/conditar-dev:2026-07-10 - <<'PY'
 import torch
 import torch_geometric
 from rdkit import Chem

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-image_tag="${CONDITAR_DOCKER_TAG:-localhost/conditar-dev:container-dev}"
+image_tag="${CONDITAR_DOCKER_TAG:-averyemeyer/conditar-dev:2026-07-10}"
 input_dir="${INPUT_DIR:-}"
 output_dir="${OUTPUT_DIR:-$PWD/results}"
 pocket_pdb="${POCKET_PDB:-xxxx/xxxx_pocket.pdb}"

@@ -3,8 +3,10 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-IMAGE="${CONDITAR_DOCKER_IMAGE:-localhost/conditar-dev:container-dev}"
 DOCKER_COMMAND="${DOCKER_BIN:-docker}"
+PUBLIC_IMAGE="averyemeyer/conditar-dev:2026-07-10"
+LEGACY_IMAGE="localhost/conditar-dev:container-dev"
+IMAGE="${CONDITAR_DOCKER_IMAGE:-$PUBLIC_IMAGE}"
 
 echo "conDitar GUI setup check"
 echo
@@ -46,10 +48,12 @@ if command -v "$DOCKER_COMMAND" >/dev/null 2>&1; then
 
   if "$DOCKER_COMMAND" image inspect "$IMAGE" >/dev/null 2>&1; then
     echo "OK    conDitar image found: $IMAGE"
+  elif [[ -z "${CONDITAR_DOCKER_IMAGE:-}" ]] && "$DOCKER_COMMAND" image inspect "$LEGACY_IMAGE" >/dev/null 2>&1; then
+    echo "OK    conDitar image found with legacy local tag: $LEGACY_IMAGE"
   else
     echo "MISS  conDitar image not found: $IMAGE"
-    echo "      Load it with:"
-    echo "        docker load -i /path/to/localhost_conditar-dev_container-dev.tar.gz"
+    echo "      Pull it with:"
+    echo "        docker pull $PUBLIC_IMAGE"
     echo "      Or build it from the repository Docker instructions."
     missing=1
   fi

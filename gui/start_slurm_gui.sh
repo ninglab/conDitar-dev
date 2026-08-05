@@ -11,7 +11,16 @@ if [[ -f .conditar-slurm.env ]]; then
 fi
 
 export CONDITAR_RUNTIME="${CONDITAR_RUNTIME:-podman}"
-export CONDITAR_DOCKER_IMAGE="${CONDITAR_DOCKER_IMAGE:-localhost/conditar-dev:container-dev}"
+PUBLIC_IMAGE="docker.io/averyemeyer/conditar-dev:2026-07-10"
+LEGACY_IMAGE="localhost/conditar-dev:container-dev"
+if [[ -z "${CONDITAR_DOCKER_IMAGE:-}" ]]; then
+  export CONDITAR_DOCKER_IMAGE="$PUBLIC_IMAGE"
+  if command -v podman >/dev/null 2>&1 \
+    && podman image exists "$LEGACY_IMAGE" >/dev/null 2>&1 \
+    && ! podman image exists "$PUBLIC_IMAGE" >/dev/null 2>&1; then
+    export CONDITAR_DOCKER_IMAGE="$LEGACY_IMAGE"
+  fi
+fi
 export CONDITAR_DOCKER_TAR="${CONDITAR_DOCKER_TAR:-}"
 configured_tar="$CONDITAR_DOCKER_TAR"
 
@@ -71,8 +80,8 @@ fi
 if [[ -z "$CONDITAR_DOCKER_TAR" ]] && command -v podman >/dev/null 2>&1 \
   && ! podman image exists "$CONDITAR_DOCKER_IMAGE" >/dev/null 2>&1; then
   echo "ERROR: Slurm GPU image is unavailable: $CONDITAR_DOCKER_IMAGE" >&2
-  echo "Set CONDITAR_DOCKER_TAR to a readable archive or load the image with podman load." >&2
-  echo "Example: podman load -i /shared/path/localhost_conditar-dev_container-dev.tar.gz" >&2
+  echo "Pull it with podman, set CONDITAR_DOCKER_TAR to a readable archive, or load the image with podman load." >&2
+  echo "Example: podman pull $PUBLIC_IMAGE" >&2
   exit 2
 fi
 PYTHON_COMMAND=(python3)
