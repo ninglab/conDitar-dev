@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 image_tag="${CONDITAR_DOCKER_TAG:-averyemeyer/conditar-dev:2026-07-10}"
-input_dir="${INPUT_DIR:-}"
+input_dir="${INPUT_DIR:-$repo_root/data/test_data}"
 output_dir="${OUTPUT_DIR:-$PWD/results}"
-pocket_pdb="${POCKET_PDB:-xxxx/xxxx_pocket.pdb}"
 protein_pdb="${PROTEIN_PDB:-4aua/4aua_protein.pdb}"
 ligand_sdf="${LIGAND_SDF:-4aua/4aua_ligand.sdf}"
+pocket_pdb="${POCKET_PDB:-$protein_pdb}"
 num_samples="${NUM_SAMPLES:-1}"
 batch_size="${BATCH_SIZE:-1}"
 vina_mode="${VINA_MODE:-vina_score}"
@@ -16,7 +17,7 @@ vina_cpu="${VINA_CPU:-4}"
 usage() {
     cat <<EOF
 Usage:
-  INPUT_DIR=/path/to/input-data docker/run-examples.sh COMMAND
+  docker/run-examples.sh COMMAND
 
 Commands:
   cpu-pocket      Docker CPU run with a prepared pocket PDB.
@@ -29,7 +30,7 @@ Commands:
 
 Environment:
   CONDITAR_DOCKER_TAG   Image tag. Default: $image_tag
-  INPUT_DIR             Host folder mounted at /inputs. Required.
+  INPUT_DIR             Host folder mounted at /inputs. Default: $input_dir
   OUTPUT_DIR            Host results folder. Default: ./results
   POCKET_PDB            Path under INPUT_DIR. Default: $pocket_pdb
   PROTEIN_PDB           Path under INPUT_DIR. Default: $protein_pdb

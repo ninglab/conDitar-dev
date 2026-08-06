@@ -26,12 +26,12 @@ conDitar-dev container/source
   Default image name: averyemeyer/conditar-dev:2026-07-10
 ```
 
-Typical local flow:
+Typical local CPU flow:
 
 1. Pull the `conDitar-dev` runtime image.
 2. Run `./setup_gui.sh` to check Python, Docker, the image, and optional tools.
 3. Start this GUI folder with `./start_cpu_gui.sh`.
-4. Open `http://127.0.0.1:4173`.
+4. Open the local URL printed by the launcher.
 5. Choose inputs, settings, and target, then click **Generate molecules**.
 
 Job folders are written under `job_data/jobs/<job-id>/`. That directory is
@@ -40,53 +40,18 @@ export ZIPs.
 
 ## Quick start
 
-For first-time local CPU setup with Docker:
+For first-time local CPU setup with Docker or Docker Desktop:
 
 ```bash
 docker pull averyemeyer/conditar-dev:2026-07-10
-```
-
-Then clone the repository and enter the GUI folder:
-
-```bash
 git clone https://github.com/ninglab/conDitar-dev.git
 cd conDitar-dev/gui
-```
-
-Check the GUI environment:
-
-```bash
 ./setup_gui.sh
-```
-
-Then start the GUI:
-
-```bash
 ./start_cpu_gui.sh
 ```
 
-On macOS, you can also double-click `START_HERE_MAC.command` from Finder. It
-checks Docker Desktop, sets up the optional Tool Chest environment when conda
-is available, finds or asks for the container archive if the image is missing,
-and starts the local CPU GUI.
-
-For GPU runs through Slurm and Podman:
-
-```bash
-./setup_slurm_gui.sh
-./start_slurm_gui.sh
-```
-
-These scripts can automatically find container archives in common nearby
-locations such as the GUI folder, `../containers/`, and `$HOME/containers/`.
-For site-specific shared storage, set `CONDITAR_DOCKER_TAR` in
-`.conditar-slurm.env` before running the scripts.
-
-Both launchers start the GUI at:
-
-```text
-http://127.0.0.1:4173
-```
+The launcher normally opens `http://127.0.0.1:4173`. If that port is busy, it
+automatically tries the next available port and prints the URL to use.
 
 ## Local CPU startup
 
@@ -100,63 +65,31 @@ Requirements:
 Linux, macOS, and Windows through WSL2 are supported for local GUI use. On
 Windows, run the shell scripts from WSL2, not native PowerShell. Install Docker
 Desktop, enable its WSL2 integration, and leave Docker Desktop running while
-you use the GUI.
+you use the GUI. On macOS, you can also double-click `START_HERE_MAC.command`
+from Finder after Docker Desktop is installed and running.
 
 ### Windows CPU setup
-
-Use this path for a local Windows CPU run:
 
 1. Install Docker Desktop and WSL2.
 2. In Docker Desktop, open **Settings > Resources > WSL Integration** and turn
    on integration for the WSL distribution you will use.
 3. Install Miniconda or Miniforge inside WSL, then open a fresh WSL terminal.
-4. Clone the repository inside WSL or put the `gui/` folder somewhere WSL can
-   read, such as your WSL home directory.
-5. From the GUI folder, run:
+4. Clone the repository inside WSL or put the repository somewhere WSL can read,
+   such as your WSL home directory.
+5. Run the same local CPU commands:
 
    ```bash
    docker pull averyemeyer/conditar-dev:2026-07-10
+   git clone https://github.com/ninglab/conDitar-dev.git
+   cd conDitar-dev/gui
    ./setup_gui.sh
    ./start_cpu_gui.sh
    ```
 
-The Windows-tested path uses the same `setup_gui.sh` and `start_cpu_gui.sh`
-launchers as macOS/Linux. If Docker commands fail inside WSL, first confirm
-Docker Desktop is open and WSL integration is enabled for that distribution.
-
-From the GUI folder inside your conDitar checkout:
-
-```bash
-cd /path/to/conDitar-dev/gui
-```
-
-Pull the conDitar image if needed:
-
-```bash
-docker pull averyemeyer/conditar-dev:2026-07-10
-docker image inspect averyemeyer/conditar-dev:2026-07-10 >/dev/null \
-  && echo "conDitar container loaded"
-```
-
-Docker Desktop must be installed and running before `docker pull`, `docker run`,
-or GUI job submission. On Apple Silicon, use the `linux/amd64` image; emulation
-may be slower.
-
-Start the GUI:
-
-```bash
-./start_cpu_gui.sh
-```
-
 The Setup page includes a **Launch checklist** that reports whether Python,
 Docker/Podman, the conDitar image, Slurm, and optional Tool Chest tools are
-available.
-
-If the browser does not open automatically, visit:
-
-```text
-http://127.0.0.1:4173
-```
+available. If Docker commands fail inside WSL, first confirm Docker Desktop is
+open and WSL integration is enabled for that distribution.
 
 If port `4173` is already in use, the launchers automatically try the next
 available port and print the URL they selected. Use the printed URL in your
@@ -184,21 +117,20 @@ Fresh Slurm/GPU setup:
 
    If compute nodes cannot pull from Docker Hub, place the exported
    `.tar`/`.tar.gz` archive on a filesystem visible from compute nodes.
-3. Configure the image/archive and scheduler account in a local
-   `.conditar-slurm.env` file (this file is ignored and should not be committed):
+3. Configure the scheduler account in a local `.conditar-slurm.env` file when
+   your cluster requires one (this file is ignored and should not be committed):
 
    ```bash
-   CONDITAR_DOCKER_TAR=/shared/path/conditar-image.tar.gz
-   CONDITAR_DOCKER_IMAGE=docker.io/averyemeyer/conditar-dev:2026-07-10
    CONDITAR_SLURM_ACCOUNT=your_account
    # CONDITAR_SLURM_PARTITION=your_gpu_partition   # if required by your site
    ```
 
-   If the image is already loaded on every compute node, leave
-   `CONDITAR_DOCKER_TAR` empty. The archive path must resolve from the compute
-   node, not only from the login host. If `CONDITAR_DOCKER_TAR` is unset, the
-   launcher also checks common nearby `conditar*.tar`/`.tar.gz` locations such
-   as the GUI folder, `../containers/`, and `$HOME/containers/`.
+   If compute nodes cannot pull from Docker Hub, also set
+   `CONDITAR_DOCKER_TAR=/shared/path/conditar-image.tar.gz`. The archive path
+   must resolve from the compute node, not only from the login host. If
+   `CONDITAR_DOCKER_TAR` is unset, the launcher checks common nearby
+   `conditar*.tar`/`.tar.gz` locations such as the GUI folder, `../containers/`,
+   and `$HOME/containers/`.
 4. Confirm the cluster tools are available (`python3` or `conda`, `podman`, and `sbatch`),
    then run the GPU setup check and start the GUI:
 
@@ -213,7 +145,9 @@ Fresh Slurm/GPU setup:
 5. Open the printed GUI URL, choose **Slurm GPU · Podman**, enter/confirm the
    Slurm account, and click **Check again** in Launch readiness before submitting.
 
-The launcher validates the image/archive and required commands before starting.
+The launcher normally opens `http://127.0.0.1:4173`; if that port is busy, it
+prints the next available local URL. It validates the image/archive and required
+commands before starting.
 Each submitted GPU batch is sent to Slurm as an array job; scheduler delays or
 account/GPU limits are reported in the Jobs panel with the scheduler reason.
 
@@ -224,24 +158,6 @@ Requirements:
 - The conDitar image available as `docker.io/averyemeyer/conditar-dev:2026-07-10`, or a
   shared image archive that can be loaded by the Slurm job
 - Any site-specific setup required for remote desktop or web access
-
-From the GUI folder on the cluster:
-
-```bash
-cd /path/to/conDitar-dev/gui
-```
-
-Start the Slurm GUI:
-
-```bash
-./start_slurm_gui.sh
-```
-
-This checks that Podman and Slurm are available before starting the GUI. If
-`CONDITAR_DOCKER_TAR` is set, the Slurm job loads that archive before running;
-otherwise it uses the named image already available to Podman.
-For site-specific defaults that should not be committed, put environment
-assignments in `.conditar-slurm.env`; the launcher loads it automatically.
 
 The Slurm launcher defaults to:
 
@@ -316,9 +232,9 @@ username, login host, and archive path:
 ```bash
 mkdir -p "$HOME/containers"
 rsync -avP \
-  <CLUSTER_USER>@<CLUSTER_LOGIN_HOST>:/path/to/localhost_conditar-dev_container-dev.tar.gz \
+  <CLUSTER_USER>@<CLUSTER_LOGIN_HOST>:/path/to/conditar-dev__2026-07-10.tar.gz \
   "$HOME/containers/"
-docker load -i "$HOME/containers/localhost_conditar-dev_container-dev.tar.gz"
+docker load -i "$HOME/containers/conditar-dev__2026-07-10.tar.gz"
 ```
 
 The archive is large; `rsync -P` resumes an interrupted transfer. Local NVIDIA
