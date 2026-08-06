@@ -21,7 +21,7 @@ For most users, start from the published Docker image rather than rebuilding
 the container:
 
 ```bash
-docker pull averyemeyer/conditar-dev:2026-07-10
+docker pull docker.io/averyemeyer/conditar-dev:2026-07-10
 ```
 
 With Podman, use the same image:
@@ -148,9 +148,8 @@ Default example inputs:
 
 - `PROTEIN_PDB=4aua/4aua_protein.pdb`
 - `LIGAND_SDF=4aua/4aua_ligand.sdf`
-- `POCKET_PDB` defaults to `PROTEIN_PDB` only as a fallback; set it explicitly
-  when running `cpu-pocket`, `gpu`, `podman-cpu`, or `podman-gpu` with a
-  prepared pocket-only example.
+- `POCKET_PDB` is required when running `cpu-pocket`, `gpu`, `podman-cpu`,
+  `podman-gpu`, or `dev` with a prepared pocket-only example.
 
 Override those paths when your files have different names:
 
@@ -185,7 +184,7 @@ Any unrecognized launcher options are passed through to `scripts.conDitar.sample
 Show the full launcher help:
 
 ```bash
-docker run --rm averyemeyer/conditar-dev:2026-07-10 --help
+docker run --rm docker.io/averyemeyer/conditar-dev:2026-07-10 --help
 ```
 
 ---
@@ -243,7 +242,7 @@ The archive is large, so `-P` allows an interrupted transfer to resume.
 Verify core Python dependencies:
 
 ```bash
-docker run --rm --entrypoint python averyemeyer/conditar-dev:2026-07-10 - <<'PY'
+docker run --rm --entrypoint python docker.io/averyemeyer/conditar-dev:2026-07-10 - <<'PY'
 import torch
 import torch_geometric
 from rdkit import Chem
