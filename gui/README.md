@@ -53,6 +53,13 @@ cd conDitar-dev/gui
 The launcher normally opens `http://127.0.0.1:4173`. If that port is busy, it
 automatically tries the next available port and prints the URL to use.
 
+After this first setup check succeeds, future local CPU sessions usually only
+need:
+
+```bash
+./start_cpu_gui.sh
+```
+
 ## Local CPU startup
 
 Requirements:
@@ -150,6 +157,12 @@ prints the next available local URL. It validates the image/archive and required
 commands before starting.
 Each submitted GPU batch is sent to Slurm as an array job; scheduler delays or
 account/GPU limits are reported in the Jobs panel with the scheduler reason.
+
+After Slurm/GPU setup is configured, future GPU sessions usually only need:
+
+```bash
+./start_slurm_gui.sh
+```
 
 Requirements:
 
