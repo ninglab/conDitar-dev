@@ -11,7 +11,7 @@ if [[ -f .conditar-slurm.env ]]; then
 fi
 
 export CONDITAR_RUNTIME="${CONDITAR_RUNTIME:-podman}"
-PUBLIC_IMAGE="docker.io/averyemeyer/conditar-dev:2026-07-10"
+PUBLIC_IMAGE="docker.io/osuninglab/conditar-dev:2026-07-10"
 LEGACY_IMAGE="localhost/conditar-dev:container-dev"
 if [[ -z "${CONDITAR_DOCKER_IMAGE:-}" ]]; then
   export CONDITAR_DOCKER_IMAGE="$PUBLIC_IMAGE"

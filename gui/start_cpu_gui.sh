@@ -12,7 +12,7 @@ fi
 
 export CONDITAR_RUNTIME="${CONDITAR_RUNTIME:-docker}"
 DOCKER_COMMAND="${DOCKER_BIN:-docker}"
-PUBLIC_IMAGE="averyemeyer/conditar-dev:2026-07-10"
+PUBLIC_IMAGE="osuninglab/conditar-dev:2026-07-10"
 LEGACY_IMAGE="localhost/conditar-dev:container-dev"
 if [[ -z "${CONDITAR_DOCKER_IMAGE:-}" ]]; then
   export CONDITAR_DOCKER_IMAGE="$PUBLIC_IMAGE"

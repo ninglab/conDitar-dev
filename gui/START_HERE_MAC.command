@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-IMAGE="${CONDITAR_DOCKER_IMAGE:-averyemeyer/conditar-dev:2026-07-10}"
+IMAGE="${CONDITAR_DOCKER_IMAGE:-osuninglab/conditar-dev:2026-07-10}"
 LEGACY_IMAGE="localhost/conditar-dev:container-dev"
 ARCHIVE_NAME="localhost_conditar-dev_container-dev-20260710-105038.tar.gz"
 
@@ -45,7 +45,7 @@ fi
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
   echo "conDitar container image is not loaded yet."
   echo "You can pull the published image with:"
-  echo "docker pull averyemeyer/conditar-dev:2026-07-10"
+  echo "docker pull osuninglab/conditar-dev:2026-07-10"
   echo
   echo "Looking for a local archive fallback: $ARCHIVE_NAME..."
   shopt -s nullglob

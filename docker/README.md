@@ -21,13 +21,13 @@ For most users, start from the published Docker image rather than rebuilding
 the container:
 
 ```bash
-docker pull docker.io/averyemeyer/conditar-dev:2026-07-10
+docker pull docker.io/osuninglab/conditar-dev:2026-07-10
 ```
 
 With Podman, use the same image:
 
 ```bash
-podman pull docker.io/averyemeyer/conditar-dev:2026-07-10
+podman pull docker.io/osuninglab/conditar-dev:2026-07-10
 ```
 
 Run a small CPU sampling job with the included `data/test_data/4aua` example:
@@ -184,7 +184,7 @@ Any unrecognized launcher options are passed through to `scripts.conDitar.sample
 Show the full launcher help:
 
 ```bash
-docker run --rm docker.io/averyemeyer/conditar-dev:2026-07-10 --help
+docker run --rm docker.io/osuninglab/conditar-dev:2026-07-10 --help
 ```
 
 ---
@@ -242,7 +242,7 @@ The archive is large, so `-P` allows an interrupted transfer to resume.
 Verify core Python dependencies:
 
 ```bash
-docker run --rm --entrypoint python docker.io/averyemeyer/conditar-dev:2026-07-10 - <<'PY'
+docker run --rm --entrypoint python docker.io/osuninglab/conditar-dev:2026-07-10 - <<'PY'
 import torch
 import torch_geometric
 from rdkit import Chem

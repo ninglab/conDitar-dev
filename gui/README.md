@@ -23,7 +23,7 @@ conDitar-dev/gui
 
 conDitar-dev container/source
   Docker/Podman image with conDitar code, dependencies, model files, and runtime entry point
-  Default image name: averyemeyer/conditar-dev:2026-07-10
+  Default image name: osuninglab/conditar-dev:2026-07-10
 ```
 
 Typical local CPU flow:
@@ -43,7 +43,7 @@ export ZIPs.
 For first-time local CPU setup with Docker or Docker Desktop:
 
 ```bash
-docker pull averyemeyer/conditar-dev:2026-07-10
+docker pull osuninglab/conditar-dev:2026-07-10
 git clone https://github.com/ninglab/conDitar-dev.git
 cd conDitar-dev/gui
 ./setup_gui.sh
@@ -67,7 +67,7 @@ Requirements:
 - Git
 - Python 3.9 or newer
 - Docker Desktop
-- The pulled conDitar image `averyemeyer/conditar-dev:2026-07-10`
+- The pulled conDitar image `osuninglab/conditar-dev:2026-07-10`
 
 Linux, macOS, and Windows through WSL2 are supported for local GUI use. On
 Windows, run the shell scripts from WSL2, not native PowerShell. Install Docker
@@ -86,7 +86,7 @@ from Finder after Docker Desktop is installed and running.
 5. Run the same local CPU commands:
 
    ```bash
-   docker pull averyemeyer/conditar-dev:2026-07-10
+   docker pull osuninglab/conditar-dev:2026-07-10
    git clone https://github.com/ninglab/conDitar-dev.git
    cd conDitar-dev/gui
    ./setup_gui.sh
@@ -119,7 +119,7 @@ Fresh Slurm/GPU setup:
    registry pulls, preload the image with Podman:
 
    ```bash
-   podman pull docker.io/averyemeyer/conditar-dev:2026-07-10
+   podman pull docker.io/osuninglab/conditar-dev:2026-07-10
    ```
 
    If compute nodes cannot pull from Docker Hub, place the exported
@@ -168,7 +168,7 @@ Requirements:
 
 - A cluster session with Slurm available
 - Podman available on the login or compute environment
-- The conDitar image available as `docker.io/averyemeyer/conditar-dev:2026-07-10`, or a
+- The conDitar image available as `docker.io/osuninglab/conditar-dev:2026-07-10`, or a
   shared image archive that can be loaded by the Slurm job
 - Any site-specific setup required for remote desktop or web access
 
@@ -176,7 +176,7 @@ The Slurm launcher defaults to:
 
 ```bash
 CONDITAR_RUNTIME=podman
-CONDITAR_DOCKER_IMAGE=docker.io/averyemeyer/conditar-dev:2026-07-10
+CONDITAR_DOCKER_IMAGE=docker.io/osuninglab/conditar-dev:2026-07-10
 CONDITAR_DOCKER_TAR=                  # optional archive to load inside the job
 CONDITAR_SLURM_ACCOUNT=               # required by many Slurm sites
 CONDITAR_SLURM_TIME=04:00:00

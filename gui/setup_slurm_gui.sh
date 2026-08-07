@@ -13,7 +13,7 @@ fi
 ARCHIVE="${CONDITAR_DOCKER_TAR:-}"
 PODMAN_COMMAND="${PODMAN_BIN:-podman}"
 SBATCH_COMMAND="${SBATCH_BIN:-sbatch}"
-PUBLIC_IMAGE="docker.io/averyemeyer/conditar-dev:2026-07-10"
+PUBLIC_IMAGE="docker.io/osuninglab/conditar-dev:2026-07-10"
 LEGACY_IMAGE="localhost/conditar-dev:container-dev"
 IMAGE="${CONDITAR_DOCKER_IMAGE:-$PUBLIC_IMAGE}"
 

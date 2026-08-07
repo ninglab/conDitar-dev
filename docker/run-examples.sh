@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-image_tag="${CONDITAR_DOCKER_TAG:-docker.io/averyemeyer/conditar-dev:2026-07-10}"
+image_tag="${CONDITAR_DOCKER_TAG:-docker.io/osuninglab/conditar-dev:2026-07-10}"
 input_dir="${INPUT_DIR:-$repo_root/data/test_data}"
 output_dir="${OUTPUT_DIR:-$PWD/results}"
 protein_pdb="${PROTEIN_PDB:-4aua/4aua_protein.pdb}"

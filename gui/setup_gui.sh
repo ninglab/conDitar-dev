@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 DOCKER_COMMAND="${DOCKER_BIN:-docker}"
-PUBLIC_IMAGE="averyemeyer/conditar-dev:2026-07-10"
+PUBLIC_IMAGE="osuninglab/conditar-dev:2026-07-10"
 LEGACY_IMAGE="localhost/conditar-dev:container-dev"
 IMAGE="${CONDITAR_DOCKER_IMAGE:-$PUBLIC_IMAGE}"
 

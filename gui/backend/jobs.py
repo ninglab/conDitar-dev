@@ -72,7 +72,7 @@ class LocalJobManager:
     def __init__(self, project_root: Path):
         self.project_root = project_root
         self.job_root = project_root / "job_data" / "jobs"
-        self.docker_image = os.environ.get("CONDITAR_DOCKER_IMAGE", "averyemeyer/conditar-dev:2026-07-10")
+        self.docker_image = os.environ.get("CONDITAR_DOCKER_IMAGE", "osuninglab/conditar-dev:2026-07-10")
         self.source_mount = os.environ.get("CONDITAR_SOURCE_MOUNT", "").strip()
         self.container_runtime_kind, self.container_runtime = self._resolve_container_runtime()
         self.default_tmp = Path(os.environ.get("CONDITAR_TMP", "/tmp/conditar-gui"))
@@ -992,7 +992,7 @@ class LocalJobManager:
         command_text = " ".join(shlex.quote(part) for part in command)
         podman_command = shlex.quote(os.environ.get("PODMAN_BIN", "podman"))
         legacy_image = "localhost/conditar-dev:container-dev"
-        public_images = {"averyemeyer/conditar-dev:2026-07-10", "docker.io/averyemeyer/conditar-dev:2026-07-10"}
+        public_images = {"osuninglab/conditar-dev:2026-07-10", "docker.io/osuninglab/conditar-dev:2026-07-10"}
         allow_legacy_fallback = self.docker_image in public_images
         run_image_setup = "\n".join([
             f"CONDITAR_RUN_IMAGE={shlex.quote(self.docker_image)}",

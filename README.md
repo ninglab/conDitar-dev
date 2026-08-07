@@ -53,7 +53,7 @@ pip install git+https://github.com/Valdes-Tresanco-MS/AutoDockTools_py3
 There is Docker/Podman container support for CPU/GPU sampling and optional post-processing. For the fastest setup, install Docker Desktop or Docker Engine, pull the dated runtime image:
 
 ```bash
-docker pull averyemeyer/conditar-dev:2026-07-10
+docker pull osuninglab/conditar-dev:2026-07-10
 ```
 
 Then clone this repository and start the browser GUI from [`gui/`](gui/):
