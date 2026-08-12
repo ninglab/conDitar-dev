@@ -15,7 +15,35 @@ The image uses CUDA-enabled PyTorch wheels, so the same image can run on CPU or 
 
 ## Quick Start
 
-Build the container from the repository root:
+### Pull the released runtime image
+
+For most users, start from the published Docker image rather than rebuilding
+the container:
+
+```bash
+docker pull docker.io/osuninglab/conditar-dev:2026-07-10
+```
+
+With Podman, use the same image:
+
+```bash
+podman pull docker.io/osuninglab/conditar-dev:2026-07-10
+```
+
+Run a small CPU sampling job with the included `data/test_data/4aua` example:
+
+```bash
+docker/run-examples.sh cpu-ligand
+```
+
+The examples use `data/test_data` by default and write results to
+`./results`. Set `INPUT_DIR=/path/to/input-data` or
+`OUTPUT_DIR=/path/to/results` to use different folders.
+
+### Build from source
+
+Build the container yourself only when you need to change dependencies,
+checkpoints, or container setup. From the repository root:
 
 ```bash
 docker/build-image.sh --checkpoint-dir /path/to/checkpoints
@@ -28,22 +56,15 @@ Diff.pt
 PocketAE.pt
 ```
 
-Run a small CPU sampling job:
+Use the example runner for other common modes. Pocket-only examples require a
+prepared pocket PDB path:
 
 ```bash
-INPUT_DIR=/path/to/input-data docker/run-examples.sh cpu-pocket
+docker/run-examples.sh cpu-ligand
+docker/run-examples.sh vina
+POCKET_PDB=my_target/pocket.pdb docker/run-examples.sh gpu
+POCKET_PDB=my_target/pocket.pdb docker/run-examples.sh podman-cpu
 ```
-
-Use the example runner for other common modes:
-
-```bash
-INPUT_DIR=/path/to/input-data docker/run-examples.sh cpu-ligand
-INPUT_DIR=/path/to/input-data docker/run-examples.sh gpu
-INPUT_DIR=/path/to/input-data docker/run-examples.sh vina
-INPUT_DIR=/path/to/input-data docker/run-examples.sh podman-cpu
-```
-
-The examples write results to `./results` by default. Set `OUTPUT_DIR=/path/to/results` to use a different folder.
 
 ---
 
@@ -89,7 +110,7 @@ docker/build-image.sh \
 
 Main build arguments:
 
-- `--tag` – image tag to build. Default: `localhost/conditar-dev:container-dev`.
+- `--tag` – image tag to build. Default: `conditar-dev:2026-07-10`.
 - `--platform` – target platform. Default: `linux/amd64`.
 - `--checkpoint-dir` – folder containing `Diff.pt` and `PocketAE.pt`.
 - `--qvina-bin` – optional QuickVina2 executable to include in the image.
@@ -105,10 +126,12 @@ docker/build-image.sh --engine buildah
 
 ## Run Examples
 
-The runnable examples live in [`run-examples.sh`](run-examples.sh). Set `INPUT_DIR` to the host folder containing your target files, then choose a command:
+The runnable examples live in [`run-examples.sh`](run-examples.sh). By default,
+they use the included `data/test_data` folder and the `4aua` protein/ligand
+pair. Choose a command:
 
 ```bash
-INPUT_DIR=/path/to/input-data docker/run-examples.sh cpu-pocket
+docker/run-examples.sh cpu-ligand
 ```
 
 Available commands:
@@ -123,9 +146,10 @@ Available commands:
 
 Default example inputs:
 
-- `POCKET_PDB=xxxx/xxxx_pocket.pdb`
 - `PROTEIN_PDB=4aua/4aua_protein.pdb`
 - `LIGAND_SDF=4aua/4aua_ligand.sdf`
+- `POCKET_PDB` is required when running `cpu-pocket`, `gpu`, `podman-cpu`,
+  `podman-gpu`, or `dev` with a prepared pocket-only example.
 
 Override those paths when your files have different names:
 
@@ -160,7 +184,7 @@ Any unrecognized launcher options are passed through to `scripts.conDitar.sample
 Show the full launcher help:
 
 ```bash
-docker run --rm localhost/conditar-dev:container-dev --help
+docker run --rm docker.io/osuninglab/conditar-dev:2026-07-10 --help
 ```
 
 ---
@@ -170,7 +194,7 @@ docker run --rm localhost/conditar-dev:container-dev --help
 Add `--vina-score` to run docking/property post-processing after sampling. The example runner includes this in:
 
 ```bash
-INPUT_DIR=/path/to/input-data docker/run-examples.sh vina
+docker/run-examples.sh vina
 ```
 
 Supported modes:
@@ -196,8 +220,8 @@ CONDITAR_IMAGE_OUTPUT_DIR=/path/to/container_images docker/build-export-image.sh
 The archive can be loaded later with Docker or Podman:
 
 ```bash
-docker load -i /path/to/localhost_conditar-dev_container-dev-YYYYMMDD-HHMMSS.tar.gz
-podman load -i /path/to/localhost_conditar-dev_container-dev-YYYYMMDD-HHMMSS.tar.gz
+docker load -i /path/to/conditar-dev__2026-07-10-YYYYMMDD-HHMMSS.tar.gz
+podman load -i /path/to/conditar-dev__2026-07-10-YYYYMMDD-HHMMSS.tar.gz
 ```
 
 If the image has already been built on another machine, copy the archive instead of rebuilding it:
@@ -205,7 +229,7 @@ If the image has already been built on another machine, copy the archive instead
 ```bash
 mkdir -p "$HOME/containers"
 rsync -avP \
-  <USER>@<HOST>:/path/to/container_images/localhost_conditar-dev_container-dev-YYYYMMDD-HHMMSS.tar.gz \
+  <USER>@<HOST>:/path/to/container_images/conditar-dev__2026-07-10-YYYYMMDD-HHMMSS.tar.gz \
   "$HOME/containers/"
 ```
 
@@ -218,7 +242,7 @@ The archive is large, so `-P` allows an interrupted transfer to resume.
 Verify core Python dependencies:
 
 ```bash
-docker run --rm --entrypoint python localhost/conditar-dev:container-dev - <<'PY'
+docker run --rm --entrypoint python docker.io/osuninglab/conditar-dev:2026-07-10 - <<'PY'
 import torch
 import torch_geometric
 from rdkit import Chem

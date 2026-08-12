@@ -50,7 +50,22 @@ pip install git+https://github.com/Valdes-Tresanco-MS/AutoDockTools_py3
 
 ## Containerized Usage
 
-There is Docker/Podman container support for CPU/GPU sampling and optional post-processing. See [`docker/README.md`](docker/README.md) for build, run, and development instructions.
+There is Docker/Podman container support for CPU/GPU sampling and optional post-processing. For the fastest setup, install Docker Desktop or Docker Engine, pull the dated runtime image:
+
+```bash
+docker pull osuninglab/conditar-dev:2026-07-10
+```
+
+Then clone this repository and start the browser GUI from [`gui/`](gui/):
+
+```bash
+git clone https://github.com/ninglab/conDitar-dev.git
+cd conDitar-dev/gui
+./setup_gui.sh
+./start_cpu_gui.sh
+```
+
+See [`docker/README.md`](docker/README.md) for container-only runs, rebuilding the image from checkpoints, and Docker/Podman details.
 
 ---
 

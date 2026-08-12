@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-image_tag="${CONDITAR_DOCKER_TAG:-localhost/conditar-dev:container-dev}"
-input_dir="${INPUT_DIR:-}"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+image_tag="${CONDITAR_DOCKER_TAG:-docker.io/osuninglab/conditar-dev:2026-07-10}"
+input_dir="${INPUT_DIR:-$repo_root/data/test_data}"
 output_dir="${OUTPUT_DIR:-$PWD/results}"
-pocket_pdb="${POCKET_PDB:-xxxx/xxxx_pocket.pdb}"
 protein_pdb="${PROTEIN_PDB:-4aua/4aua_protein.pdb}"
 ligand_sdf="${LIGAND_SDF:-4aua/4aua_ligand.sdf}"
+pocket_pdb="${POCKET_PDB:-}"
 num_samples="${NUM_SAMPLES:-1}"
 batch_size="${BATCH_SIZE:-1}"
 vina_mode="${VINA_MODE:-vina_score}"
@@ -16,7 +17,7 @@ vina_cpu="${VINA_CPU:-4}"
 usage() {
     cat <<EOF
 Usage:
-  INPUT_DIR=/path/to/input-data docker/run-examples.sh COMMAND
+  docker/run-examples.sh COMMAND
 
 Commands:
   cpu-pocket      Docker CPU run with a prepared pocket PDB.
@@ -29,9 +30,9 @@ Commands:
 
 Environment:
   CONDITAR_DOCKER_TAG   Image tag. Default: $image_tag
-  INPUT_DIR             Host folder mounted at /inputs. Required.
+  INPUT_DIR             Host folder mounted at /inputs. Default: $input_dir
   OUTPUT_DIR            Host results folder. Default: ./results
-  POCKET_PDB            Path under INPUT_DIR. Default: $pocket_pdb
+  POCKET_PDB            Path under INPUT_DIR. Required for pocket-only commands.
   PROTEIN_PDB           Path under INPUT_DIR. Default: $protein_pdb
   LIGAND_SDF            Path under INPUT_DIR. Default: $ligand_sdf
   NUM_SAMPLES           Number of molecules. Default: $num_samples
@@ -49,12 +50,21 @@ require_input_dir() {
     fi
 }
 
+require_pocket_pdb() {
+    if [[ -z "$pocket_pdb" ]]; then
+        echo "Set POCKET_PDB to a prepared pocket PDB path under INPUT_DIR for pocket-only runs." >&2
+        echo "For the included 4aua protein/ligand example, use: docker/run-examples.sh cpu-ligand" >&2
+        exit 2
+    fi
+}
+
 prepare_output_dir() {
     mkdir -p "$output_dir"
 }
 
 run_docker_cpu_pocket() {
     require_input_dir
+    require_pocket_pdb
     prepare_output_dir
     docker run --rm \
         -e CONDITAR_DEVICE=cpu \
@@ -86,6 +96,7 @@ run_docker_cpu_ligand() {
 
 run_docker_gpu() {
     require_input_dir
+    require_pocket_pdb
     prepare_output_dir
     docker run --rm --gpus all \
         -e CONDITAR_DEVICE=cuda:0 \
@@ -121,6 +132,7 @@ run_docker_vina() {
 
 run_podman_cpu() {
     require_input_dir
+    require_pocket_pdb
     prepare_output_dir
     podman run --rm \
         -e CONDITAR_DEVICE=cpu \
@@ -136,6 +148,7 @@ run_podman_cpu() {
 
 run_podman_gpu() {
     require_input_dir
+    require_pocket_pdb
     prepare_output_dir
     podman run --rm --device nvidia.com/gpu=all \
         -e CONDITAR_DEVICE=cuda:0 \
@@ -151,6 +164,7 @@ run_podman_gpu() {
 
 run_dev() {
     require_input_dir
+    require_pocket_pdb
     prepare_output_dir
     docker run --rm \
         -e CONDITAR_DEVICE=cpu \

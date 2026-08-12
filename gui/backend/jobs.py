@@ -72,7 +72,7 @@ class LocalJobManager:
     def __init__(self, project_root: Path):
         self.project_root = project_root
         self.job_root = project_root / "job_data" / "jobs"
-        self.docker_image = os.environ.get("CONDITAR_DOCKER_IMAGE", "localhost/conditar-dev:container-dev")
+        self.docker_image = os.environ.get("CONDITAR_DOCKER_IMAGE", "osuninglab/conditar-dev:2026-07-10")
         self.source_mount = os.environ.get("CONDITAR_SOURCE_MOUNT", "").strip()
         self.container_runtime_kind, self.container_runtime = self._resolve_container_runtime()
         self.default_tmp = Path(os.environ.get("CONDITAR_TMP", "/tmp/conditar-gui"))
@@ -991,25 +991,38 @@ class LocalJobManager:
         )
         command_text = " ".join(shlex.quote(part) for part in command)
         podman_command = shlex.quote(os.environ.get("PODMAN_BIN", "podman"))
+        legacy_image = "localhost/conditar-dev:container-dev"
+        public_images = {"osuninglab/conditar-dev:2026-07-10", "docker.io/osuninglab/conditar-dev:2026-07-10"}
+        allow_legacy_fallback = self.docker_image in public_images
+        run_image_setup = "\n".join([
+            f"CONDITAR_RUN_IMAGE={shlex.quote(self.docker_image)}",
+            f"CONDITAR_LEGACY_IMAGE={shlex.quote(legacy_image)}",
+        ])
+        image_fallback = "\n".join([
+            f"if [[ {str(allow_legacy_fallback).lower()} == true ]] && ! {podman_command} image exists \"$CONDITAR_RUN_IMAGE\" && {podman_command} image exists \"$CONDITAR_LEGACY_IMAGE\"; then",
+            "  CONDITAR_RUN_IMAGE=\"$CONDITAR_LEGACY_IMAGE\"",
+            "fi",
+            f"if ! {podman_command} image exists \"$CONDITAR_RUN_IMAGE\"; then",
+            "  echo \"Container image $CONDITAR_RUN_IMAGE is not available on the compute node.\" >&2",
+            "  echo \"Set CONDITAR_DOCKER_TAR to a compute-node-visible .tar/.tar.gz archive, or preload/pull the image on the compute node.\" >&2",
+            "  exit 125",
+            "fi",
+        ])
+        command_text = command_text.replace(shlex.quote(self.docker_image), '"$CONDITAR_RUN_IMAGE"', 1)
         image_check = ""
         if self.docker_tar:
             image_check = "\n".join([
-                f"if ! {podman_command} image exists {shlex.quote(self.docker_image)}; then",
+                f"if ! {podman_command} image exists \"$CONDITAR_RUN_IMAGE\"; then",
                 f"  if [[ ! -f {shlex.quote(self.docker_tar)} ]]; then",
                 f"    echo \"Container image archive not found: {shlex.quote(self.docker_tar)}\" >&2",
                 "    exit 127",
                 "  fi",
                 f"  {podman_command} load -i {shlex.quote(self.docker_tar)}",
                 "fi",
+                image_fallback,
             ])
         else:
-            image_check = "\n".join([
-                f"if ! {podman_command} image exists {shlex.quote(self.docker_image)}; then",
-                f"  echo \"Container image {self.docker_image} is not available on the compute node.\" >&2",
-                "  echo \"Set CONDITAR_DOCKER_TAR to a compute-node-visible .tar/.tar.gz archive, or preload the image on the compute node.\" >&2",
-                "  exit 125",
-                "fi",
-            ])
+            image_check = image_fallback
 
         fallback_tmp = shlex.quote(str(paths.root / "tmp"))
         runtime_setup = "\n".join([
@@ -1027,6 +1040,7 @@ class LocalJobManager:
             "set +e",
             "echo \"Starting conDitar Slurm job at $(date)\"",
             runtime_setup,
+            run_image_setup,
             image_check,
             f"echo \"$ {command_text}\"",
             command_text,

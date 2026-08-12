@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-image_tag="${CONDITAR_DOCKER_TAG:-localhost/conditar-dev:container-dev}"
+image_tag="${CONDITAR_DOCKER_TAG:-conditar-dev:2026-07-10}"
 platform="${CONDITAR_DOCKER_PLATFORM:-linux/amd64}"
 checkpoint_src="${CONDITAR_CHECKPOINT_DIR:-$repo_root/checkpoints}"
 checkpoint_dest="$repo_root/docker/checkpoints"

@@ -3,7 +3,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-IMAGE="${CONDITAR_DOCKER_IMAGE:-localhost/conditar-dev:container-dev}"
+IMAGE="${CONDITAR_DOCKER_IMAGE:-osuninglab/conditar-dev:2026-07-10}"
+LEGACY_IMAGE="localhost/conditar-dev:container-dev"
 ARCHIVE_NAME="localhost_conditar-dev_container-dev-20260710-105038.tar.gz"
 
 echo "conDitar GUI Mac starter"
@@ -36,9 +37,17 @@ else
   echo
 fi
 
+if ! docker image inspect "$IMAGE" >/dev/null 2>&1 && docker image inspect "$LEGACY_IMAGE" >/dev/null 2>&1; then
+  IMAGE="$LEGACY_IMAGE"
+  export CONDITAR_DOCKER_IMAGE="$LEGACY_IMAGE"
+fi
+
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
   echo "conDitar container image is not loaded yet."
-  echo "Looking for $ARCHIVE_NAME..."
+  echo "You can pull the published image with:"
+  echo "docker pull osuninglab/conditar-dev:2026-07-10"
+  echo
+  echo "Looking for a local archive fallback: $ARCHIVE_NAME..."
   shopt -s nullglob
   candidates=(
     "$PWD"/"$ARCHIVE_NAME"
@@ -71,6 +80,10 @@ if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
   echo "Loading container image from:"
   echo "$archive"
   docker load -i "$archive"
+  if ! docker image inspect "$IMAGE" >/dev/null 2>&1 && docker image inspect "$LEGACY_IMAGE" >/dev/null 2>&1; then
+    IMAGE="$LEGACY_IMAGE"
+    export CONDITAR_DOCKER_IMAGE="$LEGACY_IMAGE"
+  fi
   echo
 fi
 
