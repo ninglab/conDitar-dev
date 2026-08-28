@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -18,7 +19,7 @@ def describe() -> dict:
         "name": "Lilly Medchem Rules",
         "description": "Annotates generated molecules with Lilly medicinal chemistry pass/fail rules.",
         "available": bool(command),
-        "error": None if command else "Install the GUI environment from gui/environment.yml, or set LILLY_MEDCHEM_RULES_BIN.",
+        "error": None if command else "Run ./setup_tool_chest.sh to build Lilly Medchem Rules, or set LILLY_MEDCHEM_RULES_BIN.",
         "inputs": [],
         "outputs": [
             {"name": "LILLY_PASS", "label": "Lily Filter", "type": "boolean"},
@@ -33,7 +34,7 @@ def run(job_root: str, run_root: str, options: dict) -> dict:
     run_path = Path(run_root)
     command = _resolve_command()
     if not command:
-        raise RuntimeError("Lilly Medchem Rules was not found. Install the GUI environment from gui/environment.yml or set LILLY_MEDCHEM_RULES_BIN.")
+        raise RuntimeError("Lilly Medchem Rules was not found. Run ./setup_tool_chest.sh to build it or set LILLY_MEDCHEM_RULES_BIN.")
 
     sdf_paths = sorted((job_path / "outputs").rglob("*.sdf"))
     if not sdf_paths:
@@ -98,9 +99,17 @@ def _resolve_command() -> dict[str, str] | None:
     configured = os.environ.get("LILLY_MEDCHEM_RULES_BIN", "").strip()
     if configured:
         return {"kind": "wrapper", "path": configured} if Path(configured).exists() else None
+    bundled_root = Path(__file__).resolve().parents[1] / ".tool_chest" / "Lilly-Medchem-Rules"
+    for bundled in (
+        bundled_root / "Lilly_Medchem_Rules.sh",
+        bundled_root / "Lilly_Medchem_Rules.py",
+        bundled_root / "Lilly_Medchem_Rules.rb",
+    ):
+        if bundled.exists():
+            return {"kind": _wrapper_kind(bundled), "path": str(bundled)}
     wrapper = shutil.which("Lilly_Medchem_Rules.sh") or shutil.which("Lilly_Medchem_Rules.rb")
     if wrapper:
-        return {"kind": "wrapper", "path": wrapper}
+        return {"kind": _wrapper_kind(Path(wrapper)), "path": wrapper}
     iwdemerit = shutil.which("iwdemerit")
     if iwdemerit:
         return {"kind": "iwdemerit", "path": iwdemerit}
@@ -110,11 +119,23 @@ def _resolve_command() -> dict[str, str] | None:
 def _command_line(command: dict[str, str], input_smi: Path) -> list[str]:
     if command["kind"] == "iwdemerit":
         return [command["path"], "-i", "smi", "-o", "smi", "-G", "good", "-R", "bad", str(input_smi)]
+    if command["kind"] == "python_wrapper":
+        return [sys.executable, command["path"], str(input_smi)]
+    if command["kind"] == "ruby_wrapper":
+        return ["ruby", command["path"], str(input_smi)]
     return [command["path"], str(input_smi)]
 
 
 def _passed_output_path(command: dict[str, str], run_path: Path) -> Path:
     return run_path / "good.smi" if command["kind"] == "iwdemerit" else run_path / "lilly_stdout.smi"
+
+
+def _wrapper_kind(path: Path) -> str:
+    if path.suffix == ".py":
+        return "python_wrapper"
+    if path.suffix == ".rb":
+        return "ruby_wrapper"
+    return "wrapper"
 
 
 def _property(sdf_text: str, name: str) -> str:

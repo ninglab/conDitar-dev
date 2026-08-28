@@ -86,3 +86,8 @@ command-line program, install it in the GUI environment, not in the conDitar
 sampling container. The GUI will still start if optional tools are missing; mark
 the tool unavailable from `describe()` and return a short `error` message that
 tells the user what to install.
+
+`setup_tool_chest.sh` installs the Python MedChem stack through conda and builds
+the official Lilly Medchem Rules source under `.tool_chest/`. Local builds need
+`git`, `make`, and a C++ compiler. The OpenShift/container image performs this
+setup during image build.

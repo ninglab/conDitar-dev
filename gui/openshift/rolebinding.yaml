@@ -1,0 +1,13 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: conditar-gui-job-runner
+  labels:
+    app: conditar-gui
+subjects:
+  - kind: ServiceAccount
+    name: conditar-gui
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: conditar-gui-job-runner

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: conditar-gui
+  labels:
+    app: conditar-gui
+spec:
+  selector:
+    app: conditar-gui
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

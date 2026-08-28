@@ -8,6 +8,8 @@ const service = new ExampleDataService();
 const ACTIVE_JOB_STATUSES = new Set(["queued", "running"]);
 const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "canceled"]);
 const CLEANUP_JOB_STATUSES = new Set(["failed", "canceled"]);
+const OPENSHIFT_JOB_TARGET = "openshift_job";
+const OPENSHIFT_MOCK_TARGET = "openshift_mock";
 const SLURM_GPU_TARGET = "slurm_gpu";
 const LEGACY_SLURM_GPU_TARGET = "osc_gpu";
 const MAX_CATEGORICAL_FILTER_VALUES = 24;
@@ -196,9 +198,15 @@ async function refreshRuntime(showMessage = false) {
     state.runtimeHealth = health;
     const slurmAvailable = Boolean(health.slurm?.sbatch);
     if (!state.targetTouched) {
-      $("#job-target").value = slurmAvailable ? SLURM_GPU_TARGET : "local_cpu";
+      const defaultTarget = health.default_target || (slurmAvailable ? SLURM_GPU_TARGET : "local_cpu");
+      if ($(`#job-target option[value="${defaultTarget}"]`)) {
+        $("#job-target").value = defaultTarget;
+      } else {
+        $("#job-target").value = slurmAvailable ? SLURM_GPU_TARGET : "local_cpu";
+      }
       updateJobTargetControls();
     }
+    updateTargetOptionLabels(health);
     renderRuntimeStatus(health);
     renderSetupHealth(health);
     if (showMessage) showToast("Setup checklist refreshed.");
@@ -214,18 +222,44 @@ function renderRuntimeStatus(health) {
   const status = $("#runtime-status");
   const detail = $("#runtime-detail");
   if (!status || !detail || !health) return;
+  const target = resolvedTarget();
   const slurmAvailable = Boolean(health.slurm?.sbatch);
   const slurm = slurmAvailable ? "sbatch available" : "sbatch not found";
-  const isSlurmGpu = isSlurmGpuTarget(resolvedTarget());
+  const isSlurmGpu = isSlurmGpuTarget(target);
+  const isOpenShift = isOpenShiftTarget(target);
   // Slurm tasks can load the image from the configured shared archive on the
   // compute node; it does not need to be pre-loaded in the GUI host's image
   // store.
   const archiveReady = Boolean(health.container_archive?.exists);
   const imageReady = Boolean(health.container_image?.exists) || (isSlurmGpu && archiveReady);
+  if (isOpenShift) {
+    status.textContent = `${targetLabel({ target })} available`;
+    detail.textContent = isOpenShiftJobTarget(target)
+      ? openShiftSubmissionEnabled(health)
+        ? `Job storage: ${health.environment?.job_root || "configured path"}. Generator pods launch as OpenShift Jobs and write results back to shared storage.`
+        : `Job storage: ${health.environment?.job_root || "configured path"}. Manifest-only mode is active; enable submission to launch generator pods.`
+      : `Job storage: ${health.environment?.job_root || "configured path"}. Diagnostics mode validates deployment storage, logs, and result loading.`;
+    return;
+  }
   status.textContent = isSlurmGpu ? (slurmAvailable ? "Slurm GPU available" : "Slurm setup needs attention") : imageReady ? "Local CPU available" : "Local setup needs attention";
   detail.textContent = isSlurmGpu
     ? `${slurm}; ${health.container_image?.exists ? "container image found" : archiveReady ? "shared container archive ready" : "container image not confirmed"}. Selected target: Slurm GPU.`
     : `${imageReady ? "container image found" : "container image missing"}. Selected target: Local CPU.`;
+}
+
+function openShiftSubmissionEnabled(health = state.runtimeHealth) {
+  return Boolean(health?.environment?.openshift_submit);
+}
+
+function openShiftJobLabel(health = state.runtimeHealth) {
+  return openShiftSubmissionEnabled(health) ? "OpenShift Job" : "OpenShift Job manifest";
+}
+
+function updateTargetOptionLabels(health = state.runtimeHealth) {
+  const jobOption = $('#job-target option[value="openshift_job"]');
+  const mockOption = $('#job-target option[value="openshift_mock"]');
+  if (jobOption) jobOption.textContent = openShiftJobLabel(health);
+  if (mockOption) mockOption.textContent = "OpenShift diagnostics";
 }
 
 function renderSetupHealth(health, error = null) {
@@ -247,13 +281,15 @@ function renderSetupHealth(health, error = null) {
   const warnings = checks.filter((check) => check.status === "warn").length;
   panel?.setAttribute("data-status", failing ? "fail" : warnings ? "warn" : "ready");
   if (panel && failing) panel.open = true;
-  const isSlurmGpu = isSlurmGpuTarget(resolvedTarget());
+  const target = resolvedTarget();
+  const isSlurmGpu = isSlurmGpuTarget(target);
+  const label = targetLabel({ target });
   status.textContent = failing ? "Setup needs attention" : warnings ? "Ready with optional warnings" : "Ready to run";
   detail.textContent = failing
-    ? `Fix the missing required items before submitting a ${isSlurmGpu ? "Slurm GPU" : "local CPU"} job.`
+    ? `Fix the missing required items before submitting a ${label} job.`
     : warnings
-      ? `${isSlurmGpu ? "Slurm GPU" : "Local CPU"} runs can work; optional Tool Chest items may need setup.`
-      : `${isSlurmGpu ? "Slurm GPU" : "Local CPU"} launch requirements look ready.`;
+      ? `${label} runs can work; optional Tool Chest items may need setup.`
+      : `${label} launch requirements look ready.`;
   list.innerHTML = checks.map((check) => `
     <div class="setup-health-item" data-status="${escapeHtml(check.status)}">
       <i aria-hidden="true"></i>
@@ -270,10 +306,16 @@ function targetAwareHealthChecks(health) {
   const target = resolvedTarget();
   const isSlurmGpu = isSlurmGpuTarget(target);
   const checks = (health?.checks || []).map((check) => ({ ...check }));
-  if (!isSlurmGpu) {
-    return checks.filter((check) => check.id !== "slurm");
+  if (isOpenShiftTarget(target)) {
+    const ids = isOpenShiftJobTarget(target)
+      ? ["python", "job_storage", "openshift_job", "tool_chest"]
+      : ["python", "job_storage", "openshift_mock", "tool_chest"];
+    return checks.filter((check) => ids.includes(check.id));
   }
-  return checks.map((check) => {
+  if (!isSlurmGpu) {
+    return checks.filter((check) => !["slurm", "openshift_mock", "openshift_job"].includes(check.id));
+  }
+  return checks.filter((check) => !["openshift_mock", "openshift_job"].includes(check.id)).map((check) => {
     if (check.id === "container_image" && check.status !== "ok" && health?.container_archive?.exists) {
       return {
         ...check,
@@ -414,7 +456,7 @@ async function submitGenerationJob() {
     await prepareLocalNotifications(payload);
     const response = state.batchInputs.length ? await service.submitBatch(payload) : { jobs: [await service.submitJob(payload)], errors: [] };
     response.jobs.forEach((item) => {
-      if (item.target === "local_cpu" && !isTerminalJob(item)) state.watchedJobs.add(item.id);
+      if (usesBrowserNotifications(item.target) && !isTerminalJob(item)) state.watchedJobs.add(item.id);
     });
     const job = response.jobs[0];
     state.currentJob = job;
@@ -424,7 +466,7 @@ async function submitGenerationJob() {
     const message = failedJobs.length
       ? `${queuedJobs} queued, ${failedJobs.length} failed. ${failedJobs[0].error_message || "See the selected job logs."}`
       : response.jobs.length > 1
-        ? `${response.jobs.length} ${isSlurmGpuTarget(job?.target) ? "parallel GPU tasks" : "CPU jobs queued"}${response.errors.length ? `, ${response.errors.length} skipped: ${response.errors[0].error}` : ""}.`
+        ? `${response.jobs.length} ${batchTargetNoun(job?.target)}${response.errors.length ? `, ${response.errors.length} skipped: ${response.errors[0].error}` : ""}.`
         : "Job queued.";
     updateJobPanel(job, message);
     updateJobDetail(job, message);
@@ -468,7 +510,7 @@ function buildJobPayload(inputOverride = null) {
     tools: buildEvaluationToolsPayload(),
     parameters: {
       ...state.parameters,
-      device: isSlurmGpuTarget(resolvedTarget()) ? "cuda:0" : "cpu",
+      device: isSlurmGpuTarget(resolvedTarget()) || isOpenShiftJobTarget(resolvedTarget()) ? "cuda:0" : "cpu",
     },
   };
 }
@@ -742,7 +784,7 @@ async function rerunJob(jobId) {
     const job = body.job;
     state.currentJob = job;
     state.selectedJob = job;
-    if (job.target === "local_cpu") state.watchedJobs.add(job.id);
+    if (usesBrowserNotifications(job.target)) state.watchedJobs.add(job.id);
     await refreshJobs(false);
     updateJobPanel(job, "Rerun queued.");
     updateJobDetail(job, `Rerun created from ${jobId}.`);
@@ -826,7 +868,7 @@ function renderJobAlert(job, paths) {
 
 async function prepareLocalNotifications(payload) {
   const jobs = payload.jobs || [payload];
-  if (!jobs.some((job) => job.target === "local_cpu")) return;
+  if (!jobs.some((job) => usesBrowserNotifications(job.target))) return;
   if (!("Notification" in window) || Notification.permission !== "default") return;
   try {
     await Notification.requestPermission();
@@ -837,7 +879,7 @@ async function prepareLocalNotifications(payload) {
 
 function notifyJobTerminal(job, status) {
   if (!job?.id || state.notifiedJobs.has(job.id)) return;
-  if (job.target !== "local_cpu") return;
+  if (!usesBrowserNotifications(job.target)) return;
   state.notifiedJobs.add(job.id);
   const title = status === "completed" ? "conDitar run completed" : `conDitar run ${status}`;
   const body = `${inputLabel(job)} · ${targetLabel(job)} · ${shortJobId(job.id)}`;
@@ -860,9 +902,19 @@ function updateRunEstimate() {
   const inputs = Math.max(1, state.batchInputs.length || (state.customPdb || state.study ? 1 : 0));
   const samples = Math.max(1, Number(state.parameters.num_samples) || 1);
   const totalSamples = inputs * samples;
-  const isGpu = isSlurmGpuTarget(resolvedTarget());
+  const target = resolvedTarget();
+  const isGpu = isSlurmGpuTarget(target);
+  const isOpenShift = isOpenShiftTarget(target);
   if (!inputs) {
     estimate.textContent = "Estimate updates after you choose inputs.";
+    return;
+  }
+  if (isOpenShift) {
+    estimate.textContent = isOpenShiftJobTarget(target)
+      ? openShiftSubmissionEnabled()
+        ? `OpenShift will launch ${inputs} generator Job${inputs === 1 ? "" : "s"} for ${totalSamples} requested sample${totalSamples === 1 ? "" : "s"}.`
+        : `OpenShift manifest mode will write Kubernetes Job artifacts for ${inputs} input${inputs === 1 ? "" : "s"} without submitting them.`
+      : `OpenShift diagnostics will create mock outputs for ${inputs} input${inputs === 1 ? "" : "s"} and validate deployment plumbing.`;
     return;
   }
   const minutesPerSample = isGpu ? 1.5 : 5.5;
@@ -1746,12 +1798,37 @@ function updateResultsSource() {
 function targetLabel(job) {
   if (!job) return "Local CPU";
   if (job.target === "local_cpu") return "Local CPU";
+  if (isOpenShiftJobTarget(job.target)) return openShiftSubmissionEnabled() ? "OpenShift Job" : "OpenShift Job manifest";
+  if (isOpenShiftMockTarget(job.target)) return "OpenShift diagnostics";
   if (isSlurmGpuTarget(job.target)) return "Slurm GPU";
   return job.target || "Local CPU";
 }
 
+function isOpenShiftJobTarget(target) {
+  return target === OPENSHIFT_JOB_TARGET;
+}
+
+function isOpenShiftMockTarget(target) {
+  return target === OPENSHIFT_MOCK_TARGET;
+}
+
+function isOpenShiftTarget(target) {
+  return isOpenShiftJobTarget(target) || isOpenShiftMockTarget(target);
+}
+
 function isSlurmGpuTarget(target) {
   return target === SLURM_GPU_TARGET || target === LEGACY_SLURM_GPU_TARGET;
+}
+
+function usesBrowserNotifications(target) {
+  return target === "local_cpu" || isOpenShiftTarget(target);
+}
+
+function batchTargetNoun(target) {
+  if (isSlurmGpuTarget(target)) return "parallel GPU tasks";
+  if (isOpenShiftJobTarget(target)) return openShiftSubmissionEnabled() ? "OpenShift Jobs queued" : "OpenShift Job manifests queued";
+  if (isOpenShiftMockTarget(target)) return "OpenShift diagnostic jobs queued";
+  return "CPU jobs queued";
 }
 
 function isActiveJob(job) {
@@ -1783,15 +1860,18 @@ function inputLabel(job) {
 function updateJobTargetControls() {
   const target = resolvedTarget();
   const isSlurmGpu = isSlurmGpuTarget(target);
+  const isOpenShift = isOpenShiftTarget(target);
   $("#slurm-controls").hidden = !isSlurmGpu;
-  $("#job-runtime-label").textContent = isSlurmGpu ? "Slurm GPU" : "Local CPU";
+  $("#job-runtime-label").textContent = targetLabel({ target });
   const emailInput = $("#job-email");
   const emailNote = $("#email-note");
   emailInput.disabled = !isSlurmGpu;
   emailInput.closest(".job-controls").classList.toggle("is-disabled", !isSlurmGpu);
   if (!isSlurmGpu) {
     emailInput.value = "";
-    emailNote.textContent = "Local CPU runs use browser/system notifications when this page is allowed to notify you.";
+    emailNote.textContent = isOpenShift
+      ? `${targetLabel({ target })} runs use browser/system notifications when this page is allowed to notify you.`
+      : "Local CPU runs use browser/system notifications when this page is allowed to notify you.";
   } else {
     emailNote.textContent = "Slurm can send completion/failure notifications when an email is provided.";
   }
@@ -1865,7 +1945,7 @@ function updateCommand() {
   const sdfName = state.customSdf?.name || EXAMPLES[state.exampleId]?.sdf;
   const args = [
     "conditar-sample",
-    `--device ${isSlurmGpuTarget(resolvedTarget()) ? "cuda:0" : "cpu"}`,
+    `--device ${isSlurmGpuTarget(resolvedTarget()) || isOpenShiftJobTarget(resolvedTarget()) ? "cuda:0" : "cpu"}`,
     `--num_samples ${state.parameters.num_samples}`,
     `--batch_size ${state.parameters.batch_size}`,
     `--pdb_filename ${pdbName}`,
@@ -2024,18 +2104,32 @@ function updateBatchLabel() {
   const count = state.batchInputs.length;
   const target = resolvedTarget();
   const isSlurmGpu = isSlurmGpuTarget(target);
+  const isOpenShiftJob = isOpenShiftJobTarget(target);
+  const isOpenShiftMock = isOpenShiftMockTarget(target);
   const cpuBatchWarning = count > 10
     ? "Large local CPU batches can take many hours. Keep this server window open, or use Slurm GPU for durable parallel queueing."
     : "Local CPU batches run one at a time. Keep this server window open until the queued jobs finish.";
+  const openshiftSubmit = openShiftSubmissionEnabled();
+  const batchKind = isSlurmGpu ? "independent Slurm" : isOpenShiftJob ? (openshiftSubmit ? "OpenShift" : "OpenShift manifest") : isOpenShiftMock ? "OpenShift diagnostic" : "serial queued CPU";
+  const batchTitle = isSlurmGpu ? "Parallel GPU batch" : isOpenShiftJob ? (openshiftSubmit ? "OpenShift Job batch" : "OpenShift manifest batch") : isOpenShiftMock ? "OpenShift diagnostics batch" : "Queued CPU batch";
+  const batchMessage = isSlurmGpu
+    ? "Slurm will process folders concurrently when capacity is available."
+    : isOpenShiftJob
+      ? openshiftSubmit
+        ? "OpenShift will launch one generator Job per folder when capacity is available."
+        : "Manifest mode writes Kubernetes Job artifacts for inspection; no cluster submission is attempted."
+      : isOpenShiftMock
+      ? "Diagnostics jobs create mock outputs so OpenShift routing, storage, logs, and results can be checked."
+      : cpuBatchWarning;
   $("#folder-name").textContent = count ? `${count} batch folder${count === 1 ? "" : "s"}` : "Batch folders";
   $("#folder-detail").textContent = count
-    ? `Generate will submit ${count} ${isSlurmGpu ? "independent Slurm" : "serial queued CPU"} job${count === 1 ? "" : "s"}`
+    ? `Generate will submit ${count} ${batchKind} job${count === 1 ? "" : "s"}`
     : "Optional: one PDB and optional SDF per folder";
   $("#batch-mode-banner").hidden = !count;
-  $("#batch-mode-banner").classList.toggle("is-warning", Boolean(count && !isSlurmGpu));
-  $("#batch-mode-title").textContent = isSlurmGpu ? "Parallel GPU batch" : "Queued CPU batch";
+  $("#batch-mode-banner").classList.toggle("is-warning", Boolean(count && !isSlurmGpu && !isOpenShiftJob && !isOpenShiftMock));
+  $("#batch-mode-title").textContent = batchTitle;
   $("#batch-mode-message").textContent = count
-    ? `${count} folder${count === 1 ? "" : "s"} ready. ${isSlurmGpu ? "Slurm will process folders concurrently when capacity is available." : cpuBatchWarning} Each folder is processed as its own job; inputs are never mixed.`
+    ? `${count} folder${count === 1 ? "" : "s"} ready. ${batchMessage} Each folder is processed as its own job; inputs are never mixed.`
     : "Each selected folder will submit as a separate job.";
   $("#preview-run span").textContent = count
     ? `Submit ${count} batch job${count === 1 ? "" : "s"}`

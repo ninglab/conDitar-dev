@@ -9,8 +9,8 @@ inputs, launches conDitar jobs through the container image built from
 The generator, container, and GUI are documented separately:
 
 - [`../README.md`](../README.md) — model, sampling, and repository overview.
-- [`../docker/README.md`](../docker/README.md) — image build, archive transfer,
-  Docker/Podman usage, and container-only runs.
+- [`../docker/README.md`](../docker/README.md) — image build, Docker/Podman
+  usage, and container-only runs.
 
 ![conDitar GUI overview](media/screenshots/gui-overview.png)
 
@@ -38,6 +38,10 @@ Job folders are written under `job_data/jobs/<job-id>/`. That directory is
 ignored by git and contains staged inputs, logs, metadata, generated SDFs, and
 export ZIPs.
 
+Set `CONDITAR_JOB_ROOT=/path/to/jobs` to store job folders outside the GUI
+source tree. This is useful for container deployments where job data should live
+on a mounted persistent volume.
+
 ## Quick start
 
 For first-time local CPU setup with Docker or Docker Desktop:
@@ -59,6 +63,9 @@ need:
 ```bash
 ./start_cpu_gui.sh
 ```
+
+For OpenShift-hosted deployment, use the dedicated instructions in
+[`openshift/SITE_QUICKSTART.md`](openshift/SITE_QUICKSTART.md).
 
 ## Local CPU startup
 
@@ -158,6 +165,81 @@ commands before starting.
 Each submitted GPU batch is sent to Slurm as an array job; scheduler delays or
 account/GPU limits are reported in the Jobs panel with the scheduler reason.
 
+## OpenShift deployment
+
+The GUI includes a plug-and-play OpenShift scaffold under `openshift/` and a
+`Containerfile`. It keeps the existing local CPU and Slurm GPU paths unchanged,
+and adds OpenShift-facing run targets:
+
+- **OpenShift Job** launches generator pods inside the selected OpenShift
+  project, polls Job/pod status, captures pod logs, and loads SDF outputs from
+  shared job storage.
+- **OpenShift diagnostics** checks routing, persistent storage, logs, and result
+  loading without launching the conDitar runtime.
+- **OpenShift Job manifest** appears when cluster submission is disabled and
+  writes a Kubernetes `Job` manifest for admin review.
+
+The recommended site deployment path is:
+
+```bash
+cd conDitar-dev/gui
+./openshift/deploy.sh \
+  --project <site-project> \
+  --runtime openshift_job \
+  --submit \
+  --cpu \
+  --runtime-image <site-conditar-runtime-image>
+```
+
+That script creates the OpenShift build/deployment resources, starts a binary
+build from the local `gui/` folder, deploys the GUI, waits for rollout, and
+prints the Route URL.
+
+Start with `openshift/SITE_QUICKSTART.md` for the site handoff flow and
+`openshift/README.md` for deployment options and admin-facing assumptions.
+
+Local container smoke test:
+
+```bash
+cd conDitar-dev/gui
+podman build -f Containerfile -t conditar-gui:latest .
+podman run --rm -p 8080:8080 -v conditar-gui-jobs:/data conditar-gui:latest
+```
+
+Then open `http://127.0.0.1:8080`. The container binds to `0.0.0.0`
+internally, but your browser should use localhost.
+
+The container image installs the same Tool Chest environment used by
+`setup_tool_chest.sh`, including `medchem` and `lilly-medchem-rules`. The setup
+script is still useful for local non-container GUI sessions.
+
+OpenShift options:
+
+```bash
+./openshift/deploy.sh --create-project conditar-gui-demo
+./openshift/deploy.sh --runtime openshift_job --storage 50Gi
+./openshift/deploy.sh --runtime-image registry.example.edu/conditar-dev:latest
+```
+
+The included manifests create an `ImageStream`, `BuildConfig`, `Deployment`,
+`Service`, `Route`, `ConfigMap`, and `PersistentVolumeClaim`. They set
+`CONDITAR_JOB_ROOT=/data/jobs` and `CONDITAR_RUNTIME=openshift_mock`.
+
+The Job draft target can be tuned with these environment variables:
+
+```bash
+CONDITAR_OPENSHIFT_PVC=conditar-gui-jobs
+CONDITAR_OPENSHIFT_JOB_MOUNT=/data/jobs
+CONDITAR_OPENSHIFT_NAMESPACE=
+CONDITAR_OPENSHIFT_SERVICE_ACCOUNT=
+CONDITAR_OPENSHIFT_GPU_RESOURCE=nvidia.com/gpu
+CONDITAR_OPENSHIFT_GPU_COUNT=1
+CONDITAR_OPENSHIFT_CPU_REQUEST=2
+CONDITAR_OPENSHIFT_MEMORY_REQUEST=16Gi
+CONDITAR_OPENSHIFT_MEMORY_LIMIT=32Gi
+CONDITAR_OPENSHIFT_IMAGE_PULL_POLICY=IfNotPresent
+```
+
 After Slurm/GPU setup is configured, future GPU sessions usually only need:
 
 ```bash
@@ -238,20 +320,7 @@ DOCKER_BIN=/path/to/docker ./start_cpu_gui.sh
 PODMAN_BIN=/path/to/podman ./start_slurm_gui.sh
 ```
 
-To copy a shared image archive from a remote cluster to your local machine, run
-`rsync` from your local terminal. Replace the placeholders with your cluster
-username, login host, and archive path:
-
-```bash
-mkdir -p "$HOME/containers"
-rsync -avP \
-  <CLUSTER_USER>@<CLUSTER_LOGIN_HOST>:/path/to/conditar-dev__2026-07-10.tar.gz \
-  "$HOME/containers/"
-docker load -i "$HOME/containers/conditar-dev__2026-07-10.tar.gz"
-```
-
-The archive is large; `rsync -P` resumes an interrupted transfer. Local NVIDIA
-GPU execution additionally requires Docker Desktop GPU support and a compatible
+Local NVIDIA GPU execution requires Docker Desktop GPU support and a compatible
 NVIDIA runtime. For normal GPU throughput, use the Slurm/Podman path.
 
 ## Using the GUI

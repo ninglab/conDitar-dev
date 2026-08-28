@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import errno
+import os
 from functools import partial
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
@@ -102,8 +103,8 @@ class ConDitarRequestHandler(SimpleHTTPRequestHandler):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Serve conDitar")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=4173)
+    parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"))
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "4173")))
     parser.add_argument(
         "--auto-port",
         action="store_true",
@@ -132,7 +133,8 @@ def main() -> None:
     port = server.server_address[1]
     if port != args.port:
         print(f"Port {args.port} is already in use; using {port} instead.")
-    url = f"http://{args.host}:{port}"
+    display_host = "127.0.0.1" if args.host in {"0.0.0.0", "::", ""} else args.host
+    url = f"http://{display_host}:{port}"
     print(f"conDitar: {url}")
     print("Press Ctrl+C to stop the server.")
     if args.open:

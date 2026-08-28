@@ -1,0 +1,31 @@
+# Site-specific values to confirm before production deployment.
+
+SITE_PROJECT=<site-project>
+
+# Runtime image launched by OpenShift Jobs.
+CONDITAR_RUNTIME_IMAGE=docker.io/osuninglab/conditar-dev:2026-07-10
+
+# Storage.
+CONDITAR_OPENSHIFT_STORAGE=10Gi
+CONDITAR_OPENSHIFT_PVC=conditar-gui-jobs
+CONDITAR_JOB_ROOT=/data/jobs
+
+# First validation mode.
+CONDITAR_RUNTIME=openshift_job
+CONDITAR_OPENSHIFT_SUBMIT=true
+CONDITAR_OPENSHIFT_DEVICE=cpu
+CONDITAR_OPENSHIFT_GPU_COUNT=0
+CONDITAR_OPENSHIFT_CPU_REQUEST=500m
+CONDITAR_OPENSHIFT_MEMORY_REQUEST=4Gi
+CONDITAR_OPENSHIFT_MEMORY_LIMIT=8Gi
+
+# GPU follow-up values, if applicable.
+CONDITAR_OPENSHIFT_GPU_RESOURCE=nvidia.com/gpu
+# CONDITAR_OPENSHIFT_DEVICE=cuda:0
+# CONDITAR_OPENSHIFT_GPU_COUNT=1
+# CONDITAR_OPENSHIFT_CPU_REQUEST=2
+# CONDITAR_OPENSHIFT_MEMORY_REQUEST=16Gi
+# CONDITAR_OPENSHIFT_MEMORY_LIMIT=32Gi
+
+# Optional fixed route hostname, if allowed by the site.
+# CONDITAR_OPENSHIFT_ROUTE_HOST=conditar-gui.apps.example.org

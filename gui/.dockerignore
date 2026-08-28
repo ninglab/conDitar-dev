@@ -1,0 +1,10 @@
+job_data/
+.conditar-*.env
+.tool_chest/
+__pycache__/
+*.pyc
+.DS_Store
+.git/
+.pytest_cache/
+*.tar
+*.tar.gz

@@ -110,10 +110,12 @@
             <div id="parameter-fields" class="parameter-fields"></div>
             <div class="execution-bar">
               <div>
-                <span class="field-label">Where should this run? <span class="info-tip" tabindex="0" aria-label="Local CPU runs on this computer through Docker. Slurm GPU submits to a scheduler when sbatch is available." data-tip="Local CPU runs on this computer through Docker. Slurm GPU submits to a scheduler when sbatch is available.">?</span></span>
+                <span class="field-label">Where should this run? <span class="info-tip" tabindex="0" aria-label="Local CPU runs on this computer through Docker. Slurm GPU submits to a scheduler when sbatch is available. OpenShift Job launches generator pods inside the selected OpenShift project." data-tip="Local CPU runs on this computer through Docker. Slurm GPU submits to a scheduler when sbatch is available. OpenShift Job launches generator pods inside the selected OpenShift project.">?</span></span>
                 <select id="job-target">
                   <option value="local_cpu">This computer · CPU</option>
                   <option value="slurm_gpu">Slurm GPU · Podman</option>
+                  <option value="openshift_job">OpenShift Job</option>
+                  <option value="openshift_mock">OpenShift diagnostics</option>
                 </select>
               </div>
               <div class="runtime-readout"><span>Detected environment</span><strong id="runtime-status">Detecting…</strong><small id="runtime-detail">Choosing a default target for this host.</small></div>
