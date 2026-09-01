@@ -109,6 +109,11 @@ Route hostnames.
 Use `--skip-build` when the `conditar-gui:latest` ImageStreamTag already exists
 and only the manifests should be re-applied.
 
+Use `--insecure-build-network` only for a short admin-approved test when the
+OpenShift build fails because package downloads see a self-signed certificate in
+the SSL chain. The preferred long-term fix is to configure the site build
+environment with the site CA certificate or approved internal mirrors.
+
 ## What Gets Created
 
 - `ImageStream/conditar-gui`

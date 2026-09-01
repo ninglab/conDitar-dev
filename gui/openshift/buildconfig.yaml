@@ -17,6 +17,9 @@ spec:
     type: Docker
     dockerStrategy:
       dockerfilePath: Containerfile
+      buildArgs:
+        - name: CONDITAR_INSECURE_BUILD_NETWORK
+          value: "false"
   output:
     to:
       kind: ImageStreamTag
