@@ -1,7 +1,5 @@
 FROM mambaorg/micromamba:1.5.8
 
-ARG CONDITAR_INSECURE_BUILD_NETWORK=false
-
 ENV HOST=0.0.0.0 \
     PORT=8080 \
     CONDITAR_JOB_ROOT=/data/jobs \
@@ -24,9 +22,6 @@ RUN apt-get update \
 
 USER $MAMBA_USER
 COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml /tmp/environment.yml
-RUN if [ "$CONDITAR_INSECURE_BUILD_NETWORK" = "true" ]; then \
-        micromamba config set ssl_verify false; \
-    fi
 RUN micromamba create -y -f /tmp/environment.yml \
     && micromamba clean --all --yes
 
@@ -34,11 +29,7 @@ ENV CONDA_DEFAULT_ENV=conditar-gui-dev \
     PATH=/opt/conda/envs/conditar-gui-dev/bin:$PATH
 
 USER root
-RUN if [ "$CONDITAR_INSECURE_BUILD_NETWORK" = "true" ]; then \
-        git -c http.sslVerify=false clone --depth 1 https://github.com/IanAWatson/Lilly-Medchem-Rules.git /opt/conditar-gui/.tool_chest/Lilly-Medchem-Rules; \
-    else \
-        git clone --depth 1 https://github.com/IanAWatson/Lilly-Medchem-Rules.git /opt/conditar-gui/.tool_chest/Lilly-Medchem-Rules; \
-    fi \
+RUN git clone --depth 1 https://github.com/IanAWatson/Lilly-Medchem-Rules.git /opt/conditar-gui/.tool_chest/Lilly-Medchem-Rules \
     && make -C /opt/conditar-gui/.tool_chest/Lilly-Medchem-Rules \
     && mkdir -p /data/jobs \
     && chown -R $MAMBA_USER:0 /data /opt/conda /opt/conditar-gui \

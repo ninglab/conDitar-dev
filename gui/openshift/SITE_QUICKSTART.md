@@ -199,24 +199,6 @@ cd conditar_gui_dev
   --skip-build
 ```
 
-If the build fails with an SSL certificate error while downloading from
-`conda-forge`, the OpenShift network is likely using a site certificate that the
-build image does not trust yet. The preferred long-term fix is to have the site
-build process trust the site certificate or use approved internal package/image
-mirrors.
-
-For a short first test only, if approved by the site admin, retry with:
-
-```bash
-./openshift/deploy.sh \
-  --project <site-project> \
-  --runtime openshift_job \
-  --submit \
-  --cpu \
-  --runtime-image docker.io/osuninglab/conditar-dev:2026-07-10 \
-  --insecure-build-network
-```
-
 For a first infrastructure test in the GUI:
 
 - Target: `OpenShift Job`
