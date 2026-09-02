@@ -5,9 +5,9 @@ It builds the GUI image inside the current OpenShift project, deploys the web
 service, creates persistent job storage, exposes a Route, and can launch
 generator pods as OpenShift Jobs.
 
-The GUI image installs `environment.yml` during build, so the bundled Tool Chest
-tools, including Lilly Medchem Rules and MedChem filters, are available in
-OpenShift without a separate conda setup step.
+By default, the GUI image installs the optional Tool Chest dependencies during
+build. Use `--minimal-tools` for a first deployment test that skips optional
+Lilly Medchem Rules and MedChem filters.
 
 ## Fast Start
 
@@ -81,7 +81,7 @@ If the project allows the GUI service account to create Jobs, redeploy with:
 For CPU-only testing, use:
 
 ```bash
-./openshift/deploy.sh --runtime openshift_job --submit --cpu
+./openshift/deploy.sh --runtime openshift_job --submit --cpu --minimal-tools
 ```
 
 The `--cpu` option sets the generated conDitar command to `--device cpu` and
@@ -108,6 +108,11 @@ Route hostnames.
 
 Use `--skip-build` when the `conditar-gui:latest` ImageStreamTag already exists
 and only the manifests should be re-applied.
+
+Use `--minimal-tools` when the site build environment cannot access optional
+external Tool Chest dependencies. The GUI still deploys and can launch
+OpenShift Jobs, but Lilly Medchem Rules and MedChem filters will be unavailable
+until a full build, internal mirror, or prebuilt GUI image is used.
 
 ## What Gets Created
 

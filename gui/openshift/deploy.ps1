@@ -8,7 +8,8 @@ param(
   [switch]$Cpu,
   [string]$Storage = $(if ($env:CONDITAR_OPENSHIFT_STORAGE) { $env:CONDITAR_OPENSHIFT_STORAGE } else { "10Gi" }),
   [string]$RouteHost = $(if ($env:CONDITAR_OPENSHIFT_ROUTE_HOST) { $env:CONDITAR_OPENSHIFT_ROUTE_HOST } else { "" }),
-  [switch]$SkipBuild
+  [switch]$SkipBuild,
+  [switch]$MinimalTools
 )
 
 $ErrorActionPreference = "Stop"
@@ -55,6 +56,7 @@ $openshiftGpuCount = if ($env:CONDITAR_OPENSHIFT_GPU_COUNT) { $env:CONDITAR_OPEN
 $openshiftCpuRequest = if ($env:CONDITAR_OPENSHIFT_CPU_REQUEST) { $env:CONDITAR_OPENSHIFT_CPU_REQUEST } else { "2" }
 $openshiftMemoryRequest = if ($env:CONDITAR_OPENSHIFT_MEMORY_REQUEST) { $env:CONDITAR_OPENSHIFT_MEMORY_REQUEST } else { "16Gi" }
 $openshiftMemoryLimit = if ($env:CONDITAR_OPENSHIFT_MEMORY_LIMIT) { $env:CONDITAR_OPENSHIFT_MEMORY_LIMIT } else { "32Gi" }
+$guiToolChest = if ($MinimalTools) { "minimal" } elseif ($env:CONDITAR_GUI_TOOL_CHEST) { $env:CONDITAR_GUI_TOOL_CHEST } else { "full" }
 
 if ($Cpu) {
   $openshiftDevice = "cpu"
@@ -115,6 +117,15 @@ try {
     $deployment = Get-Content $deploymentPath -Raw
     $deployment = $deployment -replace "image: conditar-gui:[^\s]+", "image: $currentImageRef"
     Set-Content -Path $deploymentPath -Value $deployment -NoNewline
+  }
+
+  $buildConfigPath = Join-Path $tmpOpenShift "buildconfig.yaml"
+  $buildConfig = Get-Content $buildConfigPath -Raw
+  $buildConfig = $buildConfig -replace "name: CONDITAR_GUI_TOOL_CHEST(\r?\n\s+value:) `"[^`"]*`"", "name: CONDITAR_GUI_TOOL_CHEST`$1 `"$guiToolChest`""
+  Set-Content -Path $buildConfigPath -Value $buildConfig -NoNewline
+
+  if ($guiToolChest -eq "minimal") {
+    Write-Host "Building GUI with minimal tools: optional Lilly/MedChem filters will be unavailable in this image."
   }
 
   Run-Oc apply -k $tmpOpenShift

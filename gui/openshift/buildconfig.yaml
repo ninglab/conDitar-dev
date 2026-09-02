@@ -17,6 +17,9 @@ spec:
     type: Docker
     dockerStrategy:
       dockerfilePath: Containerfile
+      buildArgs:
+        - name: CONDITAR_GUI_TOOL_CHEST
+          value: "full"
   output:
     to:
       kind: ImageStreamTag

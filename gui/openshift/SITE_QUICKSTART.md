@@ -144,7 +144,8 @@ oc project <site-project>
   --runtime openshift_job \
   --submit \
   --cpu \
-  --runtime-image docker.io/osuninglab/conditar-dev:2026-07-10
+  --runtime-image docker.io/osuninglab/conditar-dev:2026-07-10 \
+  --minimal-tools
 ```
 
 On Windows PowerShell:
@@ -181,6 +182,12 @@ Replace only `<site-project>` with your OpenShift project name for the first
 test. Keep the runtime image value unchanged unless your site admin tells you
 Docker Hub pulls are blocked.
 
+The `--minimal-tools` option skips the optional Lilly Medchem Rules and MedChem
+filters during the GUI image build. This avoids an extra build-time GitHub
+download and is useful for confirming the OpenShift GUI, Route, storage, and Job
+launch path first. Those filters can be restored later through the full build,
+an internal mirror, or a prebuilt GUI image.
+
 The script prints the Route when the deployment is ready.
 
 If the Web Terminal disconnects while the GUI image is building, log back into
@@ -196,6 +203,7 @@ cd conditar_gui_dev
   --submit \
   --cpu \
   --runtime-image docker.io/osuninglab/conditar-dev:2026-07-10 \
+  --minimal-tools \
   --skip-build
 ```
 
@@ -205,7 +213,7 @@ For a first infrastructure test in the GUI:
 - Samples: `2`
 - Batch size: `100`
 - Vina: off
-- Optional tools: Lilly Medchem Rules and MedChem Filters
+- Optional tools: leave off when using `--minimal-tools`
 
 Expected result:
 
@@ -268,9 +276,10 @@ oc logs job/<job-name>
   minutes.
 - Long `oc logs -f` sessions can drop if local credentials expire or the network
   resets; this does not imply the OpenShift Job failed.
-- Standalone Lilly Medchem Rules is built into the GUI image. The MedChem
-  package's internal Lilly demerit subfilter may need additional package-level
-  binary discovery wiring if that exact subfilter is required.
+- `--minimal-tools` disables optional GUI-side Lilly Medchem Rules and MedChem
+  filters for the first deployment test.
+- Full Tool Chest builds need access to the Lilly Medchem Rules GitHub
+  repository or an approved internal mirror/prebuilt image.
 - Final production values still need site confirmation for storage class,
   route/TLS policy, image registry, GPU resource name, and build policy.
 
