@@ -188,18 +188,14 @@ cd conDitar-dev/gui
   --runtime openshift_job \
   --submit \
   --cpu \
-  --runtime-image <site-conditar-runtime-image> \
-  --minimal-tools
+  --runtime-image <site-conditar-runtime-image>
 ```
 
 That script creates the OpenShift build/deployment resources, starts a binary
 build from the local `gui/` folder, deploys the GUI, waits for rollout, and
-prints the Route URL.
-
-The `--minimal-tools` option skips optional GUI-side Lilly Medchem Rules and
-MedChem filters during the OpenShift image build. Use it for the first
-deployment test when external build-time dependencies are restricted. The core
-GUI and OpenShift Job launch path still run.
+prints the Route URL. The GUI image builds Lilly Medchem Rules from the
+vendored source under `vendor/`, so it does not clone that external repository
+during the OpenShift build.
 
 Start with `openshift/SITE_QUICKSTART.md` for the site handoff flow and
 `openshift/README.md` for deployment options and admin-facing assumptions.

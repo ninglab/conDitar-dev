@@ -88,6 +88,6 @@ the tool unavailable from `describe()` and return a short `error` message that
 tells the user what to install.
 
 `setup_tool_chest.sh` installs the Python MedChem stack through conda and builds
-the official Lilly Medchem Rules source under `.tool_chest/`. Local builds need
-`git`, `make`, and a C++ compiler. The OpenShift/container image performs this
-setup during image build.
+the vendored Lilly Medchem Rules source under `.tool_chest/`. Local builds need
+`make` and a C++ compiler. The OpenShift/container image performs this setup
+during image build.

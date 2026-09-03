@@ -1,0 +1,7 @@
+(0 Query
+  (A C Comment "formylated")
+  (A I Version 2)
+
+# O=[CH]-N
+  (A C smarts "[O,S;D1]=[CD2HR0]-[NG0]")
+)

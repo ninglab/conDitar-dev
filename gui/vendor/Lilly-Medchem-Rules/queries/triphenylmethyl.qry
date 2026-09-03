@@ -1,0 +1,12 @@
+# RuleClass protecting group
+# SubClass misc
+
+(19 Query
+  (A C Comment "triphenylmethyl")
+  (A I Version 2)
+  (A I min_nrings 3)
+  (A I min_aromatic_ring_count 3)
+  (A I embeddings_do_not_overlap 1)
+  (A D numeric_value 50)
+  (A C smarts "C(-[cr6])(-[cr6])-[cr6]")
+)

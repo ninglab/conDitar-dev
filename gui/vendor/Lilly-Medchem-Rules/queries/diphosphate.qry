@@ -1,0 +1,11 @@
+(0 Query
+  (A C  Comment "P-O-P")
+  (A C  Comment "diphosphate")
+  (A I Version 2)
+  (A I max_matches_to_find 1)
+  (0 Elements_Needed
+    (A I atomic_number 15)
+    (A I min_hits_needed 2)
+  )
+  (A C smarts "[#15]-[#8]-[#15]")
+)

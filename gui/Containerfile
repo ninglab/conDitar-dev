@@ -1,7 +1,5 @@
 FROM mambaorg/micromamba:1.5.8
 
-ARG CONDITAR_GUI_TOOL_CHEST=full
-
 ENV HOST=0.0.0.0 \
     PORT=8080 \
     CONDITAR_JOB_ROOT=/data/jobs \
@@ -16,7 +14,6 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
         ca-certificates \
-        git \
         make \
         ruby \
         zlib1g-dev \
@@ -24,21 +21,15 @@ RUN apt-get update \
 
 USER $MAMBA_USER
 COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml /tmp/environment.yml
-RUN if [ "$CONDITAR_GUI_TOOL_CHEST" = "minimal" ]; then \
-        micromamba create -y -n conditar-gui-dev -c conda-forge python=3.11; \
-    else \
-        micromamba create -y -f /tmp/environment.yml; \
-    fi \
+RUN micromamba create -y -f /tmp/environment.yml \
     && micromamba clean --all --yes
 
 ENV CONDA_DEFAULT_ENV=conditar-gui-dev \
     PATH=/opt/conda/envs/conditar-gui-dev/bin:$PATH
 
 USER root
-RUN if [ "$CONDITAR_GUI_TOOL_CHEST" = "full" ]; then \
-        git clone --depth 1 https://github.com/IanAWatson/Lilly-Medchem-Rules.git /opt/conditar-gui/.tool_chest/Lilly-Medchem-Rules \
-        && make -C /opt/conditar-gui/.tool_chest/Lilly-Medchem-Rules; \
-    fi \
+COPY vendor/Lilly-Medchem-Rules /opt/conditar-gui/.tool_chest/Lilly-Medchem-Rules
+RUN make -C /opt/conditar-gui/.tool_chest/Lilly-Medchem-Rules \
     && mkdir -p /data/jobs \
     && chown -R $MAMBA_USER:0 /data /opt/conda /opt/conditar-gui \
     && chmod -R g=u /data /opt/conda /opt/conditar-gui

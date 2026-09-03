@@ -1,0 +1,17 @@
+# RuleClass protecting group
+# SubClass count
+
+(0 Query
+  (A C Comment "fmoc")
+  (A I Version 2)
+  (A D numeric_value 60)
+  (A I min_nrings 3)
+  (A I unique_embeddings_only 1)
+  (A I one_embedding_per_atom 1)
+  (0 Ring_System_Specifier
+    (A I nrings 3)
+    (A I aromatic_ring_count 2)
+    (A I heteroatom_count 0)
+  )
+  (A C smarts "[NR0H]-[CD3](=O)-[OD2]-[CD2H2][CD3r5]1[cD3R2]2:c:c:c:c:c2c3:c:c:c:c:c31")
+)

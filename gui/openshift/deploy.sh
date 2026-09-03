@@ -18,7 +18,6 @@ Options:
   --storage SIZE             PVC request size, such as 10Gi or 50Gi.
   --route-host HOST          Optional fixed Route hostname.
   --skip-build               Apply manifests without starting a new OpenShift build.
-  --minimal-tools            Build the GUI without optional Lilly/MedChem tools.
   --help                     Show this help.
 
 Default runtime is openshift_mock, which is safe for first deployment checks.
@@ -41,7 +40,6 @@ OPENSHIFT_CPU_REQUEST="${CONDITAR_OPENSHIFT_CPU_REQUEST:-2}"
 OPENSHIFT_MEMORY_REQUEST="${CONDITAR_OPENSHIFT_MEMORY_REQUEST:-16Gi}"
 OPENSHIFT_MEMORY_LIMIT="${CONDITAR_OPENSHIFT_MEMORY_LIMIT:-32Gi}"
 BUILD_TIMEOUT_SECONDS="${CONDITAR_OPENSHIFT_BUILD_TIMEOUT_SECONDS:-2400}"
-GUI_TOOL_CHEST="${CONDITAR_GUI_TOOL_CHEST:-full}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -68,8 +66,6 @@ while [[ $# -gt 0 ]]; do
       ROUTE_HOST="${2:-}"; shift 2 ;;
     --skip-build)
       SKIP_BUILD=1; shift ;;
-    --minimal-tools)
-      GUI_TOOL_CHEST="minimal"; shift ;;
     --help|-h)
       usage; exit 0 ;;
     *)
@@ -180,26 +176,6 @@ set_deployment_image() {
   ' "$file" | rewrite_file "$file"
 }
 
-set_build_arg_value() {
-  local file="$1"
-  local name="$2"
-  local value="$3"
-  awk -v name="$name" -v value="$value" '
-    $1 == "name:" && $2 == name {
-      found = 1
-      print
-      next
-    }
-    found && $1 == "value:" {
-      indent = substr($0, 1, index($0, "value") - 1)
-      print indent "value: \"" value "\""
-      found = 0
-      next
-    }
-    { print }
-  ' "$file" | rewrite_file "$file"
-}
-
 wait_for_build() {
   local build_ref="$1"
   local phase=""
@@ -248,11 +224,6 @@ set_config_value "$tmpdir/openshift/configmap.yaml" "CONDITAR_OPENSHIFT_CPU_REQU
 set_config_value "$tmpdir/openshift/configmap.yaml" "CONDITAR_OPENSHIFT_MEMORY_REQUEST" "$OPENSHIFT_MEMORY_REQUEST"
 set_config_value "$tmpdir/openshift/configmap.yaml" "CONDITAR_OPENSHIFT_MEMORY_LIMIT" "$OPENSHIFT_MEMORY_LIMIT"
 set_plain_value "$tmpdir/openshift/pvc.yaml" "storage" "$STORAGE"
-set_build_arg_value "$tmpdir/openshift/buildconfig.yaml" "CONDITAR_GUI_TOOL_CHEST" "$GUI_TOOL_CHEST"
-
-if [[ "$GUI_TOOL_CHEST" = "minimal" ]]; then
-  echo "Building GUI with minimal tools: optional Lilly/MedChem filters will be unavailable in this image."
-fi
 
 if [[ -n "$ROUTE_HOST" ]]; then
   insert_route_host "$tmpdir/openshift/route.yaml" "$ROUTE_HOST"
