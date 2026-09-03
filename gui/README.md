@@ -188,14 +188,15 @@ cd conDitar-dev/gui
   --runtime openshift_job \
   --submit \
   --cpu \
+  --gui-image <site-conditar-gui-image> \
   --runtime-image <site-conditar-runtime-image>
 ```
 
-That script creates the OpenShift build/deployment resources, starts a binary
-build from the local `gui/` folder, deploys the GUI, waits for rollout, and
-prints the Route URL. The GUI image builds Lilly Medchem Rules from the
-vendored source under `vendor/`, so it does not clone that external repository
-during the OpenShift build.
+That script creates the OpenShift deployment resources, deploys the GUI, waits
+for rollout, and prints the Route URL. When `--gui-image` is omitted, the same
+script starts a binary build from the local `gui/` folder. The GUI image builds
+Lilly Medchem Rules from the vendored source under `vendor/`, so it does not
+clone that external repository during the OpenShift build.
 
 Start with `openshift/SITE_QUICKSTART.md` for the site handoff flow and
 `openshift/README.md` for deployment options and admin-facing assumptions.
@@ -220,6 +221,7 @@ OpenShift options:
 ```bash
 ./openshift/deploy.sh --create-project conditar-gui-demo
 ./openshift/deploy.sh --runtime openshift_job --storage 50Gi
+./openshift/deploy.sh --gui-image registry.example.edu/conditar-gui:latest
 ./openshift/deploy.sh --runtime-image registry.example.edu/conditar-dev:latest
 ```
 

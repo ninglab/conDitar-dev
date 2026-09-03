@@ -12,6 +12,7 @@ Options:
   --project NAME             Switch to an existing OpenShift project first.
   --create-project NAME      Create or switch to an OpenShift project first.
   --runtime MODE             Default GUI runtime target: openshift_mock or openshift_job.
+  --gui-image IMAGE          Prebuilt GUI image to deploy instead of building in OpenShift.
   --runtime-image IMAGE      conDitar generator image used by OpenShift Jobs.
   --submit                   Allow the GUI pod to create and poll OpenShift Jobs.
   --cpu                      Configure generated OpenShift Jobs for CPU-only execution.
@@ -29,6 +30,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 PROJECT=""
 CREATE_PROJECT=""
 RUNTIME="${CONDITAR_RUNTIME:-openshift_mock}"
+GUI_IMAGE="${CONDITAR_GUI_IMAGE:-}"
 RUNTIME_IMAGE="${CONDITAR_DOCKER_IMAGE:-osuninglab/conditar-dev:2026-07-10}"
 STORAGE="${CONDITAR_OPENSHIFT_STORAGE:-10Gi}"
 ROUTE_HOST="${CONDITAR_OPENSHIFT_ROUTE_HOST:-}"
@@ -49,6 +51,8 @@ while [[ $# -gt 0 ]]; do
       CREATE_PROJECT="${2:-}"; shift 2 ;;
     --runtime)
       RUNTIME="${2:-}"; shift 2 ;;
+    --gui-image)
+      GUI_IMAGE="${2:-}"; shift 2 ;;
     --runtime-image)
       RUNTIME_IMAGE="${2:-}"; shift 2 ;;
     --submit)
@@ -107,7 +111,11 @@ trap cleanup EXIT
 
 previous_image_ref="$(oc get deployment/conditar-gui -o jsonpath='{.spec.template.spec.containers[?(@.name=="gui")].image}' 2>/dev/null || true)"
 existing_image_ref="$(oc get istag conditar-gui:latest -o jsonpath='{.image.dockerImageReference}' 2>/dev/null || true)"
-current_image_ref="${previous_image_ref:-$existing_image_ref}"
+if [[ -n "$GUI_IMAGE" ]]; then
+  current_image_ref="$GUI_IMAGE"
+else
+  current_image_ref="${previous_image_ref:-$existing_image_ref}"
+fi
 
 cp -R openshift "$tmpdir/openshift"
 
@@ -235,7 +243,10 @@ fi
 
 oc apply -k "$tmpdir/openshift"
 
-if [[ "$SKIP_BUILD" -eq 0 ]]; then
+if [[ -n "$GUI_IMAGE" ]]; then
+  echo "Using prebuilt GUI image: $GUI_IMAGE"
+  echo "Skipping OpenShift binary build because --gui-image was provided."
+elif [[ "$SKIP_BUILD" -eq 0 ]]; then
   echo "Starting OpenShift binary build from $(pwd)"
   build_ref="$(oc start-build conditar-gui --from-dir=. -o name)"
   echo "Started $build_ref"
@@ -250,7 +261,11 @@ else
   echo "Skipping build because --skip-build was provided."
 fi
 
-image_ref="$(oc get istag conditar-gui:latest -o jsonpath='{.image.dockerImageReference}' 2>/dev/null || true)"
+if [[ -n "$GUI_IMAGE" ]]; then
+  image_ref="$GUI_IMAGE"
+else
+  image_ref="$(oc get istag conditar-gui:latest -o jsonpath='{.image.dockerImageReference}' 2>/dev/null || true)"
+fi
 if [[ -n "$image_ref" ]]; then
   oc set image deployment/conditar-gui "gui=$image_ref" >/dev/null
 fi

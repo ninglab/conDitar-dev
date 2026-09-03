@@ -3,6 +3,7 @@ param(
   [string]$CreateProject = "",
   [ValidateSet("openshift_mock", "openshift_job")]
   [string]$Runtime = $(if ($env:CONDITAR_RUNTIME) { $env:CONDITAR_RUNTIME } else { "openshift_mock" }),
+  [string]$GuiImage = $(if ($env:CONDITAR_GUI_IMAGE) { $env:CONDITAR_GUI_IMAGE } else { "" }),
   [string]$RuntimeImage = $(if ($env:CONDITAR_DOCKER_IMAGE) { $env:CONDITAR_DOCKER_IMAGE } else { "osuninglab/conditar-dev:2026-07-10" }),
   [switch]$Submit,
   [switch]$Cpu,
@@ -66,7 +67,7 @@ if ($Cpu) {
 
 $previousImageRef = Get-OcText get deployment/conditar-gui -o "jsonpath={.spec.template.spec.containers[?(@.name==`"gui`")].image}"
 $existingImageRef = Get-OcText get istag conditar-gui:latest -o "jsonpath={.image.dockerImageReference}"
-$currentImageRef = if ($previousImageRef) { $previousImageRef } else { $existingImageRef }
+$currentImageRef = if ($GuiImage) { $GuiImage } elseif ($previousImageRef) { $previousImageRef } else { $existingImageRef }
 
 $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("conditar-openshift-" + [System.Guid]::NewGuid().ToString("N"))
 $tmpOpenShift = Join-Path $tmpRoot "openshift"
@@ -119,7 +120,10 @@ try {
 
   Run-Oc apply -k $tmpOpenShift
 
-  if (-not $SkipBuild) {
+  if ($GuiImage) {
+    Write-Host "Using prebuilt GUI image: $GuiImage"
+    Write-Host "Skipping OpenShift binary build because -GuiImage was provided."
+  } elseif (-not $SkipBuild) {
     Write-Host "Starting OpenShift binary build from $guiRoot"
     & oc start-build conditar-gui --from-dir=. --follow --wait
     if ($LASTEXITCODE -ne 0) {
@@ -133,7 +137,7 @@ try {
     Write-Host "Skipping build because -SkipBuild was provided."
   }
 
-  $imageRef = Get-OcText get istag conditar-gui:latest -o "jsonpath={.image.dockerImageReference}"
+  $imageRef = if ($GuiImage) { $GuiImage } else { Get-OcText get istag conditar-gui:latest -o "jsonpath={.image.dockerImageReference}" }
   if ($imageRef) {
     Run-Oc set image deployment/conditar-gui "gui=$imageRef" | Out-Null
   }

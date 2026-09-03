@@ -1,9 +1,10 @@
 # conDitar GUI on OpenShift
 
 This folder contains the OpenShift deployment files for the conDitar GUI.
-It builds the GUI image inside the current OpenShift project, deploys the web
-service, creates persistent job storage, exposes a Route, and can launch
-generator pods as OpenShift Jobs.
+It deploys the web service, creates persistent job storage, exposes a Route,
+and can launch generator pods as OpenShift Jobs. The GUI image can either be
+prebuilt and supplied with `--gui-image`, or built inside the current OpenShift
+project.
 
 The GUI image installs the optional Tool Chest dependencies during build. Lilly
 Medchem Rules is built from vendored source under `gui/vendor/`, so the
@@ -39,6 +40,35 @@ When the script finishes, it prints the HTTPS Route for the GUI.
 
 For a site-facing handoff path, start with
 `openshift/SITE_QUICKSTART.md`.
+
+## Prebuilt GUI Image Path
+
+If a GUI image has already been built and pushed to a registry the project can
+pull from, deploy it directly:
+
+```bash
+./openshift/deploy.sh \
+  --project <site-project> \
+  --runtime openshift_job \
+  --submit \
+  --cpu \
+  --gui-image <site-conditar-gui-image> \
+  --runtime-image <site-conditar-runtime-image>
+```
+
+This skips the OpenShift binary build, so the project does not need to download
+GUI build dependencies during deployment.
+
+To build that GUI image from a workstation or CI runner with Docker or Podman:
+
+```bash
+./openshift/build_gui_image.sh \
+  --image docker.io/osuninglab/conditar-gui:<site-version> \
+  --push
+```
+
+The build defaults to `linux/amd64`, which is the common OpenShift worker-node
+platform. Set `--platform` only if the site requires a different target.
 
 ## First Click Test
 
@@ -97,11 +127,15 @@ the same job-storage volume during upgrades.
 ./openshift/deploy.sh \
   --runtime openshift_mock \
   --runtime-image osuninglab/conditar-dev:2026-07-10 \
+  --gui-image registry.example.edu/conditar-gui:latest \
   --storage 10Gi
 ```
 
 Use `--runtime openshift_job` if the site should land on the OpenShift Job
 target by default instead of the diagnostics target.
+
+Use `--gui-image` when the GUI image is already available in a registry the
+project can pull from. This skips the OpenShift binary build.
 
 Use `--route-host name.apps.example.edu` only when the cluster allows fixed
 Route hostnames.

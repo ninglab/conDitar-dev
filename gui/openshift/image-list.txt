@@ -1,9 +1,12 @@
 # Container images used by this release.
 
 # GUI image
-# Built by OpenShift from gui/Containerfile unless the site chooses to prebuild
-# and host the image internally.
-conditar-gui:<site-version>
+# Preferred: prebuilt from gui/Containerfile and hosted in an approved registry.
+# Example public image:
+docker.io/osuninglab/conditar-gui:<site-version>
+
+# Example mirrored GUI image reference:
+image-registry.openshift-image-registry.svc:5000/<site-project>/conditar-gui:<site-version>
 
 # conDitar runtime image
 docker.io/osuninglab/conditar-dev:2026-07-10
