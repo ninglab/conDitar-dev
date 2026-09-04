@@ -226,7 +226,7 @@ the Web Terminal, return to the repository folder, and finish from the latest
 completed image:
 
 ```bash
-cd conditar_gui_dev
+cd ~/conDitar-dev/gui
 
 ./openshift/deploy.sh \
   --project <site-project> \
