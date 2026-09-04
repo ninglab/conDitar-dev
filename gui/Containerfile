@@ -31,8 +31,8 @@ USER root
 COPY vendor/Lilly-Medchem-Rules /opt/conditar-gui/.tool_chest/Lilly-Medchem-Rules
 RUN make -C /opt/conditar-gui/.tool_chest/Lilly-Medchem-Rules \
     && mkdir -p /data/jobs \
-    && chown -R $MAMBA_USER:0 /data /opt/conda /opt/conditar-gui \
-    && chmod -R g=u /data /opt/conda /opt/conditar-gui
+    && chown -R $MAMBA_USER:0 /data /opt/conditar-gui \
+    && chmod -R g=u /data /opt/conditar-gui
 
 USER $MAMBA_USER
 COPY --chown=$MAMBA_USER:0 . /opt/conditar-gui
