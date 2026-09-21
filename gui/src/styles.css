@@ -195,6 +195,10 @@ select, input[type="text"], input[type="number"], input[type="search"] { border:
 .dropzone span { margin-top: 4px; color: var(--muted); font-size: 13px; }
 .text-button { position: relative; z-index: 1; border: 0; background: transparent; color: var(--accent); font-size: 13px; font-weight: 700; }
 .field-note { padding: 14px 16px; margin: 15px 0 0; border-left: 2px solid var(--accent); background: var(--accent-soft); color: var(--muted); font-size: 14px; line-height: 1.55; }
+.complex-picker { margin-top: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); }
+.complex-picker[hidden] { display: none; }
+.complex-picker-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.complex-picker select { width: 100%; height: 40px; padding: 0 10px; }
 .parameter-fields { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .parameter-field label { display: flex; justify-content: space-between; margin-bottom: 7px; color: var(--muted); font-size: 13px; font-weight: 700; }
 .parameter-field label span { color: var(--muted); font: 12px "DM Mono"; }
@@ -384,6 +388,8 @@ tbody tr:hover, tbody tr.active { background: var(--accent-soft); }
 .view-toggle button { min-height: 31px; }
 .viewer-stage { min-height: 440px; flex: 1; position: relative; background: var(--surface-soft); }
 #viewer-3d, #viewer-2d { position: absolute; inset: 0; }
+#viewer-3d { overflow: hidden; }
+#viewer-3d .msp-plugin { position: absolute; inset: 0; font-family: "Manrope", sans-serif; }
 #viewer-2d { padding: 24px; }
 #viewer-2d svg { width: 100%; height: 100%; }
 .viewer-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 10px; background: var(--surface-soft); color: var(--muted); font-size: 14px; z-index: 2; }
@@ -392,14 +398,21 @@ tbody tr:hover, tbody tr.active { background: var(--accent-soft); }
 @keyframes spin { to { transform: rotate(360deg); } }
 .viewer-error { padding: 30px; color: var(--danger-text); }
 .viewer-footer { min-height: 82px; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-top: 1px solid var(--line); background: var(--paper); }
-.selected-metrics { display: flex; gap: 28px; min-width: 0; }
+.selected-metrics { display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: 15px 28px; min-width: 0; }
 .selected-metrics div { min-width: 0; max-width: 280px; }
 .selected-metrics span { display: block; color: var(--muted); font-size: 13px; text-transform: uppercase; }
 .selected-metrics strong { font: 500 16px "DM Mono"; overflow-wrap: anywhere; }
 .viewer-options { position: relative; text-align: right; }
-.viewer-controls { display: flex; gap: 10px; padding-top: 10px; }
-.viewer-controls label { color: var(--muted); font-size: 13px; text-transform: uppercase; }
-.viewer-controls select { display: block; height: 38px; margin-top: 4px; padding: 0 9px; font-size: 14px; }
+.viewer-workspace-section { padding-top: 34px; }
+.viewer-workspace-heading { align-items: start; gap: 18px; }
+.viewer-workspace-controls { display: flex; align-items: end; justify-content: flex-end; flex-wrap: wrap; gap: 10px; max-width: 920px; }
+.viewer-workspace-controls label { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; }
+.viewer-workspace-controls select { display: block; min-width: 150px; margin-top: 5px; }
+.molecule-viewer-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-height: calc(100vh - 260px); }
+.large-viewer-panel { min-height: calc(100vh - 260px); }
+.large-viewer-stage { min-height: calc(100vh - 340px); }
+.large-viewer-stage #viewer-workspace-3d { position: absolute; inset: 0; overflow: hidden; }
+.large-viewer-stage #viewer-workspace-3d .msp-plugin { position: absolute; inset: 0; font-family: "Manrope", sans-serif; }
 .export-section { padding-top: 34px; padding-bottom: 34px; background: var(--surface-alt); }
 .download-bar { display: flex; align-items: center; justify-content: space-between; gap: 30px; }
 .download-bar h2 { margin: 0 0 5px; font-size: 22px; }
@@ -439,6 +452,9 @@ body.dark-mode .brand-logo, body.dark-mode .hero-mark { filter: drop-shadow(0 12
   .hero-brand-panel .study-status { justify-self: start; margin: 0; }
   .study-status { align-self: flex-start; }
   .setup-grid, .explorer-grid, .export-grid, .jobs-grid { grid-template-columns: 1fr; }
+  .molecule-viewer-grid { grid-template-columns: 1fr; }
+  .large-viewer-panel, .molecule-viewer-grid { min-height: 620px; }
+  .large-viewer-stage { min-height: 540px; }
   .setup-health-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .parameter-fields { grid-template-columns: repeat(2, 1fr); }
   .result-table-wrap { max-height: 430px; }
@@ -459,6 +475,7 @@ body.dark-mode .brand-logo, body.dark-mode .hero-mark { filter: drop-shadow(0 12
   .workflow-nav { padding: 0 8px; overflow-x: auto; }
   .workflow-step { padding: 0 14px; white-space: nowrap; }
   .section-heading { align-items: start; flex-direction: column; gap: 16px; }
+  .viewer-workspace-controls, .viewer-workspace-controls label, .viewer-workspace-controls select { width: 100%; }
   .analytics-grid { grid-template-columns: 1fr; }
   .help-grid { grid-template-columns: 1fr; }
   .parameter-fields, .advanced-grid { grid-template-columns: 1fr 1fr; }
@@ -472,6 +489,7 @@ body.dark-mode .brand-logo, body.dark-mode .hero-mark { filter: drop-shadow(0 12
   .metric-card:last-child { border-bottom: 0; }
   .run-bar, .viewer-footer { align-items: stretch; flex-direction: column; }
   .execution-bar { align-items: stretch; flex-direction: column; }
+  .complex-picker-row { grid-template-columns: 1fr; }
   .readiness-menu > summary span { align-items: flex-start; flex-direction: column; gap: 0; }
   .readiness-copy { align-items: stretch; flex-direction: column; gap: 10px; }
   .setup-health-list { grid-template-columns: 1fr; }
@@ -481,5 +499,4 @@ body.dark-mode .brand-logo, body.dark-mode .hero-mark { filter: drop-shadow(0 12
   .download-bar { align-items: flex-start; flex-direction: column; }
   .download-actions { width: 100%; flex-wrap: wrap; }
   .selected-metrics { justify-content: space-between; }
-  .viewer-controls { justify-content: flex-end; }
 }

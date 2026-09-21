@@ -133,6 +133,14 @@ export class ExampleDataService {
       body: JSON.stringify(options),
     });
   }
+
+  async preprocessComplex(payload) {
+    return fetchJson("/api/preprocess/complex", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
 }
 
 async function fetchText(path, required = true) {

@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
 
+from .preprocessing import preprocess_complex_payload
 from .tool_chest import ToolChest
 
 
@@ -224,6 +225,9 @@ class LocalJobManager:
             },
             "checks": checks,
         }
+
+    def preprocess_complex(self, payload: dict) -> dict:
+        return preprocess_complex_payload(payload)
 
     def _job_storage_status(self) -> dict:
         try:

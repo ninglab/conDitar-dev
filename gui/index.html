@@ -10,6 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="./media/logo/conditar-logo-highres-transparent.png">
   <link rel="apple-touch-icon" href="./media/logo/conditar-logo-highres-transparent.png">
+  <link rel="stylesheet" href="./vendor/molstar/molstar.css">
   <link rel="stylesheet" href="./src/styles.css?v=20260723-theme-1">
 </head>
 <body>
@@ -59,6 +60,7 @@
         <button class="workflow-step active" data-section="setup">Setup</button>
         <button class="workflow-step" data-section="jobs">Jobs</button>
         <button class="workflow-step" data-section="results">Results</button>
+        <button class="workflow-step" data-section="viewer">Viewer</button>
         <button class="workflow-step" data-section="export">Export</button>
         <button class="workflow-step" data-section="help">Help</button>
       </nav>
@@ -95,6 +97,19 @@
               <div class="file-icon accent">SDF</div>
               <div><strong id="sdf-name">Choose a reference SDF</strong><span id="sdf-detail">Required for protein + ligand mode</span></div>
               <button class="text-button" id="refresh-sdf" type="button">Choose / refresh</button>
+            </div>
+            <div class="dropzone" id="complex-dropzone">
+              <input id="complex-input" type="file" accept=".pdb,.ent">
+              <div class="file-icon accent">PDB</div>
+              <div><strong id="complex-name">Or choose a protein-ligand complex</strong><span id="complex-detail">The GUI will split protein and reference ligand</span></div>
+              <button class="text-button" id="refresh-complex" type="button">Choose complex</button>
+            </div>
+            <div class="complex-picker" id="complex-picker" hidden>
+              <label class="field-label" for="complex-ligand-select">Reference ligand from complex</label>
+              <div class="complex-picker-row">
+                <select id="complex-ligand-select"></select>
+                <button class="secondary-button compact-action" id="apply-complex-ligand" type="button">Use ligand</button>
+              </div>
             </div>
             <div class="dropzone folder-dropzone" id="folder-dropzone">
               <input id="folder-input" type="file" webkitdirectory directory multiple>
@@ -357,17 +372,30 @@
             </div>
             <div class="viewer-footer">
               <div class="selected-metrics" id="selected-metrics"></div>
-              <details class="viewer-options">
-                <summary>View options</summary>
-                <div class="viewer-controls">
-                  <label>Protein
-                    <select id="protein-style"><option value="cartoon">Cartoon</option><option value="line">Lines</option><option value="surface">Surface</option><option value="hidden">Hidden</option></select>
-                  </label>
-                  <label>Ligand
-                    <select id="ligand-style"><option value="stick">Sticks</option><option value="sphere">Spheres</option><option value="line">Lines</option></select>
-                  </label>
-                </div>
-              </details>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="viewer-section" class="workspace-section viewer-workspace-section" hidden>
+        <div class="section-heading viewer-workspace-heading">
+          <div><p class="eyebrow">Structure viewer</p><h2>Inspect molecule</h2></div>
+          <div class="viewer-workspace-controls">
+            <label>Molecule
+              <select id="viewer-molecule-select" class="compact-select"></select>
+            </label>
+            <button class="secondary-button compact-action" id="viewer-use-selected" type="button">Use selected</button>
+          </div>
+        </div>
+
+        <div class="molecule-viewer-grid">
+          <article class="panel viewer-panel large-viewer-panel">
+            <div class="viewer-header">
+              <div><p class="eyebrow">Current molecule</p><h3 id="viewer-workspace-title">Selected candidate</h3></div>
+            </div>
+            <div class="viewer-stage large-viewer-stage">
+              <div id="viewer-workspace-3d"></div>
+              <div class="viewer-loading" id="viewer-workspace-loading"><span></span>Loading structure</div>
             </div>
           </article>
         </div>
@@ -412,7 +440,7 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script async src="https://cdn.jsdelivr.net/npm/3dmol@2.4.2/build/3Dmol-min.js"></script>
+  <script async src="./vendor/molstar/molstar.js"></script>
   <script async src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script defer src="https://unpkg.com/@rdkit/rdkit/dist/RDKit_minimal.js"></script>
   <script type="module" src="./src/app.js?v=20260723-theme-1"></script>

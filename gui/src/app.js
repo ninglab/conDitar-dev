@@ -21,9 +21,12 @@ const state = {
   exampleId: "custom",
   mode: "reference",
   view: "3d",
+  workspaceViewerMolecule: "selected",
   parameters: Object.fromEntries([...PARAMETERS, ...ADVANCED_PARAMETERS].map((item) => [item.key, item.value])),
   customPdb: null,
   customSdf: null,
+  customComplex: null,
+  complexCandidates: [],
   batchInputs: [],
   currentJob: null,
   selectedJob: null,
@@ -117,6 +120,9 @@ function bindEvents() {
   });
   $("#refresh-pdb").addEventListener("click", () => chooseFileAgain("#pdb-input"));
   $("#refresh-sdf").addEventListener("click", () => chooseFileAgain("#sdf-input"));
+  $("#refresh-complex").addEventListener("click", () => chooseFileAgain("#complex-input"));
+  $("#complex-input").addEventListener("change", handleComplexUpload);
+  $("#apply-complex-ligand").addEventListener("click", applySelectedComplexLigand);
   $$(".builtin-evaluation-toggle").forEach((input) => input.addEventListener("change", updateVinaControls));
   ["#vina-exhaustiveness", "#vina-cpu"].forEach((selector) => {
     $(selector).addEventListener("input", updateCommand);
@@ -144,8 +150,15 @@ function bindEvents() {
   $(".analytics-details").addEventListener("toggle", (event) => {
     if (event.target.open) requestAnimationFrame(renderCharts);
   });
-  $("#protein-style").addEventListener("change", renderSelectedStructure);
-  $("#ligand-style").addEventListener("change", renderSelectedStructure);
+  $("#viewer-molecule-select").addEventListener("change", (event) => {
+    state.workspaceViewerMolecule = event.target.value;
+    renderMoleculeViewerWorkspace();
+  });
+  $("#viewer-use-selected").addEventListener("click", () => {
+    state.workspaceViewerMolecule = "selected";
+    $("#viewer-molecule-select").value = "selected";
+    renderMoleculeViewerWorkspace();
+  });
   $("#download-selected").addEventListener("click", downloadSelected);
   $("#download-csv").addEventListener("click", downloadCsv);
   $("#download-config").addEventListener("click", downloadConfig);
@@ -357,6 +370,9 @@ async function setActiveTab(tab) {
     renderCharts();
     renderSelectedStructure();
   }
+  if (tab === "viewer") {
+    renderMoleculeViewerWorkspace();
+  }
 }
 
 async function loadExample(exampleId) {
@@ -403,6 +419,8 @@ function setMode(mode, updateSelect = true) {
   state.mode = mode;
   $$(".mode-toggle button").forEach((button) => button.classList.toggle("active", button.dataset.mode === mode));
   $("#sdf-dropzone").hidden = mode === "pocket";
+  $("#complex-dropzone").hidden = mode === "pocket";
+  if (mode === "pocket") $("#complex-picker").hidden = true;
   const pocketRadiusField = $("[data-parameter-key='pocket_radius']");
   if (pocketRadiusField) pocketRadiusField.hidden = mode === "pocket";
   $("#mode-note").textContent = mode === "reference"
@@ -439,6 +457,7 @@ function renderStudy() {
   renderResultsTable();
   renderCharts();
   renderSelectedStructure();
+  renderViewerSelectors();
   updateResultsSource();
   updateCommand();
 }
@@ -1603,6 +1622,8 @@ function renderResultsTable() {
     state.selected = state.study.candidates.find((item) => item.index === Number(row.dataset.index));
     renderResultsTable();
     renderSelectedStructure();
+    renderViewerSelectors();
+    renderMoleculeViewerWorkspace();
     renderCharts();
   }));
 }
@@ -1772,11 +1793,12 @@ function renderSelectedStructure() {
   metrics.push(...viewerToolMetricRows(molecule));
   $("#selected-metrics").innerHTML = metrics.map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join("");
   render2D($("#viewer-2d"), molecule);
+  $("#viewer-loading").hidden = false;
   render3D($("#viewer-3d"), molecule, state.study.pdbText, {
-    proteinStyle: $("#protein-style").value,
-    ligandStyle: $("#ligand-style").value,
+    referenceText: state.study.referenceSdf,
+  }).finally(() => {
+    $("#viewer-loading").hidden = true;
   });
-  $("#viewer-loading").hidden = true;
 }
 
 function setView(view) {
@@ -1784,6 +1806,71 @@ function setView(view) {
   $$(".view-toggle button").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
   $("#viewer-3d").hidden = view !== "3d";
   $("#viewer-2d").hidden = view !== "2d";
+}
+
+function renderViewerSelectors() {
+  const select = $("#viewer-molecule-select");
+  if (!select) return;
+  const options = viewerMoleculeOptions();
+  const optionHtml = options.map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join("");
+  select.innerHTML = optionHtml;
+  state.workspaceViewerMolecule = options.some((option) => option.value === state.workspaceViewerMolecule)
+    ? state.workspaceViewerMolecule
+    : "selected";
+  select.value = state.workspaceViewerMolecule;
+}
+
+function viewerMoleculeOptions() {
+  const options = [{ value: "selected", label: `Selected: ${state.selected?.id || "none"}` }];
+  if (state.study?.referenceSdf) options.push({ value: "reference", label: "Reference ligand" });
+  (state.study?.candidates || []).forEach((candidate) => {
+    options.push({ value: `candidate:${candidate.index}`, label: candidate.id });
+  });
+  return options;
+}
+
+function renderMoleculeViewerWorkspace() {
+  if (!state.study || !state.selected) return;
+  renderViewerSelectors();
+  renderViewerSlot(resolveViewerMolecule(state.workspaceViewerMolecule));
+}
+
+function renderViewerSlot(item) {
+  const title = $("#viewer-workspace-title");
+  const container = $("#viewer-workspace-3d");
+  const loading = $("#viewer-workspace-loading");
+  if (!title || !container || !loading) return;
+  if (!item) {
+    title.textContent = "No molecule";
+    container.innerHTML = "<div class='viewer-error'>Load a completed job before using the viewer.</div>";
+    loading.hidden = true;
+    return;
+  }
+  title.textContent = item.label;
+  loading.hidden = false;
+  render3D(container, item.molecule, state.study.pdbText, {}).finally(() => {
+    loading.hidden = true;
+  });
+}
+
+function resolveViewerMolecule(value) {
+  if (value === "reference") {
+    if (!state.study?.referenceSdf) return null;
+    return {
+      label: "Reference ligand",
+      molecule: {
+        id: "Reference ligand",
+        name: state.study.example?.sdf || "reference.sdf",
+        text: state.study.referenceSdf,
+      },
+    };
+  }
+  if (value?.startsWith("candidate:")) {
+    const index = Number(value.split(":")[1]);
+    const candidate = state.study?.candidates?.find((item) => item.index === index);
+    return candidate ? { label: candidate.id, molecule: candidate } : null;
+  }
+  return state.selected ? { label: `Selected: ${state.selected.id}`, molecule: state.selected } : null;
 }
 
 function updateResultsSource() {
@@ -2003,6 +2090,85 @@ async function handleSdfUpload(event) {
   updateCustomOptionLabel(state.customPdb?.name || file.name);
 }
 
+async function handleComplexUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const text = await readValidatedTextFile(file, "pdb");
+  if (!text) return;
+  state.customComplex = { name: file.name, text };
+  $("#complex-name").textContent = file.name;
+  $("#complex-detail").textContent = "Splitting protein and ligand...";
+  $("#complex-picker").hidden = true;
+  try {
+    const result = await service.preprocessComplex({ name: file.name, text });
+    handleComplexPreprocessResult(result);
+  } catch (error) {
+    $("#complex-detail").textContent = "Complex split failed";
+    showToast(error.message);
+  }
+}
+
+async function applySelectedComplexLigand() {
+  if (!state.customComplex) return;
+  const ligandId = $("#complex-ligand-select").value;
+  if (!ligandId) {
+    showToast("Choose a ligand from the complex first.");
+    return;
+  }
+  $("#complex-detail").textContent = "Splitting selected ligand...";
+  try {
+    const result = await service.preprocessComplex({
+      name: state.customComplex.name,
+      text: state.customComplex.text,
+      ligand_id: ligandId,
+    });
+    handleComplexPreprocessResult(result);
+  } catch (error) {
+    $("#complex-detail").textContent = "Complex split failed";
+    showToast(error.message);
+  }
+}
+
+function handleComplexPreprocessResult(result) {
+  state.complexCandidates = result.candidates || [];
+  if (result.status === "needs_ligand") {
+    renderComplexLigandPicker(state.complexCandidates);
+    $("#complex-detail").textContent = `${state.complexCandidates.length} ligands/cofactors found`;
+    showToast(result.message || "Choose which ligand should define the reference pocket.");
+    return;
+  }
+  if (result.status !== "ready" || !result.pdb?.text || !result.sdf?.text) {
+    showToast("Complex preprocessing did not return protein and ligand files.");
+    return;
+  }
+  state.customPdb = result.pdb;
+  state.customSdf = result.sdf;
+  state.batchInputs = [];
+  $("#complex-picker").hidden = true;
+  $("#pdb-name").textContent = result.pdb.name;
+  $("#pdb-detail").textContent = `From complex · ${result.selected?.label || "protein extracted"}`;
+  $("#sdf-name").textContent = result.sdf.name;
+  $("#sdf-detail").textContent = `From complex · ${result.selected?.label || "reference ligand extracted"}`;
+  $("#complex-detail").textContent = `Split using ${result.selected?.label || "selected ligand"}`;
+  $("#example-select").value = "custom";
+  state.exampleId = "custom";
+  state.mode = "reference";
+  setMode("reference", false);
+  updateCustomOptionLabel(state.customComplex?.name || result.pdb.name);
+  updateBatchLabel();
+  updateCommand();
+  showToast("Complex split into protein and reference ligand.");
+}
+
+function renderComplexLigandPicker(candidates) {
+  const ligandCandidates = candidates.filter((item) => item.kind === "ligand");
+  const options = (ligandCandidates.length ? ligandCandidates : candidates)
+    .map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.label)}</option>`)
+    .join("");
+  $("#complex-ligand-select").innerHTML = options;
+  $("#complex-picker").hidden = false;
+}
+
 async function handleFolderUpload(event) {
   const files = [...event.target.files];
   if (!files.length) return;
@@ -2089,7 +2255,7 @@ function chooseInputFile(files, extension, preferredTokens = []) {
 async function readValidatedTextFile(file, kind, showError = true) {
   const text = await file.text();
   const lower = file.name.toLowerCase();
-  const validExtension = kind === "pdb" ? lower.endsWith(".pdb") : lower.endsWith(".sdf");
+  const validExtension = kind === "pdb" ? (lower.endsWith(".pdb") || lower.endsWith(".ent")) : lower.endsWith(".sdf");
   const validContent = kind === "pdb"
     ? text.split(/\r?\n/, 200).some((line) => /^(ATOM  |HETATM|MODEL |HEADER|CRYST1)/.test(line))
     : text.includes("$$$$");

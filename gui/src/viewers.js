@@ -3,40 +3,54 @@ const ELEMENT_COLORS = {
   Cl: "#4a9a6a", Br: "#9c5f45", I: "#72559b", H: "#b9c1be",
 };
 
-let viewer = null;
+const molstarViewers = new WeakMap();
+const renderTokens = new WeakMap();
 
-export function render3D(container, molecule, receptorText, options = {}) {
+export async function render3D(container, molecule, receptorText, options = {}) {
+  const token = (renderTokens.get(container) || 0) + 1;
+  renderTokens.set(container, token);
   container.innerHTML = "";
-  if (!window.$3Dmol) {
-    container.innerHTML = "<div class='viewer-error'>3Dmol.js could not load. The 2D structure view remains available.</div>";
-    return;
-  }
-  viewer = window.$3Dmol.createViewer(container, { backgroundColor: "#f7f9f8", antialias: true });
-  if (receptorText && options.proteinStyle !== "hidden") {
-    const receptor = viewer.addModel(receptorText, "pdb");
-    if (options.proteinStyle === "surface") {
-      receptor.setStyle({}, { line: { color: "#a7b3af", opacity: 0.25 } });
-      viewer.addSurface(window.$3Dmol.SurfaceType.VDW, { opacity: 0.17, color: "#8ba69d" }, { model: receptor });
-    } else if (options.proteinStyle === "line") {
-      receptor.setStyle({}, { line: { color: "#aab6b2", opacity: 0.42 } });
-    } else {
-      receptor.setStyle({}, { cartoon: { color: "#a9bbb5", opacity: 0.72 } });
+  molstarViewers.get(container)?.dispose?.();
+  molstarViewers.delete(container);
+
+  try {
+    const molstar = await waitForMolstar();
+    if (token !== renderTokens.get(container)) return;
+    const viewer = await molstar.Viewer.create(container, {
+      layoutIsExpanded: false,
+      layoutShowControls: true,
+      layoutShowRemoteState: false,
+      layoutShowSequence: true,
+      layoutShowLog: false,
+      layoutShowLeftPanel: true,
+      viewportShowExpand: true,
+      viewportShowSelectionMode: true,
+      viewportShowAnimation: false,
+      extensions: [],
+      pdbProvider: "rcsb",
+      emdbProvider: "rcsb",
+    });
+    molstarViewers.set(container, viewer);
+
+    const loads = [];
+    if (receptorText) {
+      loads.push(loadStructure(viewer, receptorText, "pdb", "Input protein"));
     }
+    if (options.referenceText) {
+      loads.push(loadStructure(viewer, options.referenceText, "sdf", "Reference ligand"));
+    }
+    loads.push(loadStructure(viewer, molecule.text, "sdf", molecule.id || molecule.name || "Generated ligand"));
+    await Promise.all(loads);
+  } catch (error) {
+    console.warn("Mol* viewer failed", error);
+    container.innerHTML = `<div class="viewer-error">Mol* could not load this structure: ${escapeHtml(error.message || String(error))}</div>`;
   }
-  const ligand = viewer.addModel(molecule.text, "sdf");
-  const ligandStyle = options.ligandStyle || "stick";
-  if (ligandStyle === "sphere") ligand.setStyle({}, { sphere: { scale: 0.28, colorscheme: "Jmol" } });
-  else if (ligandStyle === "line") ligand.setStyle({}, { line: { linewidth: 2, colorscheme: "Jmol" } });
-  else ligand.setStyle({}, { stick: { radius: 0.18, colorscheme: "Jmol" } });
-  viewer.zoomTo({ model: ligand });
-  viewer.zoom(0.9);
-  viewer.render();
 }
 
 export function render2D(container, molecule) {
   const smiles = molecule.smiles || molecule.properties?.SMILES || "";
   if (smiles && typeof window.initRDKitModule === "function") {
-    container.innerHTML = "<div class='viewer-loading'>Generating 2D depiction…</div>";
+    container.innerHTML = "<div class='viewer-loading'>Generating 2D depiction...</div>";
     window.initRDKitModule().then((RDKit) => {
       const mol = RDKit.get_mol(smiles);
       if (!mol) throw new Error("Invalid SMILES");
@@ -49,6 +63,28 @@ export function render2D(container, molecule) {
     return;
   }
   renderCoordinate2D(container, molecule);
+}
+
+async function waitForMolstar() {
+  for (let attempts = 0; attempts < 80; attempts += 1) {
+    if (window.molstar?.Viewer?.create) return window.molstar;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("Mol* did not finish loading.");
+}
+
+async function loadStructure(viewer, data, preferredFormat, label) {
+  const formats = preferredFormat === "sdf" ? ["sdf", "mol"] : [preferredFormat];
+  let lastError = null;
+  for (const format of formats) {
+    try {
+      await viewer.loadStructureFromData(data, format, { dataLabel: label });
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error(`Unable to load ${label}.`);
 }
 
 function renderCoordinate2D(container, molecule) {
@@ -73,7 +109,7 @@ function renderCoordinate2D(container, molecule) {
     if (atom.element === "C" || atom.element === "H") return "";
     return `<g><circle cx="${point.x}" cy="${point.y}" r="12" fill="#f7f9f8"/><text x="${point.x}" y="${point.y + 5}" text-anchor="middle" fill="${ELEMENT_COLORS[atom.element] || "#263632"}">${atom.element}</text></g>`;
   }).join("");
-  container.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="2D structure of ${molecule.id}"><rect width="${width}" height="${height}" fill="#f7f9f8"/>${bonds}${atoms}</svg>`;
+  container.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="2D structure of ${escapeHtml(molecule.id)}"><rect width="${width}" height="${height}" fill="#f7f9f8"/>${bonds}${atoms}</svg>`;
 }
 
 function bondSvg(a, b, order) {
@@ -87,4 +123,14 @@ function bondSvg(a, b, order) {
   if (order === 2) return line(-1) + line(1);
   if (order >= 3) return line(-1.7) + line(0) + line(1.7);
   return line(0);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#039;",
+  }[char]));
 }
