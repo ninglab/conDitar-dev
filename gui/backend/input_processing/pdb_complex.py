@@ -2,12 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
-SOLVENT_OR_ION_RESNAMES = {
-    "HOH", "WAT", "SOL", "DOD",
-    "NA", "K", "CL", "CA", "MG", "MN", "ZN", "FE", "CU", "CO", "NI",
-    "CD", "HG", "BR", "IOD", "SO4", "PO4", "NO3", "ACT", "EDO", "GOL",
-}
+from .constants import SOLVENT_OR_ION_RESNAMES
+from .pocket_staging import pocket_pdb_from_ligand
 
 
 def preprocess_complex_payload(payload: dict) -> dict:
@@ -47,6 +43,7 @@ def preprocess_complex_payload(payload: dict) -> dict:
     protein_text = protein_from_complex(text)
     ligand_pdb = ligand_pdb_from_complex(text, selected)
     sdf_text = ligand_sdf_from_pdb(ligand_pdb, selected)
+    pocket = pocket_pdb_from_ligand(text, selected, radius=float(payload.get("pocket_radius") or 10.0))
     stem = Path(name).stem or "complex"
     return {
         "status": "ready",
@@ -55,6 +52,11 @@ def preprocess_complex_payload(payload: dict) -> dict:
         "pdb": {
             "name": f"{stem}_protein.pdb",
             "text": protein_text,
+        },
+        "pocket_pdb": {
+            "name": f"{stem}_{selected['resname']}_{selected['chain'] or 'chain'}_{selected['resseq']}_pocket{pocket['radius']:g}A.pdb",
+            "text": pocket["text"],
+            "metadata": {key: value for key, value in pocket.items() if key != "text"},
         },
         "sdf": {
             "name": f"{stem}_{selected['resname']}_{selected['chain'] or 'chain'}_{selected['resseq']}.sdf",

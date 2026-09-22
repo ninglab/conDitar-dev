@@ -57,7 +57,8 @@
       </section>
 
       <nav class="workflow-nav" aria-label="Workflow">
-        <button class="workflow-step active" data-section="setup">Setup</button>
+        <button class="workflow-step active" data-section="preprocess">Preprocess</button>
+        <button class="workflow-step" data-section="setup">Setup</button>
         <button class="workflow-step" data-section="jobs">Jobs</button>
         <button class="workflow-step" data-section="results">Results</button>
         <button class="workflow-step" data-section="viewer">Viewer</button>
@@ -65,9 +66,82 @@
         <button class="workflow-step" data-section="help">Help</button>
       </nav>
 
-      <section id="setup-section" class="workspace-section">
+      <section id="preprocess-section" class="workspace-section">
         <div class="section-heading">
-          <div><p class="eyebrow">Step 1</p><h2>Set up a run</h2></div>
+          <div><p class="eyebrow">Prepare inputs</p><h2>Preprocess structures</h2></div>
+          <p>Build conDitar-ready inputs from a complex or from candidate pockets.</p>
+        </div>
+
+        <div class="preprocess-grid">
+          <article class="panel preprocess-panel">
+            <div class="panel-heading"><div><h3>Complex with bound ligand</h3></div><span class="required-label">PDB / ENT</span></div>
+            <div class="dropzone">
+              <input id="preprocess-complex-input" type="file" accept=".pdb,.ent">
+              <div class="file-icon accent">PDB</div>
+              <div><strong id="preprocess-complex-name">Choose a protein-ligand complex</strong><span id="preprocess-complex-detail">Detect ligands, split reference SDF, and crop a 10 A pocket</span></div>
+              <button class="text-button" id="preprocess-refresh-complex" type="button">Choose complex</button>
+            </div>
+            <div class="complex-picker" id="preprocess-complex-picker" hidden>
+              <label class="field-label" for="preprocess-ligand-select">Reference ligand</label>
+              <div class="complex-picker-row">
+                <select id="preprocess-ligand-select"></select>
+                <button class="secondary-button compact-action" id="preprocess-apply-ligand" type="button">Use ligand</button>
+              </div>
+            </div>
+            <div class="prepared-output" id="preprocess-complex-output" hidden>
+              <strong id="preprocess-complex-output-title">Prepared files</strong>
+              <div class="prepared-output-grid" id="preprocess-complex-output-grid"></div>
+              <div class="prepared-actions">
+                <button class="primary-button" id="preprocess-use-reference" type="button"><span>Use protein + reference ligand</span><b>→</b></button>
+                <button class="secondary-button" id="preprocess-use-pocket" type="button">Use cropped pocket</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel preprocess-panel">
+            <div class="panel-heading"><div><h3>Protein with no ligand</h3></div><span class="required-label">Vina panel</span></div>
+            <div class="dropzone">
+              <input id="preprocess-protein-input" type="file" accept=".pdb,.ent">
+              <div class="file-icon">PDB</div>
+              <div><strong id="preprocess-protein-name">Choose a protein PDB</strong><span id="preprocess-protein-detail">Used as the docking receptor and cropped pocket source</span></div>
+              <button class="text-button" id="preprocess-refresh-protein" type="button">Choose protein</button>
+            </div>
+            <div class="dropzone">
+              <input id="preprocess-panel-input" type="file" accept=".sdf,.csv">
+              <div class="file-icon accent">SDF</div>
+              <div><strong id="preprocess-panel-name">Choose a ligand panel SDF or CSV</strong><span id="preprocess-panel-detail">CSV should include a smiles column; dock a small panel and crop a pocket</span></div>
+              <button class="text-button" id="preprocess-refresh-panel" type="button">Choose panel</button>
+            </div>
+            <details class="preprocess-options">
+              <summary><strong>Vina settings</strong><span>Optional search box</span></summary>
+              <div class="preprocess-option-grid">
+                <label>Center X<input id="vina-panel-center-x" type="number" step="0.1" placeholder="auto"></label>
+                <label>Center Y<input id="vina-panel-center-y" type="number" step="0.1" placeholder="auto"></label>
+                <label>Center Z<input id="vina-panel-center-z" type="number" step="0.1" placeholder="auto"></label>
+                <label>Size X<input id="vina-panel-size-x" type="number" step="0.1" placeholder="whole protein"></label>
+                <label>Size Y<input id="vina-panel-size-y" type="number" step="0.1" placeholder="whole protein"></label>
+                <label>Size Z<input id="vina-panel-size-z" type="number" step="0.1" placeholder="whole protein"></label>
+                <label>Max ligands<input id="vina-panel-max-ligands" type="number" min="1" value="10"></label>
+                <label>Exhaustiveness<input id="vina-panel-exhaustiveness" type="number" min="1" value="4"></label>
+              </div>
+            </details>
+            <div class="prepared-actions vina-panel-actions">
+              <button class="primary-button" id="preprocess-run-vina-panel" type="button"><span>Find candidate pockets</span><b>→</b></button>
+            </div>
+            <div class="prepared-output" id="vina-pocket-output" hidden>
+              <strong>Candidate pockets</strong>
+              <div class="pocket-candidate-list" id="vina-pocket-candidates"></div>
+              <div class="prepared-actions">
+                <button class="secondary-button" id="preprocess-use-vina-pocket" type="button">Use selected pocket</button>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="setup-section" class="workspace-section" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">Run setup</p><h2>Set up a run</h2></div>
         </div>
 
         <div class="batch-mode-banner" id="batch-mode-banner" hidden role="status">

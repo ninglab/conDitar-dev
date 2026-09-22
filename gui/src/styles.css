@@ -166,9 +166,9 @@ h1 { margin: 0; max-width: 700px; font-size: clamp(38px, 4.5vw, 62px); line-heig
 .runtime-readout { flex: 1; min-width: 0; }
 .runtime-readout span, .runtime-readout small { display: block; color: var(--muted); font-size: 13px; }
 .runtime-readout strong { display: block; margin: 2px 0; font: 500 14px "DM Mono"; overflow-wrap: anywhere; }
-.setup-grid { display: grid; grid-template-columns: minmax(380px, .85fr) minmax(560px, 1.15fr); align-items: start; gap: 24px; }
+.setup-grid, .preprocess-grid { display: grid; grid-template-columns: minmax(380px, .85fr) minmax(560px, 1.15fr); align-items: start; gap: 24px; }
 .panel { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
-.input-panel, .parameter-panel, .chart-panel, .result-list-panel { padding: 25px; }
+.input-panel, .parameter-panel, .chart-panel, .result-list-panel, .preprocess-panel { padding: 25px; }
 .panel-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 23px; }
 .panel-heading > div { display: flex; align-items: center; gap: 11px; }
 .panel-heading h3 { margin: 0; font-size: 17px; }
@@ -199,6 +199,26 @@ select, input[type="text"], input[type="number"], input[type="search"] { border:
 .complex-picker[hidden] { display: none; }
 .complex-picker-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .complex-picker select { width: 100%; height: 40px; padding: 0 10px; }
+.prepared-output { margin-top: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); }
+.prepared-output[hidden] { display: none; }
+.prepared-output > strong { display: block; margin-bottom: 10px; font-size: 14px; }
+.prepared-output-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.prepared-output-grid div { min-height: 56px; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--input-bg); }
+.prepared-output-grid span, .pocket-candidate small { display: block; color: var(--muted); font-size: 12px; line-height: 1.35; }
+.prepared-output-grid strong { display: block; margin-top: 4px; overflow-wrap: anywhere; font-size: 13px; }
+.prepared-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.vina-panel-actions { justify-content: flex-start; }
+.preprocess-options { margin-top: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); }
+.preprocess-options > summary { min-height: 44px; padding: 0 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; }
+.preprocess-options > summary span { color: var(--muted); font-size: 12px; }
+.preprocess-option-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 0 12px 12px; }
+.preprocess-option-grid label { color: var(--muted); font-size: 12px; font-weight: 700; }
+.preprocess-option-grid input { width: 100%; height: 40px; margin-top: 5px; padding: 0 9px; }
+.pocket-candidate-list { display: grid; gap: 8px; }
+.pocket-candidate { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 9px; align-items: start; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--input-bg); cursor: pointer; }
+.pocket-candidate.active { border-color: var(--accent); background: var(--accent-soft); }
+.pocket-candidate input { margin-top: 4px; }
+.pocket-candidate strong { display: block; font-size: 13px; }
 .parameter-fields { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .parameter-field label { display: flex; justify-content: space-between; margin-bottom: 7px; color: var(--muted); font-size: 13px; font-weight: 700; }
 .parameter-field label span { color: var(--muted); font: 12px "DM Mono"; }
@@ -451,7 +471,7 @@ body.dark-mode .brand-logo, body.dark-mode .hero-mark { filter: drop-shadow(0 12
   .hero-mark { width: min(82vw, 360px); }
   .hero-brand-panel .study-status { justify-self: start; margin: 0; }
   .study-status { align-self: flex-start; }
-  .setup-grid, .explorer-grid, .export-grid, .jobs-grid { grid-template-columns: 1fr; }
+  .setup-grid, .preprocess-grid, .explorer-grid, .export-grid, .jobs-grid { grid-template-columns: 1fr; }
   .molecule-viewer-grid { grid-template-columns: 1fr; }
   .large-viewer-panel, .molecule-viewer-grid { min-height: 620px; }
   .large-viewer-stage { min-height: 540px; }
@@ -479,6 +499,7 @@ body.dark-mode .brand-logo, body.dark-mode .hero-mark { filter: drop-shadow(0 12
   .analytics-grid { grid-template-columns: 1fr; }
   .help-grid { grid-template-columns: 1fr; }
   .parameter-fields, .advanced-grid { grid-template-columns: 1fr 1fr; }
+  .prepared-output-grid, .preprocess-option-grid { grid-template-columns: 1fr; }
   .metric-strip { grid-template-columns: 1fr; }
   .export-filter-group-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
   .export-filter-group-heading span { text-align: left; }
@@ -490,6 +511,8 @@ body.dark-mode .brand-logo, body.dark-mode .hero-mark { filter: drop-shadow(0 12
   .run-bar, .viewer-footer { align-items: stretch; flex-direction: column; }
   .execution-bar { align-items: stretch; flex-direction: column; }
   .complex-picker-row { grid-template-columns: 1fr; }
+  .prepared-actions { flex-direction: column; }
+  .prepared-actions .primary-button, .prepared-actions .secondary-button { width: 100%; justify-content: center; }
   .readiness-menu > summary span { align-items: flex-start; flex-direction: column; gap: 0; }
   .readiness-copy { align-items: stretch; flex-direction: column; gap: 10px; }
   .setup-health-list { grid-template-columns: 1fr; }

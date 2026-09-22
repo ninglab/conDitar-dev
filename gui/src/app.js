@@ -27,6 +27,12 @@ const state = {
   customSdf: null,
   customComplex: null,
   complexCandidates: [],
+  preprocessComplex: null,
+  preprocessComplexResult: null,
+  preprocessProtein: null,
+  preprocessPanel: null,
+  vinaPocketResult: null,
+  selectedVinaPocketId: null,
   batchInputs: [],
   currentJob: null,
   selectedJob: null,
@@ -65,7 +71,7 @@ function initialize() {
   updateInputLabels(null);
   updateCommand();
   refreshJobs(false);
-  setActiveTab("setup");
+  setActiveTab("preprocess");
 }
 
 function renderParameterFields(parameters, container) {
@@ -123,6 +129,17 @@ function bindEvents() {
   $("#refresh-complex").addEventListener("click", () => chooseFileAgain("#complex-input"));
   $("#complex-input").addEventListener("change", handleComplexUpload);
   $("#apply-complex-ligand").addEventListener("click", applySelectedComplexLigand);
+  $("#preprocess-refresh-complex").addEventListener("click", () => chooseFileAgain("#preprocess-complex-input"));
+  $("#preprocess-complex-input").addEventListener("change", handlePreprocessComplexUpload);
+  $("#preprocess-apply-ligand").addEventListener("click", applyPreprocessSelectedLigand);
+  $("#preprocess-use-reference").addEventListener("click", () => usePreprocessedComplex("reference"));
+  $("#preprocess-use-pocket").addEventListener("click", () => usePreprocessedComplex("pocket"));
+  $("#preprocess-refresh-protein").addEventListener("click", () => chooseFileAgain("#preprocess-protein-input"));
+  $("#preprocess-protein-input").addEventListener("change", handlePreprocessProteinUpload);
+  $("#preprocess-refresh-panel").addEventListener("click", () => chooseFileAgain("#preprocess-panel-input"));
+  $("#preprocess-panel-input").addEventListener("change", handlePreprocessPanelUpload);
+  $("#preprocess-run-vina-panel").addEventListener("click", runVinaPanelPreprocessing);
+  $("#preprocess-use-vina-pocket").addEventListener("click", useSelectedVinaPocket);
   $$(".builtin-evaluation-toggle").forEach((input) => input.addEventListener("change", updateVinaControls));
   ["#vina-exhaustiveness", "#vina-cpu"].forEach((selector) => {
     $(selector).addEventListener("input", updateCommand);
@@ -2169,6 +2186,253 @@ function renderComplexLigandPicker(candidates) {
   $("#complex-picker").hidden = false;
 }
 
+async function handlePreprocessComplexUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const text = await readValidatedTextFile(file, "pdb");
+  if (!text) return;
+  state.preprocessComplex = { name: file.name, text };
+  state.preprocessComplexResult = null;
+  $("#preprocess-complex-name").textContent = file.name;
+  $("#preprocess-complex-detail").textContent = "Detecting ligands and preparing pocket...";
+  $("#preprocess-complex-picker").hidden = true;
+  $("#preprocess-complex-output").hidden = true;
+  try {
+    const result = await service.preprocessComplex({ name: file.name, text, pocket_radius: 10 });
+    handlePreprocessComplexResult(result);
+  } catch (error) {
+    $("#preprocess-complex-detail").textContent = "Preprocessing failed";
+    showToast(error.message);
+  }
+}
+
+async function applyPreprocessSelectedLigand() {
+  if (!state.preprocessComplex) return;
+  const ligandId = $("#preprocess-ligand-select").value;
+  if (!ligandId) {
+    showToast("Choose a ligand first.");
+    return;
+  }
+  $("#preprocess-complex-detail").textContent = "Preparing selected ligand and pocket...";
+  try {
+    const result = await service.preprocessComplex({
+      name: state.preprocessComplex.name,
+      text: state.preprocessComplex.text,
+      ligand_id: ligandId,
+      pocket_radius: 10,
+    });
+    handlePreprocessComplexResult(result);
+  } catch (error) {
+    $("#preprocess-complex-detail").textContent = "Preprocessing failed";
+    showToast(error.message);
+  }
+}
+
+function handlePreprocessComplexResult(result) {
+  if (result.status === "needs_ligand") {
+    const candidates = result.candidates || [];
+    const ligandCandidates = candidates.filter((item) => item.kind === "ligand");
+    $("#preprocess-ligand-select").innerHTML = (ligandCandidates.length ? ligandCandidates : candidates)
+      .map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.label)}</option>`)
+      .join("");
+    $("#preprocess-complex-picker").hidden = false;
+    $("#preprocess-complex-detail").textContent = `${candidates.length} ligands/cofactors found`;
+    showToast(result.message || "Choose which ligand should define the pocket.");
+    return;
+  }
+  if (result.status !== "ready" || !result.pdb?.text || !result.sdf?.text) {
+    showToast("Preprocessing did not return prepared files.");
+    return;
+  }
+  state.preprocessComplexResult = result;
+  $("#preprocess-complex-picker").hidden = true;
+  $("#preprocess-complex-detail").textContent = `Prepared using ${result.selected?.label || "selected ligand"}`;
+  renderPreparedComplexOutput(result);
+}
+
+function renderPreparedComplexOutput(result) {
+  const pocketMeta = result.pocket_pdb?.metadata || {};
+  $("#preprocess-complex-output-grid").innerHTML = [
+    ["Protein", result.pdb?.name || "protein.pdb"],
+    ["Reference ligand", result.sdf?.name || "reference.sdf"],
+    ["Pocket", result.pocket_pdb?.name || "pocket.pdb"],
+    ["Pocket residues", pocketMeta.residue_count ? String(pocketMeta.residue_count) : "n/a"],
+    ["Pocket atoms", pocketMeta.atom_count ? String(pocketMeta.atom_count) : "n/a"],
+  ].map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("");
+  $("#preprocess-complex-output").hidden = false;
+}
+
+function usePreprocessedComplex(mode) {
+  const result = state.preprocessComplexResult;
+  if (!result) {
+    showToast("Preprocess a complex first.");
+    return;
+  }
+  if (mode === "pocket") {
+    if (!result.pocket_pdb?.text) {
+      showToast("No cropped pocket PDB is available.");
+      return;
+    }
+    stagePreparedInputs({
+      mode: "pocket",
+      pdb: result.pocket_pdb,
+      sdf: null,
+      label: result.pocket_pdb.name,
+      detail: `10 A pocket · ${result.pocket_pdb.metadata?.residue_count || "n/a"} residues`,
+    });
+    return;
+  }
+  stagePreparedInputs({
+    mode: "reference",
+    pdb: result.pdb,
+    sdf: result.sdf,
+    label: state.preprocessComplex?.name || result.pdb.name,
+    detail: `Reference ligand · ${result.selected?.label || "selected ligand"}`,
+  });
+}
+
+async function handlePreprocessProteinUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const text = await readValidatedTextFile(file, "pdb");
+  if (!text) return;
+  state.preprocessProtein = { name: file.name, text };
+  state.vinaPocketResult = null;
+  state.selectedVinaPocketId = null;
+  $("#preprocess-protein-name").textContent = file.name;
+  $("#preprocess-protein-detail").textContent = `${formatBytes(file.size)} · receptor`;
+  $("#vina-pocket-output").hidden = true;
+}
+
+async function handlePreprocessPanelUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  try {
+    $("#preprocess-panel-detail").textContent = "Preparing ligand panel...";
+    const panel = await readLigandPanelFile(file);
+    if (!panel) return;
+    state.preprocessPanel = panel;
+    state.vinaPocketResult = null;
+    state.selectedVinaPocketId = null;
+    $("#preprocess-panel-name").textContent = file.name;
+    $("#preprocess-panel-detail").textContent = `${panel.count || "SDF"} ligand${panel.count === 1 ? "" : "s"} · ${panel.source || "ligand panel"}`;
+    $("#vina-pocket-output").hidden = true;
+  } catch (error) {
+    $("#preprocess-panel-detail").textContent = "Ligand panel failed";
+    showToast(error.message);
+  }
+}
+
+async function runVinaPanelPreprocessing() {
+  if (!state.preprocessProtein || !state.preprocessPanel) {
+    showToast("Choose a protein PDB and ligand panel SDF or CSV first.");
+    return;
+  }
+  const button = $("#preprocess-run-vina-panel");
+  button.disabled = true;
+  $("#preprocess-panel-detail").textContent = "Running Vina panel...";
+  try {
+    const options = vinaPanelOptions();
+    const result = await service.preprocessVinaPanelPockets({
+      pdb: state.preprocessProtein,
+      ligands: state.preprocessPanel,
+      options,
+    });
+    state.vinaPocketResult = result;
+    state.selectedVinaPocketId = result.candidates?.[0]?.id || null;
+    renderVinaPocketCandidates();
+    $("#preprocess-panel-detail").textContent = `${result.vina_panel?.pose_count || 0} docked poses clustered`;
+    showToast(`${result.candidates?.length || 0} candidate pocket${result.candidates?.length === 1 ? "" : "s"} found.`);
+  } catch (error) {
+    $("#preprocess-panel-detail").textContent = "Vina panel failed";
+    showToast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function vinaPanelOptions() {
+  const optionIds = {
+    center_x: "#vina-panel-center-x",
+    center_y: "#vina-panel-center-y",
+    center_z: "#vina-panel-center-z",
+    size_x: "#vina-panel-size-x",
+    size_y: "#vina-panel-size-y",
+    size_z: "#vina-panel-size-z",
+    max_ligands: "#vina-panel-max-ligands",
+    exhaustiveness: "#vina-panel-exhaustiveness",
+  };
+  const options = { cpu: 1, pocket_radius: 10, cluster_distance: 6 };
+  Object.entries(optionIds).forEach(([key, selector]) => {
+    const value = $(selector).value;
+    if (value !== "") options[key] = Number(value);
+  });
+  return options;
+}
+
+function renderVinaPocketCandidates() {
+  const candidates = state.vinaPocketResult?.candidates || [];
+  $("#vina-pocket-candidates").innerHTML = candidates.length ? candidates.map((candidate) => `
+    <label class="pocket-candidate ${candidate.id === state.selectedVinaPocketId ? "active" : ""}">
+      <input type="radio" name="vina-pocket-candidate" value="${escapeHtml(candidate.id)}" ${candidate.id === state.selectedVinaPocketId ? "checked" : ""}>
+      <span><strong>${escapeHtml(candidate.label || candidate.id)}</strong><small>${escapeHtml(pocketCandidateSummary(candidate))}</small></span>
+    </label>
+  `).join("") : "<p class='field-note'>No pocket candidates were found.</p>";
+  $$("#vina-pocket-candidates input").forEach((input) => input.addEventListener("change", (event) => {
+    state.selectedVinaPocketId = event.target.value;
+    renderVinaPocketCandidates();
+  }));
+  $("#vina-pocket-output").hidden = false;
+}
+
+function pocketCandidateSummary(candidate) {
+  const center = candidate.center || {};
+  const score = candidate.best_score == null ? "n/a" : Number(candidate.best_score).toFixed(2);
+  return `center ${center.x}, ${center.y}, ${center.z} · ${candidate.supporting_ligand_count || 0} ligands · best ${score}`;
+}
+
+async function useSelectedVinaPocket() {
+  const candidate = (state.vinaPocketResult?.candidates || []).find((item) => item.id === state.selectedVinaPocketId);
+  if (!candidate || !state.preprocessProtein) {
+    showToast("Select a Vina pocket candidate first.");
+    return;
+  }
+  try {
+    const result = await service.preprocessPocketFromCenter({
+      pdb: state.preprocessProtein,
+      center: candidate.center,
+      radius: candidate.radius || 10,
+    });
+    stagePreparedInputs({
+      mode: "pocket",
+      pdb: result.pdb,
+      sdf: null,
+      label: result.pdb.name,
+      detail: `Vina cluster · ${result.metadata?.residue_count || "n/a"} residues`,
+    });
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function stagePreparedInputs({ mode, pdb, sdf, label, detail }) {
+  state.customPdb = pdb;
+  state.customSdf = sdf;
+  state.batchInputs = [];
+  $("#pdb-name").textContent = pdb.name;
+  $("#pdb-detail").textContent = detail || "Prepared input";
+  $("#sdf-name").textContent = sdf?.name || "No reference SDF";
+  $("#sdf-detail").textContent = sdf ? "Prepared reference ligand" : "Pocket mode uses the cropped PDB";
+  $("#example-select").value = "custom";
+  state.exampleId = "custom";
+  setMode(mode, false);
+  updateCustomOptionLabel(label || pdb.name);
+  updateBatchLabel();
+  updateCommand();
+  setActiveTab("setup");
+  showToast(mode === "reference" ? "Prepared protein and reference ligand staged." : "Prepared pocket staged.");
+}
+
 async function handleFolderUpload(event) {
   const files = [...event.target.files];
   if (!files.length) return;
@@ -2264,6 +2528,112 @@ async function readValidatedTextFile(file, kind, showError = true) {
     return null;
   }
   return text;
+}
+
+async function readLigandPanelFile(file) {
+  const lower = file.name.toLowerCase();
+  if (lower.endsWith(".sdf")) {
+    const text = await readValidatedTextFile(file, "sdf");
+    return text ? { name: file.name, text, count: countSdfMolecules(text), source: "SDF panel" } : null;
+  }
+  if (lower.endsWith(".csv")) {
+    const text = await file.text();
+    const rows = parseCsvRows(text);
+    if (!rows.length) throw new Error("CSV ligand panel is empty.");
+    const headers = rows[0].map((item) => item.trim());
+    const smilesIndex = headers.findIndex((header) => ["smiles", "smile", "canonical_smiles", "isomeric_smiles"].includes(header.toLowerCase()));
+    if (smilesIndex < 0) throw new Error("CSV ligand panel must include a smiles column.");
+    const nameIndex = headers.findIndex((header) => ["name", "id", "ligand", "compound", "compound_id"].includes(header.toLowerCase()));
+    const ligands = rows.slice(1)
+      .map((row, index) => ({
+        smiles: (row[smilesIndex] || "").trim(),
+        name: (nameIndex >= 0 ? row[nameIndex] : "")?.trim() || `ligand_${index + 1}`,
+      }))
+      .filter((item) => item.smiles);
+    if (!ligands.length) throw new Error("CSV ligand panel has no SMILES values.");
+    const sdf = await smilesRowsToSdf(ligands);
+    return {
+      name: file.name.replace(/\.csv$/i, ".sdf"),
+      text: sdf.text,
+      count: sdf.count,
+      source: `${file.name} CSV`,
+    };
+  }
+  showToast(`${file.name} must be an SDF or CSV ligand panel.`);
+  return null;
+}
+
+function parseCsvRows(text) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let quoted = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    const next = text[i + 1];
+    if (quoted) {
+      if (char === "\"" && next === "\"") {
+        cell += "\"";
+        i += 1;
+      } else if (char === "\"") {
+        quoted = false;
+      } else {
+        cell += char;
+      }
+    } else if (char === "\"") {
+      quoted = true;
+    } else if (char === ",") {
+      row.push(cell);
+      cell = "";
+    } else if (char === "\n") {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+    } else if (char !== "\r") {
+      cell += char;
+    }
+  }
+  row.push(cell);
+  rows.push(row);
+  return rows.filter((items) => items.some((item) => item.trim()));
+}
+
+async function smilesRowsToSdf(ligands) {
+  const RDKit = await waitForRDKit();
+  const blocks = [];
+  const failures = [];
+  ligands.slice(0, 250).forEach((ligand, index) => {
+    let mol = null;
+    try {
+      mol = RDKit.get_mol(ligand.smiles);
+      if (!mol) throw new Error("RDKit could not parse SMILES.");
+      const molblock = mol.get_molblock();
+      if (!molblock || !molblock.includes("M  END")) throw new Error("RDKit could not create a mol block.");
+      blocks.push(`${ligand.name || `ligand_${index + 1}`}\n${molblock.split(/\r?\n/).slice(1).join("\n")}\n>  <SMILES>\n${ligand.smiles}\n\n$$$$`);
+    } catch (error) {
+      failures.push(`${ligand.name || `ligand_${index + 1}`}: ${error.message}`);
+    } finally {
+      if (mol?.delete) mol.delete();
+    }
+  });
+  if (!blocks.length) throw new Error(`No CSV SMILES could be converted to SDF. ${failures[0] || ""}`.trim());
+  if (failures.length) showToast(`${failures.length} CSV ligand${failures.length === 1 ? "" : "s"} could not be converted.`);
+  return { text: `${blocks.join("\n")}\n`, count: blocks.length };
+}
+
+async function waitForRDKit() {
+  if (typeof window.initRDKitModule !== "function") {
+    throw new Error("RDKit is still loading. Try the CSV panel again in a moment.");
+  }
+  if (!window._conditarRDKitPromise) {
+    window._conditarRDKitPromise = window.initRDKitModule();
+  }
+  return window._conditarRDKitPromise;
+}
+
+function countSdfMolecules(text) {
+  return text.split("$$$$").filter((block) => block.trim()).length;
 }
 
 function updateBatchLabel() {

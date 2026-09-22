@@ -141,6 +141,30 @@ export class ExampleDataService {
       body: JSON.stringify(payload),
     });
   }
+
+  async preprocessDockedPockets(payload) {
+    return fetchJson("/api/preprocess/pockets/docked", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async preprocessVinaPanelPockets(payload) {
+    return fetchJson("/api/preprocess/pockets/vina-panel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async preprocessPocketFromCenter(payload) {
+    return fetchJson("/api/preprocess/pockets/center", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
 }
 
 async function fetchText(path, required = true) {

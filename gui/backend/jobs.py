@@ -23,7 +23,12 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
 
-from .preprocessing import preprocess_complex_payload
+from .input_processing import (
+    pocket_candidates_from_docked_sdfs,
+    pocket_candidates_from_pose_centers,
+    pocket_pdb_from_center,
+    preprocess_complex_payload,
+)
 from .tool_chest import ToolChest
 
 
@@ -228,6 +233,170 @@ class LocalJobManager:
 
     def preprocess_complex(self, payload: dict) -> dict:
         return preprocess_complex_payload(payload)
+
+    def preprocess_docked_pockets(self, payload: dict) -> dict:
+        if not isinstance(payload, dict):
+            raise ValueError("Docked pocket preprocessing payload must be a JSON object.")
+        docked_sdfs = payload.get("docked_sdfs")
+        if not isinstance(docked_sdfs, list):
+            raise ValueError("Docked pocket preprocessing requires a docked_sdfs list.")
+        return pocket_candidates_from_docked_sdfs(
+            docked_sdfs,
+            cluster_distance=float(payload.get("cluster_distance") or 6.0),
+            pocket_radius=float(payload.get("pocket_radius") or 10.0),
+        )
+
+    def preprocess_vina_panel_pockets(self, payload: dict) -> dict:
+        if not isinstance(payload, dict):
+            raise ValueError("Vina panel preprocessing payload must be a JSON object.")
+        if not self.container_runtime:
+            raise ValueError("Vina panel docking requires Docker or Podman.")
+        image_status = self._container_image_status()
+        if image_status.get("checked") and not image_status.get("exists"):
+            raise ValueError(
+                f"conDitar container image not found: {self.docker_image}. "
+                "The Vina panel runner uses the conDitar container dependencies."
+            )
+
+        pdb = payload.get("pdb") or {}
+        ligands = payload.get("ligands") or {}
+        pdb_text = str(pdb.get("text") or "")
+        ligand_text = str(ligands.get("text") or "")
+        if not pdb_text.strip() or not self._looks_like_pdb(pdb_text):
+            raise ValueError("Vina panel docking requires a protein PDB input.")
+        if not ligand_text.strip() or "$$$$" not in ligand_text:
+            raise ValueError("Vina panel docking requires a ligand panel SDF input.")
+
+        run_root = self.job_root / "preprocess_runs" / f"vina-panel-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+        input_dir = run_root / "inputs"
+        output_dir = run_root / "outputs"
+        tmp_dir = run_root / "tmp"
+        input_dir.mkdir(parents=True)
+        output_dir.mkdir(parents=True)
+        tmp_dir.mkdir(parents=True)
+
+        protein_name = safe_name(str(pdb.get("name") or "protein.pdb"), "protein.pdb")
+        ligand_name = safe_name(str(ligands.get("name") or "ligand_panel.sdf"), "ligand_panel.sdf")
+        protein_path = input_dir / protein_name
+        ligand_path = input_dir / ligand_name
+        protein_path.write_text(pdb_text)
+        ligand_path.write_text(ligand_text)
+
+        options = payload.get("options") or {}
+        command = self._vina_panel_command(run_root, protein_path, ligand_path, output_dir, tmp_dir, options)
+        timeout = int(os.environ.get("CONDITAR_VINA_PANEL_TIMEOUT", "1800"))
+        result = subprocess.run(command, cwd=str(self.project_root.parent), text=True, capture_output=True, check=False, timeout=timeout)
+        raw = self._parse_vina_panel_output(result)
+        if result.returncode != 0 and not raw.get("poses"):
+            detail = raw.get("error") or result.stderr.strip() or result.stdout.strip() or "Vina panel docking failed."
+            raise ValueError(detail)
+
+        clustered = pocket_candidates_from_pose_centers(
+            raw.get("poses") or [],
+            cluster_distance=float(options.get("cluster_distance") or payload.get("cluster_distance") or 6.0),
+            pocket_radius=float(options.get("pocket_radius") or payload.get("pocket_radius") or 10.0),
+        )
+        return {
+            **clustered,
+            "vina_panel": {
+                "status": raw.get("status"),
+                "search_box": raw.get("search_box"),
+                "pose_count": len(raw.get("poses") or []),
+                "warnings": raw.get("warnings") or [],
+                "run_root": str(run_root),
+            },
+            "warnings": [*(clustered.get("warnings") or []), *(raw.get("warnings") or [])],
+        }
+
+    def preprocess_pocket_from_center(self, payload: dict) -> dict:
+        if not isinstance(payload, dict):
+            raise ValueError("Pocket extraction payload must be a JSON object.")
+        pdb = payload.get("pdb") or {}
+        pdb_text = str(pdb.get("text") or "")
+        if not pdb_text.strip() or not self._looks_like_pdb(pdb_text):
+            raise ValueError("Pocket extraction requires a protein PDB input.")
+        radius = float(payload.get("radius") or payload.get("pocket_radius") or 10.0)
+        pocket = pocket_pdb_from_center(pdb_text, payload.get("center") or {}, radius=radius)
+        stem = Path(safe_name(str(pdb.get("name") or "protein.pdb"), "protein.pdb")).stem or "protein"
+        return {
+            "status": "ready",
+            "method": pocket["method"],
+            "pdb": {
+                "name": f"{stem}_pocket{pocket['radius']:g}A.pdb",
+                "text": pocket["text"],
+            },
+            "metadata": {key: value for key, value in pocket.items() if key != "text"},
+            "warnings": pocket.get("warnings") or [],
+        }
+
+    def _vina_panel_command(
+        self,
+        run_root: Path,
+        protein_path: Path,
+        ligand_path: Path,
+        output_dir: Path,
+        tmp_dir: Path,
+        options: dict,
+    ) -> list[str]:
+        repo_root = self.project_root.parent.resolve()
+        runtime = self.container_runtime
+        assert runtime is not None
+        command = [
+            runtime,
+            "run",
+            "--rm",
+            "--entrypoint",
+            "python",
+            "-v",
+            f"{repo_root}:/workspace/src:ro",
+            "-v",
+            f"{run_root.resolve()}:/work",
+            "-w",
+            "/workspace/src",
+            self.docker_image,
+            "/workspace/src/gui/backend/input_processing/docking_panel_vina.py",
+            "--protein",
+            f"/work/inputs/{protein_path.name}",
+            "--ligands",
+            f"/work/inputs/{ligand_path.name}",
+            "--out",
+            "/work/outputs",
+            "--tmp-dir",
+            "/work/tmp",
+            "--exhaustiveness",
+            str(options.get("exhaustiveness") or 8),
+            "--cpu",
+            str(options.get("cpu") or 4),
+            "--max-ligands",
+            str(options.get("max_ligands") or os.environ.get("CONDITAR_VINA_PANEL_MAX_LIGANDS", "25")),
+        ]
+        for payload_key, cli_key in (
+            ("center_x", "--center-x"),
+            ("center_y", "--center-y"),
+            ("center_z", "--center-z"),
+            ("size_x", "--size-x"),
+            ("size_y", "--size-y"),
+            ("size_z", "--size-z"),
+            ("protein_buffer", "--protein-buffer"),
+        ):
+            value = options.get(payload_key)
+            if value not in (None, ""):
+                command.extend([cli_key, str(value)])
+        return command
+
+    def _parse_vina_panel_output(self, result: subprocess.CompletedProcess) -> dict:
+        for stream in (result.stdout, result.stderr):
+            for line in reversed((stream or "").splitlines()):
+                text = line.strip()
+                if not text.startswith("{"):
+                    continue
+                try:
+                    parsed = json.loads(text)
+                    if isinstance(parsed, dict):
+                        return parsed
+                except json.JSONDecodeError:
+                    continue
+        return {"status": "failed", "error": result.stderr.strip() or result.stdout.strip()}
 
     def _job_storage_status(self) -> dict:
         try:

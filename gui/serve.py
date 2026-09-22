@@ -83,6 +83,12 @@ class ConDitarRequestHandler(SimpleHTTPRequestHandler):
                 self._send_json(JOB_MANAGER.submit_batch(self._read_json()), 201)
             elif parts == ["api", "preprocess", "complex"]:
                 self._send_json(JOB_MANAGER.preprocess_complex(self._read_json()))
+            elif parts == ["api", "preprocess", "pockets", "docked"]:
+                self._send_json(JOB_MANAGER.preprocess_docked_pockets(self._read_json()))
+            elif parts == ["api", "preprocess", "pockets", "vina-panel"]:
+                self._send_json(JOB_MANAGER.preprocess_vina_panel_pockets(self._read_json()))
+            elif parts == ["api", "preprocess", "pockets", "center"]:
+                self._send_json(JOB_MANAGER.preprocess_pocket_from_center(self._read_json()))
             elif len(parts) == 4 and parts[:2] == ["api", "jobs"] and parts[3] == "cancel":
                 self._send_json({"job": JOB_MANAGER.cancel(parts[2])})
             elif len(parts) == 4 and parts[:2] == ["api", "jobs"] and parts[3] == "export":
