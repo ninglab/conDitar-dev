@@ -39,7 +39,9 @@ export async function render3D(container, molecule, receptorText, options = {}) 
     if (options.referenceText) {
       loads.push(loadStructure(viewer, options.referenceText, "sdf", "Reference ligand"));
     }
-    loads.push(loadStructure(viewer, molecule.text, "sdf", molecule.id || molecule.name || "Generated ligand"));
+    if (molecule?.text) {
+      loads.push(loadStructure(viewer, molecule.text, "sdf", molecule.id || molecule.name || "Generated ligand"));
+    }
     await Promise.all(loads);
   } catch (error) {
     console.warn("Mol* viewer failed", error);

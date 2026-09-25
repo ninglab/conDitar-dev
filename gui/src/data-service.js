@@ -165,6 +165,14 @@ export class ExampleDataService {
       body: JSON.stringify(payload),
     });
   }
+
+  async preprocessPocketFromResidues(payload) {
+    return fetchJson("/api/preprocess/pockets/residues", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
 }
 
 async function fetchText(path, required = true) {

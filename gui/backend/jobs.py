@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import platform
 import queue
@@ -24,9 +25,11 @@ from email.message import EmailMessage
 from pathlib import Path
 
 from .input_processing import (
+    normalize_structure_payload,
     pocket_candidates_from_docked_sdfs,
     pocket_candidates_from_pose_centers,
     pocket_pdb_from_center,
+    pocket_pdb_from_residues,
     preprocess_complex_payload,
 )
 from .tool_chest import ToolChest
@@ -232,7 +235,66 @@ class LocalJobManager:
         }
 
     def preprocess_complex(self, payload: dict) -> dict:
-        return preprocess_complex_payload(payload)
+        payload = dict(payload or {})
+        if payload.get("text"):
+            payload, conversion = normalize_structure_payload(payload, "complex.pdb")
+        else:
+            conversion = None
+        try:
+            result = preprocess_complex_payload(payload)
+        except ValueError as error:
+            if "requires RDKit" not in str(error):
+                raise
+            result = self._preprocess_complex_in_container(payload, error)
+        if conversion:
+            result.setdefault("source", conversion)
+        return result
+
+    def _preprocess_complex_in_container(self, payload: dict, original_error: Exception) -> dict:
+        if not self.container_runtime:
+            raise ValueError(
+                f"{original_error} Docker/Podman was not found for the container fallback."
+            ) from original_error
+        image_status = self._container_image_status()
+        if image_status.get("checked") and not image_status.get("exists"):
+            raise ValueError(
+                f"{original_error} Container fallback image not found: {self.docker_image}."
+            ) from original_error
+
+        repo_root = self.project_root.parent.resolve()
+        command = [
+            self.container_runtime,
+            "run",
+            "--rm",
+            "--entrypoint",
+            "python",
+            "-i",
+            "-v",
+            f"{repo_root}:/workspace/src:ro",
+            "-w",
+            "/workspace/src",
+            self.docker_image,
+            "-m",
+            "gui.backend.input_processing.pdb_complex",
+        ]
+        timeout = int(os.environ.get("CONDITAR_PREPROCESS_TIMEOUT", "180"))
+        result = subprocess.run(
+            command,
+            cwd=str(repo_root),
+            input=json.dumps(payload),
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout,
+        )
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip() or str(original_error)
+            raise ValueError(f"Complex splitting failed in the conDitar container: {detail}") from original_error
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError as error:
+            detail = result.stdout.strip() or result.stderr.strip() or "container returned no JSON"
+            raise ValueError(f"Complex splitting returned an invalid container response: {detail}") from error
 
     def preprocess_docked_pockets(self, payload: dict) -> dict:
         if not isinstance(payload, dict):
@@ -259,6 +321,7 @@ class LocalJobManager:
             )
 
         pdb = payload.get("pdb") or {}
+        pdb, conversion = normalize_structure_payload(pdb, "protein.pdb")
         ligands = payload.get("ligands") or {}
         pdb_text = str(pdb.get("text") or "")
         ligand_text = str(ligands.get("text") or "")
@@ -298,6 +361,7 @@ class LocalJobManager:
         )
         return {
             **clustered,
+            **({"source": conversion} if conversion else {}),
             "vina_panel": {
                 "status": raw.get("status"),
                 "search_box": raw.get("search_box"),
@@ -312,6 +376,7 @@ class LocalJobManager:
         if not isinstance(payload, dict):
             raise ValueError("Pocket extraction payload must be a JSON object.")
         pdb = payload.get("pdb") or {}
+        pdb, conversion = normalize_structure_payload(pdb, "protein.pdb")
         pdb_text = str(pdb.get("text") or "")
         if not pdb_text.strip() or not self._looks_like_pdb(pdb_text):
             raise ValueError("Pocket extraction requires a protein PDB input.")
@@ -326,6 +391,33 @@ class LocalJobManager:
                 "text": pocket["text"],
             },
             "metadata": {key: value for key, value in pocket.items() if key != "text"},
+            **({"source": conversion} if conversion else {}),
+            "warnings": pocket.get("warnings") or [],
+        }
+
+    def preprocess_pocket_from_residues(self, payload: dict) -> dict:
+        if not isinstance(payload, dict):
+            raise ValueError("Residue pocket extraction payload must be a JSON object.")
+        pdb = payload.get("pdb") or {}
+        pdb, conversion = normalize_structure_payload(pdb, "protein.pdb")
+        pdb_text = str(pdb.get("text") or "")
+        if not pdb_text.strip() or not self._looks_like_pdb(pdb_text):
+            raise ValueError("Residue pocket extraction requires a protein PDB input.")
+        residue_spec = str(payload.get("residues") or payload.get("residue_spec") or "").strip()
+        radius_value = payload.get("radius")
+        radius = float(radius_value) if radius_value not in (None, "") else None
+        pocket = pocket_pdb_from_residues(pdb_text, residue_spec, radius=radius)
+        stem = Path(safe_name(str(pdb.get("name") or "protein.pdb"), "protein.pdb")).stem or "protein"
+        suffix = f"_plus{radius:g}A" if radius and radius > 0 else ""
+        return {
+            "status": "ready",
+            "method": pocket["method"],
+            "pdb": {
+                "name": f"{stem}_residue_pocket{suffix}.pdb",
+                "text": pocket["text"],
+            },
+            "metadata": {key: value for key, value in pocket.items() if key != "text"},
+            **({"source": conversion} if conversion else {}),
             "warnings": pocket.get("warnings") or [],
         }
 
@@ -458,6 +550,12 @@ class LocalJobManager:
             sdf_path = paths.inputs / sdf_name
             sdf_path.write_text(sdf["text"])
 
+        preprocess_manifest = self._preprocess_manifest(payload.get("preprocess"), pdb_path, sdf_path, payload.get("structure_conversion"))
+        preprocess_manifest_path = None
+        if preprocess_manifest:
+            preprocess_manifest_path = paths.inputs / "preprocess_metadata.json"
+            preprocess_manifest_path.write_text(json.dumps(preprocess_manifest, indent=2))
+
         parameters = payload.get("parameters") or {}
         parameters["device"] = self._target_device(target)
         postprocess = self._postprocess_options(payload.get("postprocess") or {})
@@ -488,12 +586,15 @@ class LocalJobManager:
             "inputs": {
                 "pdb": str(pdb_path.relative_to(paths.root)),
                 "sdf": str(sdf_path.relative_to(paths.root)) if sdf_path else None,
+                "preprocess_metadata": str(preprocess_manifest_path.relative_to(paths.root)) if preprocess_manifest_path else None,
             },
             "outputs": {
                 "directory": str(paths.outputs.relative_to(paths.root)),
             },
             "parameters": parameters,
+            "structure_conversion": payload.get("structure_conversion") or None,
             "postprocess": postprocess,
+            "preprocess": preprocess_manifest,
             "tools": tool_requests,
             "slurm": slurm_options,
             "container": {
@@ -607,7 +708,7 @@ class LocalJobManager:
         paths = self._paths(job_id)
         job = self._refresh_job(self._read_job(job_id)) or {}
         inputs = {}
-        for key in ("pdb", "sdf"):
+        for key in ("pdb", "sdf", "preprocess_metadata"):
             relative = (job.get("inputs") or {}).get(key)
             if not relative:
                 continue
@@ -1146,13 +1247,16 @@ class LocalJobManager:
 
         pdb = payload.get("pdb") or {}
         if not isinstance(pdb, dict) or not str(pdb.get("text") or "").strip():
-            raise ValueError("A PDB input is required.")
+            raise ValueError("A PDB or CIF input is required.")
+        pdb, conversion = normalize_structure_payload(pdb, "input.pdb")
         pdb_text = str(pdb["text"])
         if len(pdb_text.encode("utf-8")) > 50 * 1024 * 1024:
             raise ValueError("PDB input is larger than 50 MB.")
         if not self._looks_like_pdb(pdb_text):
             raise ValueError("PDB input does not look like a PDB file.")
         payload["pdb"] = {"name": safe_name(str(pdb.get("name") or "input.pdb"), "input.pdb"), "text": pdb_text}
+        if conversion:
+            payload["structure_conversion"] = conversion
 
         sdf = payload.get("sdf")
         if sdf and isinstance(sdf, dict) and str(sdf.get("text") or "").strip():
@@ -1167,6 +1271,35 @@ class LocalJobManager:
         if payload["mode"] == "reference" and not payload["sdf"]:
             raise ValueError("Reference mode requires an SDF ligand input.")
         return payload
+
+    def _preprocess_manifest(self, manifest: dict | None, pdb_path: Path, sdf_path: Path | None, conversion: dict | None = None) -> dict | None:
+        if not isinstance(manifest, dict):
+            return None
+        cleaned = dict(manifest)
+        staged_inputs = dict(cleaned.get("staged_inputs") or {})
+        staged_inputs.update({
+            "pdb": pdb_path.name,
+            "pdb_sha256": self._sha256_file(pdb_path),
+            "sdf": sdf_path.name if sdf_path else None,
+            "sdf_sha256": self._sha256_file(sdf_path) if sdf_path else None,
+        })
+        cleaned["staged_inputs"] = staged_inputs
+        cleaned["container"] = {
+            "image": self.docker_image,
+            "runtime": self.container_runtime_kind,
+            "source_mount": self.source_mount or None,
+        }
+        if conversion:
+            cleaned["structure_conversion"] = conversion
+        cleaned["recorded_at"] = utc_now()
+        return cleaned
+
+    def _sha256_file(self, path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     def _validated_email(self, value: str | None) -> str | None:
         email = str(value or "").strip()
@@ -1809,6 +1942,18 @@ class LocalJobManager:
             job_id = self._queue.get()
             try:
                 self._run(job_id)
+            except Exception as error:
+                paths = self._paths(job_id)
+                job = self.get_job(job_id)
+                if job and job.get("status") not in TERMINAL_STATES:
+                    job["status"] = "failed"
+                    job["finished_at"] = utc_now()
+                    job["exit_code"] = 1
+                    job["error_message"] = (
+                        f"Job worker failed before completion: {error}. See logs: "
+                        f"{paths.stderr} and {paths.stdout}."
+                    )
+                    self._write_job(paths, job)
             finally:
                 self._queue.task_done()
 

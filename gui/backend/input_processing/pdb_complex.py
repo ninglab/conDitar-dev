@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import sys
 
 from .constants import SOLVENT_OR_ION_RESNAMES
 from .pocket_staging import pocket_pdb_from_ligand
@@ -170,3 +172,16 @@ def _safe_name(name: str, fallback: str) -> str:
 
 def _public_candidate(candidate: dict) -> dict:
     return {key: value for key, value in candidate.items() if key != "serials"}
+
+
+def main() -> None:
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+        print(json.dumps(preprocess_complex_payload(payload)))
+    except Exception as error:
+        print(str(error), file=sys.stderr)
+        raise SystemExit(1) from error
+
+
+if __name__ == "__main__":
+    main()

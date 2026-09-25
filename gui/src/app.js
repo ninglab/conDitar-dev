@@ -25,10 +25,14 @@ const state = {
   parameters: Object.fromEntries([...PARAMETERS, ...ADVANCED_PARAMETERS].map((item) => [item.key, item.value])),
   customPdb: null,
   customSdf: null,
-  customComplex: null,
-  complexCandidates: [],
   preprocessComplex: null,
   preprocessComplexResult: null,
+  preprocessTarget: null,
+  preparedStructures: [],
+  selectedPreparedStructureId: null,
+  stagedPreparedStructureId: null,
+  stagedPreparedVariantId: null,
+  stagedPreprocessManifest: null,
   preprocessProtein: null,
   preprocessPanel: null,
   vinaPocketResult: null,
@@ -126,12 +130,16 @@ function bindEvents() {
   });
   $("#refresh-pdb").addEventListener("click", () => chooseFileAgain("#pdb-input"));
   $("#refresh-sdf").addEventListener("click", () => chooseFileAgain("#sdf-input"));
-  $("#refresh-complex").addEventListener("click", () => chooseFileAgain("#complex-input"));
-  $("#complex-input").addEventListener("change", handleComplexUpload);
-  $("#apply-complex-ligand").addEventListener("click", applySelectedComplexLigand);
   $("#preprocess-refresh-complex").addEventListener("click", () => chooseFileAgain("#preprocess-complex-input"));
+  $("#preprocess-refresh-target").addEventListener("click", () => chooseFileAgain("#preprocess-target-input"));
+  $("#preprocess-target-input").addEventListener("change", handlePreprocessTargetUpload);
+  $("#preprocess-build-residue-pocket").addEventListener("click", buildResiduePocket);
   $("#preprocess-complex-input").addEventListener("change", handlePreprocessComplexUpload);
   $("#preprocess-apply-ligand").addEventListener("click", applyPreprocessSelectedLigand);
+  $("#preprocess-complex-radius").addEventListener("input", renderPreparedStructureTray);
+  $("#preprocess-preview-reference").addEventListener("click", () => previewPreprocessedComplexVariant("reference"));
+  $("#preprocess-preview-pocket").addEventListener("click", () => previewPreprocessedComplexVariant("pocket"));
+  $("#preprocess-download-complex").addEventListener("click", downloadPreprocessedComplex);
   $("#preprocess-use-reference").addEventListener("click", () => usePreprocessedComplex("reference"));
   $("#preprocess-use-pocket").addEventListener("click", () => usePreprocessedComplex("pocket"));
   $("#preprocess-refresh-protein").addEventListener("click", () => chooseFileAgain("#preprocess-protein-input"));
@@ -139,10 +147,14 @@ function bindEvents() {
   $("#preprocess-refresh-panel").addEventListener("click", () => chooseFileAgain("#preprocess-panel-input"));
   $("#preprocess-panel-input").addEventListener("change", handlePreprocessPanelUpload);
   $("#preprocess-run-vina-panel").addEventListener("click", runVinaPanelPreprocessing);
+  $("#preprocess-download-vina-pocket").addEventListener("click", downloadSelectedVinaPocket);
   $("#preprocess-use-vina-pocket").addEventListener("click", useSelectedVinaPocket);
   $$(".builtin-evaluation-toggle").forEach((input) => input.addEventListener("change", updateVinaControls));
   ["#vina-exhaustiveness", "#vina-cpu"].forEach((selector) => {
     $(selector).addEventListener("input", updateCommand);
+  });
+  ["#vina-panel-center-x", "#vina-panel-center-y", "#vina-panel-center-z", "#vina-panel-size-x", "#vina-panel-size-y", "#vina-panel-size-z", "#vina-panel-max-ligands", "#vina-panel-exhaustiveness"].forEach((selector) => {
+    $(selector).addEventListener("input", renderPreparedStructureTray);
   });
   $("#refresh-jobs").addEventListener("click", () => refreshJobs(true));
   $("#job-filter").addEventListener("change", (event) => {
@@ -397,6 +409,8 @@ async function loadExample(exampleId) {
   state.exampleId = exampleId;
   state.customPdb = null;
   state.customSdf = null;
+  state.stagedPreprocessManifest = null;
+  renderSetupPreprocessSummary();
   state.batchInputs = [];
   updateCustomOptionLabel("");
   updateBatchLabel();
@@ -436,8 +450,6 @@ function setMode(mode, updateSelect = true) {
   state.mode = mode;
   $$(".mode-toggle button").forEach((button) => button.classList.toggle("active", button.dataset.mode === mode));
   $("#sdf-dropzone").hidden = mode === "pocket";
-  $("#complex-dropzone").hidden = mode === "pocket";
-  if (mode === "pocket") $("#complex-picker").hidden = true;
   const pocketRadiusField = $("[data-parameter-key='pocket_radius']");
   if (pocketRadiusField) pocketRadiusField.hidden = mode === "pocket";
   $("#mode-note").textContent = mode === "reference"
@@ -541,6 +553,7 @@ function buildJobPayload(inputOverride = null) {
     email: $("#job-email").disabled ? "" : $("#job-email").value.trim(),
     pdb,
     sdf,
+    preprocess: inputOverride ? null : state.stagedPreprocessManifest,
     slurm: buildSlurmPayload(),
     postprocess: buildPostprocessPayload(),
     tools: buildEvaluationToolsPayload(),
@@ -2045,7 +2058,7 @@ function compareMetric(a, b) {
 function updateCommand() {
   const pdbName = state.batchInputs.length
     ? `${state.batchInputs.length} folders`
-    : (state.customPdb?.name || EXAMPLES[state.exampleId]?.pdb || "<choose PDB>");
+    : (state.customPdb?.name || EXAMPLES[state.exampleId]?.pdb || "<choose structure>");
   const sdfName = state.customSdf?.name || EXAMPLES[state.exampleId]?.sdf;
   const args = [
     "conditar-sample",
@@ -2079,6 +2092,8 @@ async function handlePdbUpload(event) {
   const text = await readValidatedTextFile(file, "pdb");
   if (!text) return;
   state.customPdb = { name: file.name, text };
+  state.stagedPreprocessManifest = null;
+  renderSetupPreprocessSummary();
   state.batchInputs = [];
   updateBatchLabel();
   $("#pdb-name").textContent = file.name;
@@ -2098,6 +2113,8 @@ async function handleSdfUpload(event) {
   const text = await readValidatedTextFile(file, "sdf");
   if (!text) return;
   state.customSdf = { name: file.name, text };
+  state.stagedPreprocessManifest = null;
+  renderSetupPreprocessSummary();
   state.batchInputs = [];
   updateBatchLabel();
   $("#sdf-name").textContent = file.name;
@@ -2107,83 +2124,80 @@ async function handleSdfUpload(event) {
   updateCustomOptionLabel(state.customPdb?.name || file.name);
 }
 
-async function handleComplexUpload(event) {
+async function handlePreprocessTargetUpload(event) {
   const file = event.target.files[0];
   if (!file) return;
   const text = await readValidatedTextFile(file, "pdb");
   if (!text) return;
-  state.customComplex = { name: file.name, text };
-  $("#complex-name").textContent = file.name;
-  $("#complex-detail").textContent = "Splitting protein and ligand...";
-  $("#complex-picker").hidden = true;
-  try {
-    const result = await service.preprocessComplex({ name: file.name, text });
-    handleComplexPreprocessResult(result);
-  } catch (error) {
-    $("#complex-detail").textContent = "Complex split failed";
-    showToast(error.message);
+  state.preprocessTarget = { name: file.name, text };
+  state.preprocessProtein = state.preprocessProtein || state.preprocessTarget;
+  $("#preprocess-target-name").textContent = file.name;
+  $("#preprocess-target-detail").textContent = `${formatBytes(file.size)} · active target`;
+  if ($("#preprocess-protein-name").textContent === "Choose a protein PDB") {
+    $("#preprocess-protein-name").textContent = file.name;
+    $("#preprocess-protein-detail").textContent = `${formatBytes(file.size)} · receptor`;
   }
+  addPreparedStructure({
+    mode: "pocket",
+    label: file.name,
+    source: "Uploaded target structure",
+    groupLabel: "Target upload",
+    sourceFiles: { protein: file.name },
+    pdb: state.preprocessTarget,
+    sdf: null,
+    metadata: {},
+    detail: "Uploaded target structure",
+  });
+  await renderPreprocessViewer({
+    title: file.name,
+    pdb: state.preprocessTarget,
+    sdf: centerMarkerMolecule({ center: { x: 0, y: 0, z: 0 } }),
+  });
+  showToast("Target loaded for preprocessing.");
 }
 
-async function applySelectedComplexLigand() {
-  if (!state.customComplex) return;
-  const ligandId = $("#complex-ligand-select").value;
-  if (!ligandId) {
-    showToast("Choose a ligand from the complex first.");
+async function buildResiduePocket() {
+  const source = state.preprocessTarget || state.preprocessProtein || state.customPdb;
+  const residues = $("#manual-residue-spec").value.trim();
+  if (!source?.text) {
+    showToast("Choose a target protein first.");
     return;
   }
-  $("#complex-detail").textContent = "Splitting selected ligand...";
+  if (!residues) {
+    showToast("Enter residues like A:45-62, A:88.");
+    return;
+  }
+  const button = $("#preprocess-build-residue-pocket");
+  button.disabled = true;
+  $("#preprocess-target-detail").textContent = "Building residue pocket...";
   try {
-    const result = await service.preprocessComplex({
-      name: state.customComplex.name,
-      text: state.customComplex.text,
-      ligand_id: ligandId,
+    const radiusText = $("#manual-residue-radius").value;
+    const result = await service.preprocessPocketFromResidues({
+      pdb: source,
+      residues,
+      radius: radiusText === "" ? null : Number(radiusText),
     });
-    handleComplexPreprocessResult(result);
+    const meta = result.metadata || {};
+    const entry = addPreparedStructure({
+      mode: "pocket",
+      label: result.pdb.name,
+      source: `Manual residues · ${residues}`,
+      groupLabel: `Residue pocket from ${source.name}`,
+      sourceFiles: { protein: source.name, residues },
+      pdb: result.pdb,
+      sdf: null,
+      metadata: meta,
+      detail: `Residue pocket · ${meta.residue_count || "n/a"} residues`,
+    });
+    $("#preprocess-target-detail").textContent = `${meta.residue_count || 0} residues · ${meta.atom_count || 0} atoms`;
+    await previewPreparedStructure(entry);
+    showToast("Residue pocket added to prepared structures.");
   } catch (error) {
-    $("#complex-detail").textContent = "Complex split failed";
+    $("#preprocess-target-detail").textContent = "Residue pocket failed";
     showToast(error.message);
+  } finally {
+    button.disabled = false;
   }
-}
-
-function handleComplexPreprocessResult(result) {
-  state.complexCandidates = result.candidates || [];
-  if (result.status === "needs_ligand") {
-    renderComplexLigandPicker(state.complexCandidates);
-    $("#complex-detail").textContent = `${state.complexCandidates.length} ligands/cofactors found`;
-    showToast(result.message || "Choose which ligand should define the reference pocket.");
-    return;
-  }
-  if (result.status !== "ready" || !result.pdb?.text || !result.sdf?.text) {
-    showToast("Complex preprocessing did not return protein and ligand files.");
-    return;
-  }
-  state.customPdb = result.pdb;
-  state.customSdf = result.sdf;
-  state.batchInputs = [];
-  $("#complex-picker").hidden = true;
-  $("#pdb-name").textContent = result.pdb.name;
-  $("#pdb-detail").textContent = `From complex · ${result.selected?.label || "protein extracted"}`;
-  $("#sdf-name").textContent = result.sdf.name;
-  $("#sdf-detail").textContent = `From complex · ${result.selected?.label || "reference ligand extracted"}`;
-  $("#complex-detail").textContent = `Split using ${result.selected?.label || "selected ligand"}`;
-  $("#example-select").value = "custom";
-  state.exampleId = "custom";
-  state.mode = "reference";
-  setMode("reference", false);
-  updateCustomOptionLabel(state.customComplex?.name || result.pdb.name);
-  updateBatchLabel();
-  updateCommand();
-  showToast("Complex split into protein and reference ligand.");
-}
-
-function renderComplexLigandPicker(candidates) {
-  const ligandCandidates = candidates.filter((item) => item.kind === "ligand");
-  const options = (ligandCandidates.length ? ligandCandidates : candidates)
-    .map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.label)}</option>`)
-    .join("");
-  $("#complex-ligand-select").innerHTML = options;
-  $("#complex-picker").hidden = false;
 }
 
 async function handlePreprocessComplexUpload(event) {
@@ -2193,12 +2207,13 @@ async function handlePreprocessComplexUpload(event) {
   if (!text) return;
   state.preprocessComplex = { name: file.name, text };
   state.preprocessComplexResult = null;
+  renderPreparedStructureTray();
   $("#preprocess-complex-name").textContent = file.name;
   $("#preprocess-complex-detail").textContent = "Detecting ligands and preparing pocket...";
   $("#preprocess-complex-picker").hidden = true;
   $("#preprocess-complex-output").hidden = true;
   try {
-    const result = await service.preprocessComplex({ name: file.name, text, pocket_radius: 10 });
+    const result = await service.preprocessComplex({ name: file.name, text, pocket_radius: preprocessComplexRadius() });
     handlePreprocessComplexResult(result);
   } catch (error) {
     $("#preprocess-complex-detail").textContent = "Preprocessing failed";
@@ -2219,7 +2234,7 @@ async function applyPreprocessSelectedLigand() {
       name: state.preprocessComplex.name,
       text: state.preprocessComplex.text,
       ligand_id: ligandId,
-      pocket_radius: 10,
+      pocket_radius: preprocessComplexRadius(),
     });
     handlePreprocessComplexResult(result);
   } catch (error) {
@@ -2231,11 +2246,7 @@ async function applyPreprocessSelectedLigand() {
 function handlePreprocessComplexResult(result) {
   if (result.status === "needs_ligand") {
     const candidates = result.candidates || [];
-    const ligandCandidates = candidates.filter((item) => item.kind === "ligand");
-    $("#preprocess-ligand-select").innerHTML = (ligandCandidates.length ? ligandCandidates : candidates)
-      .map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.label)}</option>`)
-      .join("");
-    $("#preprocess-complex-picker").hidden = false;
+    renderPreprocessLigandPicker(candidates, result.selected?.id || "");
     $("#preprocess-complex-detail").textContent = `${candidates.length} ligands/cofactors found`;
     showToast(result.message || "Choose which ligand should define the pocket.");
     return;
@@ -2245,13 +2256,102 @@ function handlePreprocessComplexResult(result) {
     return;
   }
   state.preprocessComplexResult = result;
-  $("#preprocess-complex-picker").hidden = true;
+  renderPreprocessLigandPicker(result.candidates || [], result.selected?.id || "");
   $("#preprocess-complex-detail").textContent = `Prepared using ${result.selected?.label || "selected ligand"}`;
   renderPreparedComplexOutput(result);
+  const complexGroup = `${state.preprocessComplex?.name || result.pdb.name} · ${result.selected?.label || "selected ligand"}`;
+  const complexSourceFiles = {
+    complex: state.preprocessComplex?.name || null,
+    protein: result.pdb?.name || null,
+    ligand: result.sdf?.name || null,
+    pocket: result.pocket_pdb?.name || null,
+  };
+  addPreparedStructure({
+    mode: "context",
+    contextType: "bound-complex",
+    settingsSignature: boundComplexSettingsSignature(),
+    selectedVariantId: "pocket",
+    label: `Bound complex: ${result.selected?.resname || result.selected?.label || "selected ligand"}`,
+    source: "Bound-ligand complex split",
+    groupLabel: complexGroup,
+    sourceFiles: complexSourceFiles,
+    pdb: result.pdb,
+    sdf: result.sdf,
+    metadata: result.pocket_pdb?.metadata || {},
+    detail: `Reference ligand · ${result.selected?.label || "selected ligand"}`,
+    variants: [
+      {
+        id: "reference",
+        mode: "reference",
+        label: "Full protein + reference ligand",
+        pdb: result.pdb,
+        sdf: result.sdf,
+        metadata: result.pocket_pdb?.metadata || {},
+        detail: `Reference ligand · ${result.selected?.label || "selected ligand"}`,
+      },
+      ...(result.pocket_pdb?.text ? [{
+        id: "pocket",
+        mode: "pocket",
+        label: "Cropped pocket",
+        pdb: result.pocket_pdb,
+        sdf: null,
+        metadata: result.pocket_pdb.metadata || {},
+        detail: `${result.pocket_pdb.metadata?.radius || preprocessComplexRadius()} A pocket · ${result.pocket_pdb.metadata?.residue_count || "n/a"} residues`,
+      }] : []),
+    ],
+  });
+  renderPreprocessedComplexPreview(result, "pocket");
+}
+
+function renderPreprocessLigandPicker(candidates, selectedId = "") {
+  const ligandCandidates = (candidates || []).filter((item) => item.kind === "ligand");
+  const options = ligandCandidates.length ? ligandCandidates : (candidates || []);
+  if (!options.length) {
+    $("#preprocess-complex-picker").hidden = true;
+    return;
+  }
+  $("#preprocess-ligand-select").innerHTML = options
+    .map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === selectedId ? "selected" : ""}>${escapeHtml(item.label)}</option>`)
+    .join("");
+  $("#preprocess-complex-picker").hidden = false;
+}
+
+function preprocessComplexRadius() {
+  const value = Number($("#preprocess-complex-radius")?.value || 10);
+  return Number.isFinite(value) && value > 0 ? value : 10;
+}
+
+function boundComplexSettingsSignature() {
+  return JSON.stringify({
+    complex: state.preprocessComplex?.name || null,
+    radius: preprocessComplexRadius(),
+    ligand: state.preprocessComplexResult?.selected?.id || state.preprocessComplexResult?.selected?.label || null,
+  });
+}
+
+function preprocessedComplexVariant(result, variantId = "pocket") {
+  if (!result) return null;
+  if (variantId === "pocket" && result.pocket_pdb?.text) {
+    return {
+      mode: "pocket",
+      pdb: result.pocket_pdb,
+      sdf: null,
+      title: "Cropped pocket",
+      detail: `${result.pocket_pdb.metadata?.radius || preprocessComplexRadius()} A pocket · ${result.pocket_pdb.metadata?.residue_count || "n/a"} residues`,
+    };
+  }
+  return {
+    mode: "reference",
+    pdb: result.pdb,
+    sdf: result.sdf,
+    title: "Full protein + reference ligand",
+    detail: `Reference ligand · ${result.selected?.label || "selected ligand"}`,
+  };
 }
 
 function renderPreparedComplexOutput(result) {
   const pocketMeta = result.pocket_pdb?.metadata || {};
+  $("#preprocess-complex-output-title").textContent = "Bound-complex context saved to Candidate inputs";
   $("#preprocess-complex-output-grid").innerHTML = [
     ["Protein", result.pdb?.name || "protein.pdb"],
     ["Reference ligand", result.sdf?.name || "reference.sdf"],
@@ -2259,7 +2359,396 @@ function renderPreparedComplexOutput(result) {
     ["Pocket residues", pocketMeta.residue_count ? String(pocketMeta.residue_count) : "n/a"],
     ["Pocket atoms", pocketMeta.atom_count ? String(pocketMeta.atom_count) : "n/a"],
   ].map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("");
+  renderPreparedMetadata("#preprocess-complex-meta", [
+    pocketMeta.provenance,
+    ...(pocketMeta.warnings || []),
+  ]);
   $("#preprocess-complex-output").hidden = false;
+}
+
+async function renderPreprocessedComplexPreview(result, variantId = "pocket") {
+  const variant = preprocessedComplexVariant(result, variantId);
+  if (!variant?.pdb?.text || !variant?.sdf?.text) return;
+  await renderPreprocessViewer({
+    title: variant.title,
+    pdb: variant.pdb,
+    sdf: variant.sdf,
+  });
+}
+
+async function previewPreprocessedComplexVariant(variantId) {
+  if (!state.preprocessComplexResult) {
+    showToast("Preprocess a complex first.");
+    return;
+  }
+  const contextEntry = state.preparedStructures.find((item) => item.contextType === "bound-complex" && item.sourceFiles?.complex === state.preprocessComplex?.name);
+  if (contextEntry) {
+    setPreparedContextVariant(contextEntry.id, variantId);
+    state.selectedPreparedStructureId = contextEntry.id;
+    renderPreparedStructureTray();
+  }
+  await renderPreprocessedComplexPreview(state.preprocessComplexResult, variantId);
+}
+
+function renderPreparedMetadata(selector, lines) {
+  const container = $(selector);
+  if (!container) return;
+  const items = [...new Set((lines || []).filter(Boolean))];
+  container.innerHTML = items.map((line, index) => `
+    <p><strong>${index === 0 ? "Source" : "Note"}:</strong> ${escapeHtml(line)}</p>
+  `).join("");
+}
+
+function addPreparedStructure(entry) {
+  const id = entry.id || `prepared-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const normalized = { ...entry, id, createdAt: new Date().toISOString() };
+  state.preparedStructures = [normalized, ...state.preparedStructures.filter((item) => item.id !== id)].slice(0, 12);
+  state.selectedPreparedStructureId = id;
+  renderPreparedStructureTray();
+  renderPreprocessStagingStatus();
+  return normalized;
+}
+
+function renderPreparedStructureTray() {
+  const tray = $("#prepared-structure-tray");
+  const count = state.preparedStructures.length;
+  $("#prepared-structure-count").textContent = `${count} candidate${count === 1 ? "" : "s"}`;
+  if (!count) {
+    tray.innerHTML = "<p class='field-note'>Candidate protein, pocket, and ligand sets appear here.</p>";
+    renderPreprocessStagingStatus();
+    return;
+  }
+  tray.innerHTML = state.preparedStructures.map((item) => {
+    const variant = selectedPreparedVariant(item);
+    const meta = variant.metadata || item.metadata || {};
+    const active = item.id === state.selectedPreparedStructureId ? " active" : "";
+    const isStagedView = item.id === state.stagedPreparedStructureId && (!item.variants?.length || item.selectedVariantId === state.stagedPreparedVariantId);
+    const stale = preparedStructureNeedsUpdate(item);
+    const staged = isStagedView ? " staged" : "";
+    const cardClass = `prepared-structure-card${active}${staged}${stale ? " stale" : ""}`;
+    const mode = variant.mode || item.mode;
+    const modeLabel = mode === "reference" ? "Protein + ligand" : mode === "pocket" ? "Pocket" : "Context";
+    const residues = meta.residue_count ? `${meta.residue_count} residues` : "residues n/a";
+    const atoms = meta.atom_count ? `${meta.atom_count} atoms` : "atoms n/a";
+    const files = preparedStructureFileLines(item);
+    const sourceLabel = item.groupLabel || item.source || meta.provenance || "Prepared structure";
+    const statusLabel = stale ? "Update needed" : isStagedView ? "Staged" : active ? "Previewing" : modeLabel;
+    const variantSelector = item.variants?.length ? `
+          <label class="prepared-variant-control">
+            <span>View</span>
+            <select data-prepared-action="variant">
+              ${item.variants.map((option) => `<option value="${escapeHtml(option.id)}" ${option.id === item.selectedVariantId ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+            </select>
+          </label>
+    ` : "";
+    return `
+      <article class="${cardClass}" data-prepared-id="${escapeHtml(item.id)}">
+        <div>
+          <div class="prepared-structure-title-row">
+            <strong>${escapeHtml(item.label || item.pdb?.name || "Prepared structure")}</strong>
+            <span>${escapeHtml(statusLabel)}</span>
+          </div>
+          <small>${escapeHtml(item.variants?.length ? `Selected view: ${variant.label || modeLabel}` : modeLabel)} · ${escapeHtml(residues)} · ${escapeHtml(atoms)}</small>
+          <small class="prepared-source-line">${escapeHtml(sourceLabel)}</small>
+          ${stale ? "<small class='prepared-warning-line'>Settings changed. Regenerate this candidate before staging.</small>" : ""}
+          ${variantSelector}
+          <details class="prepared-provenance">
+            <summary>Source details</summary>
+            ${item.groupLabel ? `<p><b>Set</b>${escapeHtml(item.groupLabel)}</p>` : ""}
+            <p><b>Source</b>${escapeHtml(item.source || meta.provenance || "Prepared structure")}</p>
+            ${files.map(([label, value]) => `<p><b>${escapeHtml(label)}</b>${escapeHtml(value)}</p>`).join("")}
+          </details>
+        </div>
+        <div class="prepared-structure-actions">
+          <button class="secondary-button compact-action" type="button" data-prepared-action="preview">Preview</button>
+          <button class="secondary-button compact-action" type="button" data-prepared-action="download">Download</button>
+          <button class="secondary-button compact-action danger-action" type="button" data-prepared-action="remove">Remove</button>
+          <button class="primary-button compact-action" type="button" data-prepared-action="use" ${stale ? "disabled" : ""}>${isStagedView ? "Staged" : "Stage view"}</button>
+        </div>
+      </article>
+    `;
+  }).join("");
+  $$("#prepared-structure-tray button[data-prepared-action]").forEach((button) => button.addEventListener("click", handlePreparedStructureAction));
+  $$("#prepared-structure-tray select[data-prepared-action]").forEach((select) => select.addEventListener("change", handlePreparedStructureAction));
+  renderPreprocessStagingStatus();
+}
+
+function preparedStructureNeedsUpdate(item) {
+  if (!item?.settingsSignature) return false;
+  if (item.contextType === "bound-complex") return item.settingsSignature !== boundComplexSettingsSignature();
+  if (item.contextType === "vina-panel") return item.settingsSignature !== vinaPanelSettingsSignature();
+  return false;
+}
+
+function selectedPreparedVariant(entry) {
+  if (!entry?.variants?.length) return entry || {};
+  return entry.variants.find((variant) => variant.id === entry.selectedVariantId) || entry.variants[0] || entry;
+}
+
+function preparedVariantById(entry, variantId) {
+  if (!entry?.variants?.length) return entry || {};
+  return entry.variants.find((variant) => variant.id === variantId) || selectedPreparedVariant(entry);
+}
+
+function renderPreprocessStagingStatus() {
+  const status = $("#preprocess-staged-status");
+  if (!status) return;
+  const entry = state.preparedStructures.find((item) => item.id === state.stagedPreparedStructureId);
+  status.classList.toggle("is-staged", Boolean(entry));
+  const variant = preparedVariantById(entry, state.stagedPreparedVariantId);
+  const mode = variant.mode || entry?.mode;
+  status.textContent = entry ? `Staged: ${mode === "reference" ? "protein + ligand" : "pocket"}` : "Nothing staged";
+  status.title = entry ? `${entry.label || ""}${variant.label ? ` · ${variant.label}` : ""}` : "";
+}
+
+function preparedStructureFileLines(item) {
+  const files = item.sourceFiles || {};
+  return [
+    ["Complex", files.complex],
+    ["Protein", files.protein || item.pdb?.name],
+    ["Ligand", files.ligand || item.sdf?.name],
+    ["Pocket", files.pocket],
+    ["Panel", files.panel],
+    ["Residues", files.residues],
+  ].filter(([, value]) => value);
+}
+
+async function handlePreparedStructureAction(event) {
+  const card = event.target.closest("[data-prepared-id]");
+  let entry = state.preparedStructures.find((item) => item.id === card?.dataset.preparedId);
+  if (!entry) return;
+  const action = event.target.dataset.preparedAction;
+  if (action === "variant") {
+    await updatePreparedStructureVariant(entry.id, event.target.value);
+    return;
+  }
+  if (action === "remove") {
+    removePreparedStructure(entry.id);
+    return;
+  }
+  state.selectedPreparedStructureId = entry.id;
+  renderPreparedStructureTray();
+  entry = await resolvePreparedStructure(entry);
+  if (!entry) return;
+  const variant = selectedPreparedVariant(entry);
+  const pdb = variant.pdb || entry.pdb;
+  const sdf = variant.sdf || entry.sdf || null;
+  const stageMode = variant.mode || entry.mode;
+  if (!pdb?.text) return;
+  if (action === "use") {
+    state.stagedPreparedStructureId = entry.id;
+    state.stagedPreparedVariantId = variant.id || null;
+    renderPreparedStructureTray();
+    stagePreparedInputs({
+      mode: stageMode,
+      pdb,
+      sdf: stageMode === "reference" ? sdf : null,
+      label: entry.label || pdb.name,
+      detail: variant.detail || entry.detail || entry.source || "Prepared structure",
+      preprocessManifest: buildPreprocessManifest(entry, variant, {
+        mode: stageMode,
+        pdb,
+        sdf: stageMode === "reference" ? sdf : null,
+      }),
+    });
+    return;
+  }
+  if (action === "download") {
+    await downloadPreparedStructure(entry);
+    return;
+  }
+  await previewPreparedStructure(entry);
+}
+
+async function updatePreparedStructureVariant(id, variantId) {
+  let updatedEntry = null;
+  state.preparedStructures = state.preparedStructures.map((item) => {
+    if (item.id !== id) return item;
+    updatedEntry = { ...item, selectedVariantId: variantId };
+    return updatedEntry;
+  });
+  state.selectedPreparedStructureId = id;
+  if (updatedEntry?.contextType === "vina-panel") {
+    state.selectedVinaPocketId = variantId;
+    renderVinaPocketCandidates();
+  }
+  renderPreparedStructureTray();
+  if (updatedEntry) {
+    const resolved = await resolvePreparedStructure(updatedEntry);
+    if (resolved) await previewPreparedStructure(resolved);
+  }
+}
+
+function removePreparedStructure(id) {
+  const removed = state.preparedStructures.find((item) => item.id === id);
+  state.preparedStructures = state.preparedStructures.filter((item) => item.id !== id);
+  if (state.selectedPreparedStructureId === id) {
+    state.selectedPreparedStructureId = state.preparedStructures[0]?.id || null;
+  }
+  if (state.stagedPreparedStructureId === id) {
+    state.stagedPreparedStructureId = null;
+    state.stagedPreparedVariantId = null;
+    state.stagedPreprocessManifest = null;
+  }
+  renderPreparedStructureTray();
+  renderPreprocessStagingStatus();
+  showToast(removed?.label ? `Removed ${removed.label}.` : "Prepared structure removed.");
+}
+
+async function resolvePreparedStructure(entry) {
+  if (!entry) return null;
+  if (entry.variants?.length) {
+    const variant = selectedPreparedVariant(entry);
+    if (variant.pdb?.text) return entry;
+    if (variant.prepare === "vina-pocket" && variant.center) {
+      const sourceProtein = entry.sourceProtein || state.preprocessProtein;
+      if (!sourceProtein) {
+        showToast("The source protein for this Vina pocket is no longer loaded.");
+        return null;
+      }
+      try {
+        const result = await service.preprocessPocketFromCenter({
+          pdb: sourceProtein,
+          center: variant.center,
+          radius: variant.radius || variant.metadata?.radius || 10,
+        });
+        const updatedVariant = {
+          ...variant,
+          pdb: result.pdb,
+          metadata: { ...(variant.metadata || {}), ...(result.metadata || {}) },
+          detail: `Vina cluster · ${result.metadata?.residue_count || "n/a"} residues`,
+        };
+        const updated = {
+          ...entry,
+          sourceFiles: { ...(entry.sourceFiles || {}), pocket: result.pdb?.name || null },
+          variants: entry.variants.map((item) => item.id === variant.id ? updatedVariant : item),
+        };
+        state.preparedStructures = state.preparedStructures.map((item) => item.id === entry.id ? updated : item);
+        renderPreparedStructureTray();
+        return updated;
+      } catch (error) {
+        showToast(error.message);
+        return null;
+      }
+    }
+  }
+  if (entry.pdb?.text) return entry;
+  if (entry.prepare === "vina-pocket") {
+    if (!state.preprocessProtein || !entry.center) {
+      showToast("The source protein for this Vina pocket is no longer loaded.");
+      return null;
+    }
+    try {
+      const result = await service.preprocessPocketFromCenter({
+        pdb: state.preprocessProtein,
+        center: entry.center,
+        radius: entry.metadata?.radius || 10,
+      });
+      const updated = {
+        ...entry,
+        pdb: result.pdb,
+        metadata: { ...(entry.metadata || {}), ...(result.metadata || {}) },
+        sourceFiles: { ...(entry.sourceFiles || {}), pocket: result.pdb?.name || null },
+        detail: `Vina cluster · ${result.metadata?.residue_count || "n/a"} residues`,
+      };
+      state.preparedStructures = state.preparedStructures.map((item) => item.id === entry.id ? updated : item);
+      renderPreparedStructureTray();
+      return updated;
+    } catch (error) {
+      showToast(error.message);
+      return null;
+    }
+  }
+  showToast("This prepared structure is missing a PDB.");
+  return null;
+}
+
+async function previewPreparedStructure(entry) {
+  const variant = selectedPreparedVariant(entry);
+  const pdb = variant.pdb || entry?.pdb;
+  const sdf = variant.sdf || entry?.sdf || null;
+  if (!pdb?.text) return;
+  await renderPreprocessViewer({
+    title: variant.label || entry.label || pdb.name,
+    pdb,
+    sdf: sdf || (entry.center ? centerMarkerMolecule({ center: entry.center }) : null),
+  });
+}
+
+async function renderPreprocessViewer({ title, pdb, sdf }) {
+  const container = $("#preprocess-main-viewer-3d");
+  const loading = $("#preprocess-main-viewer-loading");
+  const heading = $("#preprocess-main-viewer-title");
+  if (!container || !pdb?.text) return;
+  container.closest(".preprocess-main-viewer-panel")?.classList.remove("empty-viewer");
+  heading.textContent = title || pdb.name || "Prepared structure";
+  loading.hidden = false;
+  try {
+    container.innerHTML = "";
+    await render3D(container, sdf || null, pdb.text, {});
+  } catch (error) {
+    container.innerHTML = `<div class="viewer-error">${escapeHtml(error.message)}</div>`;
+  } finally {
+    loading.hidden = true;
+  }
+}
+
+async function downloadPreparedStructure(entry) {
+  const variant = selectedPreparedVariant(entry);
+  const pdb = variant.pdb || entry.pdb;
+  const sdf = variant.sdf || entry.sdf || null;
+  await downloadPreparedArchive(`${filenameStem(pdb?.name || "prepared_structure")}_preprocess.zip`, [
+    pdb,
+    sdf,
+    {
+      name: "preprocess_metadata.json",
+      text: JSON.stringify({
+        label: entry.label,
+        mode: variant.mode || entry.mode,
+        variant: variant.label || null,
+        source: entry.source,
+        files: {
+          pdb: pdb?.name || null,
+          sdf: sdf?.name || null,
+        },
+        source_files: entry.sourceFiles || {},
+        set: entry.groupLabel || null,
+        metadata: variant.metadata || entry.metadata || {},
+      }, null, 2),
+    },
+  ]);
+  showToast("Prepared structure downloaded.");
+}
+
+async function downloadPreprocessedComplex() {
+  const result = state.preprocessComplexResult;
+  if (!result?.pdb?.text || !result?.sdf?.text) {
+    showToast("Preprocess a complex first.");
+    return;
+  }
+  await downloadPreparedArchive("conditar_complex_inputs.zip", [
+    result.pdb,
+    result.sdf,
+    result.pocket_pdb,
+    {
+      name: "preprocess_metadata.json",
+      text: JSON.stringify(preprocessComplexMetadata(result), null, 2),
+    },
+  ]);
+  showToast("Prepared complex inputs downloaded.");
+}
+
+function preprocessComplexMetadata(result) {
+  return {
+    workflow: "complex_with_bound_ligand",
+    selected_ligand: result.selected || null,
+    files: {
+      protein: result.pdb?.name || null,
+      reference_ligand: result.sdf?.name || null,
+      pocket: result.pocket_pdb?.name || null,
+    },
+    pocket: result.pocket_pdb?.metadata || {},
+  };
 }
 
 function usePreprocessedComplex(mode) {
@@ -2268,27 +2757,72 @@ function usePreprocessedComplex(mode) {
     showToast("Preprocess a complex first.");
     return;
   }
+  const contextEntry = state.preparedStructures.find((item) => item.contextType === "bound-complex" && item.sourceFiles?.complex === state.preprocessComplex?.name);
+  if (contextEntry && preparedStructureNeedsUpdate(contextEntry)) {
+    showToast("Bound-complex settings changed. Regenerate the context before staging.");
+    return;
+  }
   if (mode === "pocket") {
     if (!result.pocket_pdb?.text) {
       showToast("No cropped pocket PDB is available.");
       return;
     }
+    if (contextEntry) setPreparedContextVariant(contextEntry.id, "pocket");
     stagePreparedInputs({
       mode: "pocket",
       pdb: result.pocket_pdb,
       sdf: null,
       label: result.pocket_pdb.name,
-      detail: `10 A pocket · ${result.pocket_pdb.metadata?.residue_count || "n/a"} residues`,
+      detail: `${result.pocket_pdb.metadata?.radius || preprocessComplexRadius()} A pocket · ${result.pocket_pdb.metadata?.residue_count || "n/a"} residues`,
+      preprocessManifest: buildPreprocessManifest(contextEntry || {
+        contextType: "bound-complex",
+        source: "Bound-ligand complex split",
+        groupLabel: state.preprocessComplex?.name || null,
+        sourceFiles: { complex: state.preprocessComplex?.name || null },
+        metadata: result.pocket_pdb?.metadata || {},
+      }, preprocessedComplexVariant(result, "pocket"), {
+        mode: "pocket",
+        pdb: result.pocket_pdb,
+        sdf: null,
+      }),
     });
+    markPreparedStructureStaged((item) => item.id === contextEntry?.id, "pocket");
     return;
   }
+  if (contextEntry) setPreparedContextVariant(contextEntry.id, "reference");
   stagePreparedInputs({
     mode: "reference",
     pdb: result.pdb,
     sdf: result.sdf,
     label: state.preprocessComplex?.name || result.pdb.name,
     detail: `Reference ligand · ${result.selected?.label || "selected ligand"}`,
+    preprocessManifest: buildPreprocessManifest(contextEntry || {
+      contextType: "bound-complex",
+      source: "Bound-ligand complex split",
+      groupLabel: state.preprocessComplex?.name || null,
+      sourceFiles: { complex: state.preprocessComplex?.name || null },
+      metadata: result.pocket_pdb?.metadata || {},
+    }, preprocessedComplexVariant(result, "reference"), {
+      mode: "reference",
+      pdb: result.pdb,
+      sdf: result.sdf,
+    }),
   });
+  markPreparedStructureStaged((item) => item.id === contextEntry?.id, "reference");
+}
+
+function setPreparedContextVariant(id, variantId) {
+  state.preparedStructures = state.preparedStructures.map((item) => item.id === id ? { ...item, selectedVariantId: variantId } : item);
+}
+
+function markPreparedStructureStaged(predicate, variantId = null) {
+  const entry = state.preparedStructures.find(predicate);
+  if (!entry) return;
+  state.stagedPreparedStructureId = entry.id;
+  state.stagedPreparedVariantId = variantId || entry.selectedVariantId || null;
+  state.selectedPreparedStructureId = entry.id;
+  renderPreparedStructureTray();
+  renderPreprocessStagingStatus();
 }
 
 async function handlePreprocessProteinUpload(event) {
@@ -2299,9 +2833,15 @@ async function handlePreprocessProteinUpload(event) {
   state.preprocessProtein = { name: file.name, text };
   state.vinaPocketResult = null;
   state.selectedVinaPocketId = null;
+  renderPreparedStructureTray();
   $("#preprocess-protein-name").textContent = file.name;
   $("#preprocess-protein-detail").textContent = `${formatBytes(file.size)} · receptor`;
   $("#vina-pocket-output").hidden = true;
+  await renderPreprocessViewer({
+    title: file.name,
+    pdb: state.preprocessProtein,
+    sdf: centerMarkerMolecule({ center: { x: 0, y: 0, z: 0 } }),
+  });
 }
 
 async function handlePreprocessPanelUpload(event) {
@@ -2314,6 +2854,7 @@ async function handlePreprocessPanelUpload(event) {
     state.preprocessPanel = panel;
     state.vinaPocketResult = null;
     state.selectedVinaPocketId = null;
+    renderPreparedStructureTray();
     $("#preprocess-panel-name").textContent = file.name;
     $("#preprocess-panel-detail").textContent = `${panel.count || "SDF"} ligand${panel.count === 1 ? "" : "s"} · ${panel.source || "ligand panel"}`;
     $("#vina-pocket-output").hidden = true;
@@ -2325,7 +2866,7 @@ async function handlePreprocessPanelUpload(event) {
 
 async function runVinaPanelPreprocessing() {
   if (!state.preprocessProtein || !state.preprocessPanel) {
-    showToast("Choose a protein PDB and ligand panel SDF or CSV first.");
+    showToast("Choose a protein structure and ligand panel SDF or CSV first.");
     return;
   }
   const button = $("#preprocess-run-vina-panel");
@@ -2341,14 +2882,67 @@ async function runVinaPanelPreprocessing() {
     state.vinaPocketResult = result;
     state.selectedVinaPocketId = result.candidates?.[0]?.id || null;
     renderVinaPocketCandidates();
+    saveVinaPanelContext(result);
+    renderPreparedMetadata("#vina-pocket-meta", [
+      result.provenance,
+      ...(result.warnings || []),
+      ...(result.vina_panel?.warnings || []),
+    ]);
+    renderSelectedVinaPocketPreview();
     $("#preprocess-panel-detail").textContent = `${result.vina_panel?.pose_count || 0} docked poses clustered`;
-    showToast(`${result.candidates?.length || 0} candidate pocket${result.candidates?.length === 1 ? "" : "s"} found.`);
+    showToast(`${result.candidates?.length || 0} candidate pocket${result.candidates?.length === 1 ? "" : "s"} saved to Candidate inputs.`);
   } catch (error) {
     $("#preprocess-panel-detail").textContent = "Vina panel failed";
     showToast(error.message);
   } finally {
     button.disabled = false;
   }
+}
+
+function saveVinaPanelContext(result) {
+  const candidates = result.candidates || [];
+  if (!candidates.length) return;
+  const proteinName = state.preprocessProtein?.name || "protein";
+  const panelName = state.preprocessPanel?.name || "panel";
+  addPreparedStructure({
+    id: `vina-context-${filenameStem(proteinName)}-${filenameStem(panelName)}`,
+    mode: "context",
+    contextType: "vina-panel",
+    settingsSignature: vinaPanelSettingsSignature(),
+    selectedVariantId: state.selectedVinaPocketId || candidates[0].id,
+    label: `Docking panel: ${panelName}`,
+    source: "Docking-panel pocket search",
+    groupLabel: `${proteinName} · ${panelName}`,
+    sourceProtein: state.preprocessProtein,
+    sourceFiles: {
+      protein: proteinName,
+      panel: panelName,
+    },
+    metadata: result.vina_panel || {},
+    detail: `${candidates.length} pocket candidate${candidates.length === 1 ? "" : "s"}`,
+    variants: candidates.map((candidate) => {
+      const pose = candidate.representative_pose;
+      return {
+        id: candidate.id,
+        mode: "pocket",
+        prepare: "vina-pocket",
+        label: candidate.label || candidate.id,
+        center: candidate.center,
+        radius: candidate.radius || 10,
+        sdf: pose?.sdf ? { name: `${filenameStem(pose.name || candidate.id)}.sdf`, text: pose.sdf } : null,
+        metadata: candidate,
+        detail: `Vina cluster · ${candidate.supporting_ligand_count || 0} ligand${candidate.supporting_ligand_count === 1 ? "" : "s"}`,
+      };
+    }),
+  });
+}
+
+function vinaPanelSettingsSignature() {
+  return JSON.stringify({
+    protein: state.preprocessProtein?.name || null,
+    panel: state.preprocessPanel?.name || null,
+    options: vinaPanelOptions(),
+  });
 }
 
 function vinaPanelOptions() {
@@ -2380,7 +2974,11 @@ function renderVinaPocketCandidates() {
   `).join("") : "<p class='field-note'>No pocket candidates were found.</p>";
   $$("#vina-pocket-candidates input").forEach((input) => input.addEventListener("change", (event) => {
     state.selectedVinaPocketId = event.target.value;
+    const contextId = `vina-context-${filenameStem(state.preprocessProtein?.name || "protein")}-${filenameStem(state.preprocessPanel?.name || "panel")}`;
+    setPreparedContextVariant(contextId, state.selectedVinaPocketId);
     renderVinaPocketCandidates();
+    renderPreparedStructureTray();
+    renderSelectedVinaPocketPreview();
   }));
   $("#vina-pocket-output").hidden = false;
 }
@@ -2392,10 +2990,86 @@ function pocketCandidateSummary(candidate) {
 }
 
 async function useSelectedVinaPocket() {
+  const prepared = await prepareSelectedVinaPocket();
+  if (!prepared) return;
+  const pose = prepared.candidate.representative_pose;
+  const contextId = `vina-context-${filenameStem(state.preprocessProtein?.name || "protein")}-${filenameStem(state.preprocessPanel?.name || "panel")}`;
+  let contextEntry = state.preparedStructures.find((item) => item.id === contextId);
+  if (contextEntry && preparedStructureNeedsUpdate(contextEntry)) {
+    showToast("Docking-panel settings changed. Find candidate pockets again before staging.");
+    return;
+  }
+  if (!contextEntry && state.vinaPocketResult) {
+    saveVinaPanelContext(state.vinaPocketResult);
+    contextEntry = state.preparedStructures.find((item) => item.id === contextId);
+  }
+  if (contextEntry) {
+    state.preparedStructures = state.preparedStructures.map((item) => {
+      if (item.id !== contextEntry.id) return item;
+      return {
+        ...item,
+        selectedVariantId: prepared.candidate.id,
+        sourceFiles: { ...(item.sourceFiles || {}), ligand: pose?.name || null, pocket: prepared.pdb?.name || null },
+        variants: (item.variants || []).map((variant) => variant.id === prepared.candidate.id ? {
+          ...variant,
+          pdb: prepared.pdb,
+          sdf: pose?.sdf ? { name: `${filenameStem(pose.name || prepared.candidate.id)}.sdf`, text: pose.sdf } : variant.sdf || null,
+          metadata: { ...(variant.metadata || {}), ...(prepared.metadata || {}) },
+          detail: `Vina cluster · ${prepared.metadata?.residue_count || "n/a"} residues`,
+        } : variant),
+      };
+    });
+    state.stagedPreparedStructureId = contextEntry.id;
+    state.stagedPreparedVariantId = prepared.candidate.id;
+    state.selectedPreparedStructureId = contextEntry.id;
+  }
+  renderPreparedStructureTray();
+    stagePreparedInputs({
+      mode: "pocket",
+      pdb: prepared.pdb,
+      sdf: null,
+      label: prepared.pdb.name,
+      detail: `Vina cluster · ${prepared.metadata?.residue_count || "n/a"} residues`,
+      preprocessManifest: buildPreprocessManifest(contextEntry || {
+        contextType: "vina-panel",
+        source: "Docking-panel pocket search",
+        groupLabel: `${state.preprocessProtein?.name || "protein"} · ${state.preprocessPanel?.name || "panel"}`,
+        sourceFiles: { protein: state.preprocessProtein?.name || null, panel: state.preprocessPanel?.name || null },
+        metadata: state.vinaPocketResult?.vina_panel || {},
+      }, {
+        id: prepared.candidate.id,
+        mode: "pocket",
+        label: prepared.candidate.label || prepared.candidate.id,
+        center: prepared.candidate.center,
+        metadata: { ...(prepared.candidate || {}), ...(prepared.metadata || {}) },
+      }, {
+        mode: "pocket",
+        pdb: prepared.pdb,
+        sdf: null,
+      }),
+    });
+}
+
+async function downloadSelectedVinaPocket() {
+  const prepared = await prepareSelectedVinaPocket();
+  if (!prepared) return;
+  const pose = prepared.candidate.representative_pose;
+  await downloadPreparedArchive(`${filenameStem(prepared.pdb.name)}_preprocess.zip`, [
+    prepared.pdb,
+    pose?.sdf ? { name: `${filenameStem(pose.name || "representative_pose")}.sdf`, text: pose.sdf } : null,
+    {
+      name: "preprocess_metadata.json",
+      text: JSON.stringify(preprocessVinaPocketMetadata(prepared), null, 2),
+    },
+  ]);
+  showToast("Selected pocket downloaded.");
+}
+
+async function prepareSelectedVinaPocket() {
   const candidate = (state.vinaPocketResult?.candidates || []).find((item) => item.id === state.selectedVinaPocketId);
   if (!candidate || !state.preprocessProtein) {
     showToast("Select a Vina pocket candidate first.");
-    return;
+    return null;
   }
   try {
     const result = await service.preprocessPocketFromCenter({
@@ -2403,21 +3077,142 @@ async function useSelectedVinaPocket() {
       center: candidate.center,
       radius: candidate.radius || 10,
     });
-    stagePreparedInputs({
-      mode: "pocket",
-      pdb: result.pdb,
-      sdf: null,
-      label: result.pdb.name,
-      detail: `Vina cluster · ${result.metadata?.residue_count || "n/a"} residues`,
-    });
+    return { ...result, candidate };
   } catch (error) {
     showToast(error.message);
+    return null;
   }
 }
 
-function stagePreparedInputs({ mode, pdb, sdf, label, detail }) {
+function preprocessVinaPocketMetadata(prepared) {
+  const result = state.vinaPocketResult || {};
+  return {
+    workflow: "protein_without_reference_ligand_vina_panel",
+    source_protein: state.preprocessProtein?.name || null,
+    source_panel: state.preprocessPanel?.name || null,
+    selected_candidate: prepared.candidate,
+    pocket: prepared.metadata || {},
+    vina_panel: result.vina_panel || {},
+    warnings: result.warnings || [],
+  };
+}
+
+async function renderSelectedVinaPocketPreview() {
+  const candidate = (state.vinaPocketResult?.candidates || []).find((item) => item.id === state.selectedVinaPocketId);
+  if (!candidate || !state.preprocessProtein) return;
+  try {
+    const pocket = await service.preprocessPocketFromCenter({
+      pdb: state.preprocessProtein,
+      center: candidate.center,
+      radius: candidate.radius || 10,
+    });
+    const poseText = candidate.representative_pose?.sdf;
+    const molecule = poseText
+      ? { id: candidate.representative_pose.name || "Representative pose", name: candidate.representative_pose.name || "pose.sdf", text: poseText }
+      : centerMarkerMolecule(candidate);
+    await renderPreprocessViewer({
+      title: candidate.label || candidate.id,
+      pdb: pocket.pdb,
+      sdf: molecule,
+    });
+  } catch (error) {
+    const container = $("#preprocess-main-viewer-3d");
+    if (container) container.innerHTML = `<div class="viewer-error">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function centerMarkerMolecule(candidate) {
+  const center = candidate.center || { x: 0, y: 0, z: 0 };
+  const sdf = `Pocket center\n  conDitar GUI\n\n  1  0  0  0  0  0            999 V2000\n${sdfCoord(center.x)}${sdfCoord(center.y)}${sdfCoord(center.z)} C   0  0  0  0  0  0  0  0  0  0  0  0\nM  END\n$$$$\n`;
+  return { id: "Pocket center", name: "pocket_center.sdf", text: sdf };
+}
+
+function sdfCoord(value) {
+  return Number(value || 0).toFixed(4).padStart(10, " ");
+}
+
+function buildPreprocessManifest(entry, variant, staged) {
+  const sourceFiles = entry?.sourceFiles || {};
+  const metadata = variant?.metadata || entry?.metadata || {};
+  return {
+    schema_version: 1,
+    created_at: new Date().toISOString(),
+    workflow: entry?.contextType || entry?.mode || "manual",
+    source: entry?.source || metadata.provenance || null,
+    set: entry?.groupLabel || null,
+    selected_variant: variant ? {
+      id: variant.id || null,
+      label: variant.label || null,
+      mode: variant.mode || staged?.mode || null,
+      center: variant.center || null,
+      radius: variant.radius || metadata.radius || null,
+    } : null,
+    source_files: {
+      complex: sourceFiles.complex || null,
+      protein: sourceFiles.protein || null,
+      ligand: sourceFiles.ligand || null,
+      pocket: sourceFiles.pocket || null,
+      panel: sourceFiles.panel || null,
+      residues: sourceFiles.residues || null,
+    },
+    staged_inputs: {
+      mode: staged?.mode || null,
+      pdb: staged?.pdb?.name || null,
+      sdf: staged?.sdf?.name || null,
+    },
+    preprocessing: {
+      method: metadata.method || entry?.contextType || entry?.mode || null,
+      radius: metadata.radius || variant?.radius || null,
+      residue_count: metadata.residue_count || null,
+      atom_count: metadata.atom_count || null,
+      residues: metadata.residues || null,
+      warnings: metadata.warnings || [],
+      details: metadata,
+    },
+  };
+}
+
+function renderSetupPreprocessSummary() {
+  const panel = $("#setup-staged-summary");
+  if (!panel) return;
+  const manifest = state.stagedPreprocessManifest;
+  if (!manifest) {
+    panel.hidden = true;
+    $("#setup-staged-grid").innerHTML = "";
+    $("#setup-staged-provenance").textContent = "";
+    return;
+  }
+  const workflow = manifest.workflow || "preprocess";
+  const staged = manifest.staged_inputs || {};
+  const selected = manifest.selected_variant || {};
+  const prep = manifest.preprocessing || {};
+  $("#setup-staged-title").textContent = `Staged from ${workflowLabel(workflow)}`;
+  $("#setup-staged-mode").textContent = staged.mode === "reference" ? "Protein + ligand" : "Pocket";
+  const rows = [
+    ["View", selected.label || null],
+    ["Source", manifest.set || manifest.source || null],
+    ["PDB", staged.pdb || null],
+    ["SDF", staged.sdf || "none"],
+    ["Radius", selected.radius || prep.radius ? `${selected.radius || prep.radius} A` : null],
+    ["Residues", prep.residue_count ? String(prep.residue_count) : null],
+  ].filter(([, value]) => value !== null && value !== "");
+  $("#setup-staged-grid").innerHTML = rows.map(([label, value]) => `
+    <div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>
+  `).join("");
+  $("#setup-staged-provenance").textContent = JSON.stringify(manifest, null, 2);
+  panel.hidden = false;
+}
+
+function workflowLabel(workflow) {
+  return String(workflow || "preprocess")
+    .replace(/[-_]/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function stagePreparedInputs({ mode, pdb, sdf, label, detail, preprocessManifest = null }) {
   state.customPdb = pdb;
   state.customSdf = sdf;
+  state.stagedPreprocessManifest = preprocessManifest;
   state.batchInputs = [];
   $("#pdb-name").textContent = pdb.name;
   $("#pdb-detail").textContent = detail || "Prepared input";
@@ -2428,8 +3223,11 @@ function stagePreparedInputs({ mode, pdb, sdf, label, detail }) {
   setMode(mode, false);
   updateCustomOptionLabel(label || pdb.name);
   updateBatchLabel();
+  renderSetupPreprocessSummary();
   updateCommand();
+  renderPreparedStructureTray();
   setActiveTab("setup");
+  renderPreprocessStagingStatus();
   showToast(mode === "reference" ? "Prepared protein and reference ligand staged." : "Prepared pocket staged.");
 }
 
@@ -2439,6 +3237,8 @@ async function handleFolderUpload(event) {
   try {
     const grouped = await groupBatchFiles(files);
     state.batchInputs = grouped;
+    state.stagedPreprocessManifest = null;
+    renderSetupPreprocessSummary();
     $("#example-select").value = "custom";
     state.exampleId = "custom";
     updateCustomOptionLabel(grouped.length === 1 ? grouped[0].name : `${grouped.length} folders`);
@@ -2472,16 +3272,16 @@ async function groupBatchFiles(files) {
   const jobs = [];
   const skipped = [];
   for (const [folder, folderFiles] of byFolder) {
-    const pdbFile = chooseInputFile(folderFiles, ".pdb", ["protein", "pocket"]);
+    const pdbFile = chooseStructureInputFile(folderFiles, ["protein", "pocket"]);
     const sdfFile = chooseInputFile(folderFiles, ".sdf", ["ligand", "reference", "ref"]);
     if (!pdbFile) {
-      skipped.push(`${folder}: no PDB`);
+      skipped.push(`${folder}: no PDB/CIF`);
       continue;
     }
     const pdbText = await readValidatedTextFile(pdbFile, "pdb", false);
     const sdfText = sdfFile ? await readValidatedTextFile(sdfFile, "sdf", false) : null;
     if (!pdbText) {
-      skipped.push(`${folder}: invalid PDB`);
+      skipped.push(`${folder}: invalid PDB/CIF`);
       continue;
     }
     if (state.mode === "reference" && !sdfText) {
@@ -2496,8 +3296,8 @@ async function groupBatchFiles(files) {
   }
   if (!jobs.length) {
     throw new Error(state.mode === "reference"
-      ? "No valid batch folders found. Each folder needs a PDB and SDF in reference mode."
-      : "No valid batch folders found. Each folder needs a PDB.");
+      ? "No valid batch folders found. Each folder needs a PDB/CIF and SDF in reference mode."
+      : "No valid batch folders found. Each folder needs a PDB/CIF.");
   }
   if (skipped.length) {
     showToast(`${jobs.length} folder${jobs.length === 1 ? "" : "s"} ready; ${skipped.length} skipped.`);
@@ -2516,18 +3316,43 @@ function chooseInputFile(files, extension, preferredTokens = []) {
   return preferred || candidates.find((file) => !file.name.toLowerCase().includes("generated")) || candidates[0];
 }
 
+function chooseStructureInputFile(files, preferredTokens = []) {
+  const candidates = files.filter((file) => isStructureFilename(file.name));
+  if (!candidates.length) return null;
+  const preferred = candidates.find((file) => {
+    const name = file.name.toLowerCase();
+    return preferredTokens.some((token) => name.includes(token)) && !name.includes("generated");
+  });
+  return preferred || candidates.find((file) => !file.name.toLowerCase().includes("generated")) || candidates[0];
+}
+
 async function readValidatedTextFile(file, kind, showError = true) {
   const text = await file.text();
   const lower = file.name.toLowerCase();
-  const validExtension = kind === "pdb" ? (lower.endsWith(".pdb") || lower.endsWith(".ent")) : lower.endsWith(".sdf");
+  const validExtension = kind === "pdb" ? isStructureFilename(lower) : lower.endsWith(".sdf");
   const validContent = kind === "pdb"
-    ? text.split(/\r?\n/, 200).some((line) => /^(ATOM  |HETATM|MODEL |HEADER|CRYST1)/.test(line))
+    ? looksLikeStructureText(text)
     : text.includes("$$$$");
   if (!validExtension || !validContent) {
-    if (showError) showToast(`${file.name} does not look like a valid ${kind.toUpperCase()} file.`);
+    if (showError) showToast(`${file.name} does not look like a valid ${kind === "pdb" ? "PDB/CIF" : kind.toUpperCase()} file.`);
     return null;
   }
   return text;
+}
+
+function isStructureFilename(name) {
+  const lower = String(name || "").toLowerCase();
+  return lower.endsWith(".pdb") || lower.endsWith(".ent") || lower.endsWith(".cif") || lower.endsWith(".mmcif");
+}
+
+function looksLikeStructureText(text) {
+  return text.split(/\r?\n/, 200).some((line) => {
+    const trimmed = line.trim();
+    return /^(ATOM  |HETATM|MODEL |HEADER|CRYST1)/.test(line)
+      || trimmed.startsWith("data_")
+      || trimmed.startsWith("_atom_site.")
+      || trimmed === "loop_";
+  });
 }
 
 async function readLigandPanelFile(file) {
@@ -2843,6 +3668,10 @@ function filenameOnly(path) {
   return String(path || "").split("/").pop() || "conditar_input";
 }
 
+function filenameStem(path) {
+  return filenameOnly(path).replace(/\.[^.]+$/, "") || "conditar_input";
+}
+
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({
     "&": "&amp;",
@@ -2851,6 +3680,30 @@ function escapeHtml(value) {
     "\"": "&quot;",
     "'": "&#39;",
   }[char]));
+}
+
+async function downloadPreparedArchive(filename, files) {
+  const validFiles = files.filter((file) => file?.text);
+  if (!validFiles.length) {
+    showToast("No prepared files are available to download.");
+    return;
+  }
+  if (!window.JSZip) {
+    validFiles.forEach((file) => downloadBlob(file.text, file.name, contentTypeForFilename(file.name)));
+    return;
+  }
+  const zip = new window.JSZip();
+  validFiles.forEach((file) => zip.file(filenameOnly(file.name), file.text));
+  const blob = await zip.generateAsync({ type: "blob" });
+  downloadBlob(blob, filename, "application/zip");
+}
+
+function contentTypeForFilename(filename) {
+  const lower = String(filename || "").toLowerCase();
+  if (lower.endsWith(".pdb") || lower.endsWith(".ent")) return "chemical/x-pdb";
+  if (lower.endsWith(".sdf")) return "chemical/x-mdl-sdfile";
+  if (lower.endsWith(".json")) return "application/json";
+  return "text/plain";
 }
 
 function downloadBlob(content, filename, type) {

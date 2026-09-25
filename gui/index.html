@@ -68,17 +68,38 @@
 
       <section id="preprocess-section" class="workspace-section">
         <div class="section-heading">
-          <div><p class="eyebrow">Prepare inputs</p><h2>Preprocess structures</h2></div>
-          <p>Build conDitar-ready inputs from a complex or from candidate pockets.</p>
+          <div><p class="eyebrow">Prepare inputs</p><h2>Target workbench</h2></div>
+          <p>Start with a bound complex when you have one; use residues when you know the site, or a docking panel when you do not.</p>
         </div>
+        <div class="preprocess-workbench">
+          <div class="preprocess-viewer-column">
+            <article class="panel preprocess-main-viewer-panel empty-viewer">
+              <div class="viewer-header compact-viewer-header">
+                <div><p class="eyebrow">Active target</p><h3 id="preprocess-main-viewer-title">Load a target or candidate input</h3></div>
+                <span id="preprocess-staged-status" class="staged-status-pill">Nothing staged</span>
+              </div>
+              <div class="viewer-stage preprocess-main-viewer-stage">
+                <div class="pocket-preview-3d" id="preprocess-main-viewer-3d"></div>
+                <div class="viewer-loading" id="preprocess-main-viewer-loading" hidden><span></span>Loading structure</div>
+              </div>
+            </article>
 
-        <div class="preprocess-grid">
-          <article class="panel preprocess-panel">
-            <div class="panel-heading"><div><h3>Complex with bound ligand</h3></div><span class="required-label">PDB / ENT</span></div>
+            <article class="panel preprocess-workbench-panel">
+              <div class="panel-heading"><div><h3>Candidate inputs</h3></div><span id="prepared-structure-count" class="required-label">0 candidates</span></div>
+              <div class="prepared-structure-tray" id="prepared-structure-tray">
+                <p class="field-note">Candidate protein, pocket, and ligand sets appear here.</p>
+              </div>
+            </article>
+          </div>
+
+          <div class="preprocess-control-column">
+            <div class="preprocess-grid">
+          <details class="panel preprocess-panel preprocess-method" open>
+            <summary class="preprocess-method-summary"><span><strong>1. Bound complex</strong><small>Best when you have a protein-ligand structure</small></span><b>Bound ligand</b></summary>
             <div class="dropzone">
-              <input id="preprocess-complex-input" type="file" accept=".pdb,.ent">
+              <input id="preprocess-complex-input" type="file" accept=".pdb,.ent,.cif,.mmcif">
               <div class="file-icon accent">PDB</div>
-              <div><strong id="preprocess-complex-name">Choose a protein-ligand complex</strong><span id="preprocess-complex-detail">Detect ligands, split reference SDF, and crop a 10 A pocket</span></div>
+              <div><strong id="preprocess-complex-name">Choose protein-ligand complex</strong><span id="preprocess-complex-detail">Split reference ligand and crop pocket</span></div>
               <button class="text-button" id="preprocess-refresh-complex" type="button">Choose complex</button>
             </div>
             <div class="complex-picker" id="preprocess-complex-picker" hidden>
@@ -88,28 +109,58 @@
                 <button class="secondary-button compact-action" id="preprocess-apply-ligand" type="button">Use ligand</button>
               </div>
             </div>
-            <div class="prepared-output" id="preprocess-complex-output" hidden>
-              <strong id="preprocess-complex-output-title">Prepared files</strong>
-              <div class="prepared-output-grid" id="preprocess-complex-output-grid"></div>
-              <div class="prepared-actions">
-                <button class="primary-button" id="preprocess-use-reference" type="button"><span>Use protein + reference ligand</span><b>→</b></button>
-                <button class="secondary-button" id="preprocess-use-pocket" type="button">Use cropped pocket</button>
+            <div class="preprocess-options complex-pocket-options">
+              <div class="method-heading"><strong>Pocket crop</strong><span>Bound ligand</span></div>
+              <div class="preprocess-option-grid">
+                <label>Radius Angstrom<input id="preprocess-complex-radius" type="number" min="1" step="0.5" value="10"></label>
               </div>
             </div>
-          </article>
+            <div class="prepared-output" id="preprocess-complex-output" hidden>
+              <strong id="preprocess-complex-output-title">Bound-complex context</strong>
+              <div class="prepared-output-grid" id="preprocess-complex-output-grid"></div>
+              <div class="prepared-meta" id="preprocess-complex-meta"></div>
+              <div class="prepared-actions">
+                <button class="secondary-button" id="preprocess-preview-reference" type="button">Preview full pair</button>
+                <button class="secondary-button" id="preprocess-preview-pocket" type="button">Preview pocket</button>
+                <button class="secondary-button" id="preprocess-download-complex" type="button">Download prepared files</button>
+                <button class="primary-button" id="preprocess-use-reference" type="button"><span>Stage protein + reference ligand</span><b>→</b></button>
+                <button class="secondary-button" id="preprocess-use-pocket" type="button">Stage cropped pocket</button>
+              </div>
+            </div>
+          </details>
 
-          <article class="panel preprocess-panel">
-            <div class="panel-heading"><div><h3>Protein with no ligand</h3></div><span class="required-label">Vina panel</span></div>
+              <details class="panel preprocess-panel preprocess-method">
+                <summary class="preprocess-method-summary"><span><strong>2. Target / known site</strong><small>Use this when you already know the pocket residues</small></span><b>Residues</b></summary>
+                <div class="dropzone">
+                  <input id="preprocess-target-input" type="file" accept=".pdb,.ent,.cif,.mmcif">
+                  <div class="file-icon">PDB</div>
+                  <div><strong id="preprocess-target-name">Choose target protein</strong><span id="preprocess-target-detail">Use this when you already know the pocket residues</span></div>
+                  <button class="text-button" id="preprocess-refresh-target" type="button">Choose target</button>
+                </div>
+                <div class="preprocess-options manual-pocket-panel">
+                  <div class="method-heading"><strong>Residue-defined pocket</strong><span>Known site</span></div>
+                  <div class="preprocess-option-grid">
+                    <label>Residues<input id="manual-residue-spec" type="text" placeholder="A:45-62, A:88, B:101"></label>
+                    <label>Expand Angstrom<input id="manual-residue-radius" type="number" min="0" step="0.5" placeholder="exact"></label>
+                  </div>
+                  <div class="prepared-actions">
+                    <button class="primary-button" id="preprocess-build-residue-pocket" type="button"><span>Save pocket candidate</span><b>→</b></button>
+                  </div>
+                </div>
+              </details>
+
+          <details class="panel preprocess-panel preprocess-method">
+            <summary class="preprocess-method-summary"><span><strong>3. Docking panel</strong><small>Use this when you do not have a reference ligand</small></span><b>No ligand</b></summary>
             <div class="dropzone">
-              <input id="preprocess-protein-input" type="file" accept=".pdb,.ent">
+              <input id="preprocess-protein-input" type="file" accept=".pdb,.ent,.cif,.mmcif">
               <div class="file-icon">PDB</div>
-              <div><strong id="preprocess-protein-name">Choose a protein PDB</strong><span id="preprocess-protein-detail">Used as the docking receptor and cropped pocket source</span></div>
+              <div><strong id="preprocess-protein-name">Choose receptor protein</strong><span id="preprocess-protein-detail">Defaults to active target</span></div>
               <button class="text-button" id="preprocess-refresh-protein" type="button">Choose protein</button>
             </div>
             <div class="dropzone">
               <input id="preprocess-panel-input" type="file" accept=".sdf,.csv">
               <div class="file-icon accent">SDF</div>
-              <div><strong id="preprocess-panel-name">Choose a ligand panel SDF or CSV</strong><span id="preprocess-panel-detail">CSV should include a smiles column; dock a small panel and crop a pocket</span></div>
+              <div><strong id="preprocess-panel-name">Choose ligand panel</strong><span id="preprocess-panel-detail">SDF or CSV with smiles</span></div>
               <button class="text-button" id="preprocess-refresh-panel" type="button">Choose panel</button>
             </div>
             <details class="preprocess-options">
@@ -130,12 +181,16 @@
             </div>
             <div class="prepared-output" id="vina-pocket-output" hidden>
               <strong>Candidate pockets</strong>
+              <div class="prepared-meta" id="vina-pocket-meta"></div>
               <div class="pocket-candidate-list" id="vina-pocket-candidates"></div>
               <div class="prepared-actions">
-                <button class="secondary-button" id="preprocess-use-vina-pocket" type="button">Use selected pocket</button>
+                <button class="secondary-button" id="preprocess-download-vina-pocket" type="button">Download selected pocket</button>
+                <button class="secondary-button" id="preprocess-use-vina-pocket" type="button">Stage selected pocket</button>
               </div>
             </div>
-          </article>
+          </details>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -160,8 +215,19 @@
             <select id="example-select">
               <option value="custom" selected>Upload your own files</option>
             </select>
+            <div class="setup-staged-summary" id="setup-staged-summary" hidden>
+              <div class="setup-staged-heading">
+                <strong id="setup-staged-title">Staged from Preprocess</strong>
+                <span id="setup-staged-mode">Pocket</span>
+              </div>
+              <div class="setup-staged-grid" id="setup-staged-grid"></div>
+              <details class="setup-staged-details">
+                <summary>Provenance</summary>
+                <pre id="setup-staged-provenance"></pre>
+              </details>
+            </div>
             <div class="dropzone" id="pdb-dropzone">
-              <input id="pdb-input" type="file" accept=".pdb">
+              <input id="pdb-input" type="file" accept=".pdb,.ent,.cif,.mmcif">
               <div class="file-icon">PDB</div>
               <div><strong id="pdb-name">Choose a PDB file</strong><span id="pdb-detail">Required · uploaded with this job</span></div>
               <button class="text-button" id="refresh-pdb" type="button">Choose / refresh</button>
@@ -171,19 +237,6 @@
               <div class="file-icon accent">SDF</div>
               <div><strong id="sdf-name">Choose a reference SDF</strong><span id="sdf-detail">Required for protein + ligand mode</span></div>
               <button class="text-button" id="refresh-sdf" type="button">Choose / refresh</button>
-            </div>
-            <div class="dropzone" id="complex-dropzone">
-              <input id="complex-input" type="file" accept=".pdb,.ent">
-              <div class="file-icon accent">PDB</div>
-              <div><strong id="complex-name">Or choose a protein-ligand complex</strong><span id="complex-detail">The GUI will split protein and reference ligand</span></div>
-              <button class="text-button" id="refresh-complex" type="button">Choose complex</button>
-            </div>
-            <div class="complex-picker" id="complex-picker" hidden>
-              <label class="field-label" for="complex-ligand-select">Reference ligand from complex</label>
-              <div class="complex-picker-row">
-                <select id="complex-ligand-select"></select>
-                <button class="secondary-button compact-action" id="apply-complex-ligand" type="button">Use ligand</button>
-              </div>
             </div>
             <div class="dropzone folder-dropzone" id="folder-dropzone">
               <input id="folder-input" type="file" webkitdirectory directory multiple>

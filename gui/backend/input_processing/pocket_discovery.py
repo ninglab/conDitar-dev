@@ -99,6 +99,7 @@ def pocket_candidates_from_pose_centers(
             "name": str(pose.get("name") or pose.get("ligand") or f"ligand_{index + 1}"),
             "center": center,
             "score": _coerce_optional_float(pose.get("score")),
+            "sdf": str(pose.get("sdf") or ""),
         })
 
     clusters: list[dict[str, Any]] = []
@@ -116,6 +117,7 @@ def pocket_candidates_from_pose_centers(
     candidates = []
     for index, cluster in enumerate(clusters, start=1):
         scores = [pose["score"] for pose in cluster["poses"] if pose["score"] is not None]
+        representative = _representative_pose(cluster["poses"])
         candidates.append({
             "id": f"{method}_{index}",
             "label": f"Vina panel cluster {index}" if method.startswith("vina") else f"Pose cluster {index}",
@@ -127,6 +129,12 @@ def pocket_candidates_from_pose_centers(
             "best_score": min(scores) if scores else None,
             "median_score": median(scores) if scores else None,
             "pose_ids": [pose["id"] for pose in cluster["poses"]],
+            "representative_pose": {
+                "id": representative["id"],
+                "name": representative["name"],
+                "score": representative["score"],
+                "sdf": representative["sdf"],
+            } if representative else None,
             "provenance": "Clustered from docking-panel pose centers.",
             "warnings": [],
         })
@@ -216,6 +224,12 @@ def _coerce_optional_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _representative_pose(poses: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not poses:
+        return None
+    return sorted(poses, key=lambda pose: pose["score"] if pose["score"] is not None else math.inf)[0]
 
 
 def _normalize_center(value: Any) -> tuple[float, float, float] | None:

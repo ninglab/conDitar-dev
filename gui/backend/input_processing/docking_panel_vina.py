@@ -144,12 +144,14 @@ def dock_ligand(
     center = pose_center_from_pdbqt(pose_text)
     if center is None:
         raise ValueError("Vina returned no pose coordinates.")
+    pose_sdf = pose_sdf_from_template(mol, ligand_name, pose_text, score)
     return {
         "id": f"{ligand_name}:{ligand_index}",
         "name": ligand_name,
         "ligand_index": ligand_index,
         "score": float(score) if score is not None and math.isfinite(float(score)) else None,
         "center": {"x": round(center[0], 4), "y": round(center[1], 4), "z": round(center[2], 4)},
+        "sdf": pose_sdf,
     }
 
 
@@ -163,17 +165,24 @@ def needs_3d_embedding(mol: Chem.Mol) -> bool:
     return max(z_values) - min(z_values) < 0.001
 
 
+def pose_sdf_from_template(mol: Chem.Mol, ligand_name: str, pose_text: str | None, score: float | None) -> str:
+    coords = pose_coordinates_from_pdbqt(pose_text)
+    posed = Chem.Mol(mol)
+    if coords:
+        conformer = posed.GetConformer(0) if posed.GetNumConformers() else Chem.Conformer(posed.GetNumAtoms())
+        for index, coord in enumerate(coords[:posed.GetNumAtoms()]):
+            conformer.SetAtomPosition(index, coord)
+        if not posed.GetNumConformers():
+            posed.AddConformer(conformer)
+    posed.SetProp("_Name", ligand_name)
+    if score is not None:
+        posed.SetProp("VINA_DOCK", str(score))
+    posed.SetProp("VINA_STATUS", "ok")
+    return Chem.MolToMolBlock(posed) + "\n$$$$\n"
+
+
 def pose_center_from_pdbqt(text: str | None) -> tuple[float, float, float] | None:
-    if not text:
-        return None
-    coords = []
-    for line in text.splitlines():
-        if not line.startswith(("ATOM  ", "HETATM")):
-            continue
-        try:
-            coords.append((float(line[30:38]), float(line[38:46]), float(line[46:54])))
-        except ValueError:
-            continue
+    coords = pose_coordinates_from_pdbqt(text)
     if not coords:
         return None
     count = len(coords)
@@ -182,6 +191,20 @@ def pose_center_from_pdbqt(text: str | None) -> tuple[float, float, float] | Non
         sum(point[1] for point in coords) / count,
         sum(point[2] for point in coords) / count,
     )
+
+
+def pose_coordinates_from_pdbqt(text: str | None) -> list[tuple[float, float, float]]:
+    if not text:
+        return []
+    coords = []
+    for line in text.splitlines():
+        if not line.startswith(("ATOM  ", "HETATM")):
+            continue
+        try:
+            coords.append((float(line[30:38]), float(line[38:46]), float(line[46:54])))
+        except ValueError:
+            continue
+    return coords
 
 
 if __name__ == "__main__":

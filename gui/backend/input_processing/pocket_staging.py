@@ -45,6 +45,54 @@ def pocket_pdb_from_center(
     )
 
 
+def pocket_pdb_from_residues(
+    pdb_text: str,
+    residue_spec: str,
+    radius: float | None = None,
+) -> dict[str, Any]:
+    requested = parse_residue_spec(residue_spec)
+    if not requested:
+        raise ValueError("Residues must use entries like A:45-62, A:88, or 45-62.")
+    atoms = _pdb_atoms(pdb_text, record_type="ATOM")
+    if not atoms:
+        raise ValueError("Protein PDB contains no ATOM records for residue pocket extraction.")
+    available = {atom["residue_key"] for atom in atoms}
+    selected_residues = {key for key in requested if key in available}
+    missing = [key for key in requested if key not in available]
+    if not selected_residues:
+        raise ValueError("None of the requested residues were found in the protein structure.")
+
+    if radius and radius > 0:
+        selected_points = [atom["coord"] for atom in atoms if atom["residue_key"] in selected_residues]
+        expanded = {
+            atom["residue_key"]
+            for atom in atoms
+            if _min_distance(atom["coord"], selected_points) <= radius
+        }
+        selected_residues = expanded
+
+    pocket = pocket_pdb_from_residue_keys(
+        pdb_text,
+        selected_residues,
+        method="residue_selection",
+        provenance=(
+            f"Protein residues selected from manual residue list plus residues within {radius:g} A."
+            if radius and radius > 0
+            else "Protein residues selected from manual residue list."
+        ),
+    )
+    pocket["requested_residue_count"] = len(requested)
+    pocket["matched_residue_count"] = len(set(requested) & available)
+    pocket["missing_residues"] = [_format_residue_key(key) for key in missing]
+    if missing:
+        pocket.setdefault("warnings", []).append(
+            f"{len(missing)} requested residue{'' if len(missing) == 1 else 's'} not found: "
+            + ", ".join(_format_residue_key(key) for key in missing[:12])
+            + ("..." if len(missing) > 12 else "")
+        )
+    return pocket
+
+
 def pocket_pdb_from_points(
     pdb_text: str,
     points: list[tuple[float, float, float]],
@@ -65,6 +113,22 @@ def pocket_pdb_from_points(
     if not selected_residues:
         raise ValueError("No protein residues were found within the requested pocket radius.")
 
+    return pocket_pdb_from_residue_keys(
+        pdb_text,
+        selected_residues,
+        method=method,
+        provenance=provenance or f"Protein residues within {radius:g} A of selected points.",
+        radius=radius,
+    )
+
+
+def pocket_pdb_from_residue_keys(
+    pdb_text: str,
+    selected_residues: set[tuple[str, str, str]],
+    method: str = "residue_selection",
+    provenance: str | None = None,
+    radius: float | None = None,
+) -> dict[str, Any]:
     atom_lines_by_residue: dict[tuple[str, str, str], list[tuple[dict[str, Any], str]]] = {}
     for line in pdb_text.splitlines():
         if line.startswith("ATOM  "):
@@ -103,9 +167,45 @@ def pocket_pdb_from_points(
         "residue_count": len(kept_residues),
         "atom_count": selected_atom_count,
         "chains": chains,
-        "provenance": provenance or f"Protein residues within {radius:g} A of selected points.",
+        "residues": [_format_residue_key(key) for key in sorted(kept_residues, key=_residue_order)],
+        "provenance": provenance or "Protein residues selected from residue keys.",
         "warnings": warnings,
     }
+
+
+def parse_residue_spec(spec: str) -> list[tuple[str, str, str]]:
+    residues: list[tuple[str, str, str]] = []
+    seen = set()
+    default_chain = ""
+    for raw_part in str(spec or "").replace(";", ",").split(","):
+        part = raw_part.strip()
+        if not part:
+            continue
+        chain = default_chain
+        residue_part = part
+        if ":" in part:
+            chain, residue_part = part.split(":", 1)
+            chain = chain.strip()
+            default_chain = chain
+        residue_part = residue_part.strip()
+        if not residue_part:
+            continue
+        for residue in _expand_residue_token(chain, residue_part):
+            if residue not in seen:
+                seen.add(residue)
+                residues.append(residue)
+    return residues
+
+
+def _expand_residue_token(chain: str, token: str) -> list[tuple[str, str, str]]:
+    if "-" in token:
+        start, end = [item.strip() for item in token.split("-", 1)]
+        if start.lstrip("-").isdigit() and end.lstrip("-").isdigit():
+            start_number = int(start)
+            end_number = int(end)
+            step = 1 if end_number >= start_number else -1
+            return [(chain, str(number), "") for number in range(start_number, end_number + step, step)]
+    return [(chain, token, "")]
 
 
 def _pdb_atoms(pdb_text: str, record_type: str) -> list[dict[str, Any]]:
@@ -146,6 +246,12 @@ def _residue_order(key: tuple[str, str, str]) -> tuple[str, int, str]:
     except ValueError:
         number = 0
     return (chain, number, icode)
+
+
+def _format_residue_key(key: tuple[str, str, str]) -> str:
+    chain, resseq, icode = key
+    prefix = f"{chain}:" if chain else ""
+    return f"{prefix}{resseq}{icode or ''}"
 
 
 def _min_distance(point: tuple[float, float, float], others: list[tuple[float, float, float]]) -> float:
