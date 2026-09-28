@@ -734,14 +734,16 @@ class LocalJobManager:
         files = []
         artifacts = []
         if paths.outputs.exists():
-            for path in sorted(paths.outputs.rglob("*.sdf")):
+            output_sdfs = self._output_sdfs(paths, job)
+            output_sdf_set = set(output_sdfs)
+            for path in output_sdfs:
                 files.append({
                     "name": path.name,
                     "relative_path": str(path.relative_to(paths.root)),
                     "text": path.read_text(errors="replace"),
                 })
             for path in sorted(paths.outputs.rglob("*")):
-                if not path.is_file() or path.suffix.lower() == ".sdf":
+                if not path.is_file() or path in output_sdf_set:
                     continue
                 artifacts.append({
                     "name": path.name,
@@ -773,7 +775,7 @@ class LocalJobManager:
             raise ValueError("Unknown job.")
         if job.get("status") != "completed":
             raise ValueError("Tools can only be run on completed jobs.")
-        if not self._output_sdfs(paths):
+        if not self._output_sdfs(paths, job):
             raise ValueError("This job has no generated SDF outputs to annotate.")
         run = self.tool_chest.run_tool(tool_id, paths.root, options or {})
         job = self.get_job(job_id) or job
@@ -844,7 +846,7 @@ class LocalJobManager:
         return {"path": str(archive), "relative_path": str(archive.relative_to(paths.root)), "size": archive.stat().st_size}
 
     def _export_filtered_job(self, paths: JobPaths, job_id: str, selected_paths: list, payload: dict) -> dict:
-        output_sdfs = {str(path.relative_to(paths.root)): path for path in self._output_sdfs(paths)}
+        output_sdfs = {str(path.relative_to(paths.root)): path for path in self._output_sdfs(paths, self._read_job(job_id))}
         selected = []
         for item in selected_paths[:10000]:
             rel = str(item).strip()
@@ -1188,8 +1190,6 @@ class LocalJobManager:
     ) -> list[str]:
         if not sdf_path:
             raise ValueError("DiffSMol shape generation requires a 3D SDF reference ligand.")
-        tmp_dir = paths.root / "tmp"
-        tmp_dir.mkdir(parents=True, exist_ok=True)
         runtime = os.environ.get("PODMAN_BIN", "podman") if gpu else self.container_runtime
         command = [
             runtime,
@@ -1200,34 +1200,32 @@ class LocalJobManager:
             command.extend(["--device", "nvidia.com/gpu=all"])
         command.extend([
             "-e",
-            f"DIFFSMOL_DEVICE={device}",
+            "HOME=/tmp",
+            "-e",
+            "OMP_NUM_THREADS=2",
+            "-e",
+            "MKL_NUM_THREADS=2",
             "-v",
             f"{paths.inputs.resolve()}:/inputs:ro",
             "-v",
             f"{paths.outputs.resolve()}:/results",
-            "-v",
-            f"{tmp_dir.resolve()}:/tmp/diffsmol",
             self.diffsmol_image,
         ])
         if self.diffsmol_container_command:
             command.extend(shlex.split(self.diffsmol_container_command))
+        else:
+            command.extend(["python", "/opt/DiffSMol/docker/generate.py"])
         command.extend([
-            "--sdf",
+            "--input",
             f"/inputs/{sdf_path.name}",
-            "--out",
+            "--output",
             "/results",
-            "--tmp-dir",
-            "/tmp/diffsmol",
             "--device",
             device,
         ])
-        for gui_key, cli_key in (
-            ("num_samples", "--num-samples"),
-            ("batch_size", "--batch-size"),
-        ):
-            value = parameters.get(gui_key)
-            if value not in (None, ""):
-                command.extend([cli_key, str(value)])
+        value = parameters.get("num_samples")
+        if value not in (None, ""):
+            command.extend(["--num-samples", str(value)])
         if parameters.get("diffsmol_guidance"):
             command.append("--guidance")
         return command
@@ -1243,23 +1241,19 @@ class LocalJobManager:
         args = []
         if self.diffsmol_container_command:
             args.extend(shlex.split(self.diffsmol_container_command))
+        else:
+            args.extend(["python", "/opt/DiffSMol/docker/generate.py"])
         args.extend([
-            "--sdf",
+            "--input",
             f"{self._openshift_job_mount_path(paths)}/inputs/{sdf_path.name}",
-            "--out",
+            "--output",
             f"{self._openshift_job_mount_path(paths)}/outputs",
-            "--tmp-dir",
-            f"{self._openshift_job_mount_path(paths)}/tmp",
             "--device",
             self._target_device(OPENSHIFT_JOB_TARGET),
         ])
-        for gui_key, cli_key in (
-            ("num_samples", "--num-samples"),
-            ("batch_size", "--batch-size"),
-        ):
-            value = parameters.get(gui_key)
-            if value not in (None, ""):
-                args.extend([cli_key, str(value)])
+        value = parameters.get("num_samples")
+        if value not in (None, ""):
+            args.extend(["--num-samples", str(value)])
         if parameters.get("diffsmol_guidance"):
             args.append("--guidance")
         return args
@@ -1736,7 +1730,7 @@ class LocalJobManager:
         if job.get("status") in TERMINAL_STATES:
             if is_slurm_gpu_target(job.get("target")):
                 self._normalize_terminal_slurm_state(paths, job)
-            if job.get("status") == "completed" and self._output_sdfs(paths):
+            if job.get("status") == "completed" and self._output_sdfs(paths, job):
                 self._run_requested_tools(paths, job)
             if (
                 not is_slurm_gpu_target(job.get("target"))
@@ -1751,7 +1745,7 @@ class LocalJobManager:
             return job
 
         exit_code_path = paths.logs / "exit_code.txt"
-        output_sdfs = self._output_sdfs(paths)
+        output_sdfs = self._output_sdfs(paths, job)
         if exit_code_path.exists():
             try:
                 exit_code = int(exit_code_path.read_text().strip())
@@ -1832,7 +1826,7 @@ class LocalJobManager:
         return job
 
     def _refresh_openshift_job(self, job: dict, paths: JobPaths) -> dict:
-        output_sdfs = self._output_sdfs(paths)
+        output_sdfs = self._output_sdfs(paths, job)
         openshift = job.get("openshift") or {}
         if output_sdfs:
             self._mark_completed_from_outputs(paths, job, output_sdfs)
@@ -1888,13 +1882,16 @@ class LocalJobManager:
         self._write_job(paths, job)
         return job
 
-    def _output_sdfs(self, paths: JobPaths) -> list[Path]:
+    def _output_sdfs(self, paths: JobPaths, job: dict | None = None) -> list[Path]:
         if not paths.outputs.exists():
             return []
-        return sorted(paths.outputs.rglob("*.sdf"))
+        output_sdfs = sorted(paths.outputs.rglob("*.sdf"))
+        if (job or {}).get("engine") == DIFFSMOL_ENGINE:
+            output_sdfs = [path for path in output_sdfs if path.name.lower() != "reference.sdf"]
+        return output_sdfs
 
     def _mark_completed_from_outputs(self, paths: JobPaths, job: dict, output_sdfs: list[Path] | None = None) -> None:
-        output_sdfs = output_sdfs if output_sdfs is not None else self._output_sdfs(paths)
+        output_sdfs = output_sdfs if output_sdfs is not None else self._output_sdfs(paths, job)
         job["status"] = "completed"
         job["finished_at"] = job.get("finished_at") or utc_now()
         job["exit_code"] = 0
@@ -2190,7 +2187,7 @@ class LocalJobManager:
             return
         job["exit_code"] = exit_code
         job["finished_at"] = utc_now()
-        output_count = len(list(paths.outputs.rglob("*.sdf"))) if paths.outputs.exists() else 0
+        output_count = len(self._output_sdfs(paths, job))
         job["outputs"]["sdf_count"] = output_count
         job["status"] = "completed" if exit_code == 0 and output_count > 0 else "failed"
         if exit_code != 0:

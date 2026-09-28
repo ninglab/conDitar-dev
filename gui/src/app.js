@@ -2134,11 +2134,11 @@ function updateCommand() {
   const sdfName = state.customSdf?.name || EXAMPLES[state.exampleId]?.sdf;
   if (state.engine === "diffsmol") {
     const args = [
-      "diffsmol-sample",
+      "python /opt/DiffSMol/docker/generate.py",
       `--device ${isSlurmGpuTarget(resolvedTarget()) || isOpenShiftJobTarget(resolvedTarget()) ? "cuda:0" : "cpu"}`,
-      `--num_samples ${state.parameters.num_samples}`,
-      `--batch_size ${state.parameters.batch_size}`,
-      `--sdf ${sdfName || "<choose ligand.sdf>"}`,
+      `--num-samples ${state.parameters.num_samples}`,
+      `--input ${sdfName || "<choose ligand.sdf>"}`,
+      "--output <job outputs>",
     ];
     if (state.parameters.diffsmol_guidance) args.push("--guidance");
     $("#command-preview").textContent = args.join(" ");
