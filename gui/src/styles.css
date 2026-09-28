@@ -408,6 +408,12 @@ body.diffsmol-engine .primary-button { border-color: #37b96f; }
 .job-status-grid div { padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); }
 .job-status-grid span { display: block; color: var(--muted); font-size: 13px; text-transform: uppercase; }
 .job-status-grid strong { display: block; margin-top: 4px; font: 500 14px "DM Mono"; overflow-wrap: anywhere; }
+.provenance-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 14px 0 16px; }
+.provenance-grid[hidden] { display: none; }
+.provenance-grid div { min-width: 0; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); }
+.provenance-grid span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.provenance-grid strong { display: block; color: var(--ink); font: 500 12px/1.35 "DM Mono"; overflow-wrap: anywhere; }
+.results-provenance-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: -6px; }
 .job-log { max-height: 190px; margin: 14px 0 0; padding: 13px; overflow: auto; border-radius: 7px; background: var(--inverse-bg); color: var(--accent-soft); font: 13px/1.55 "DM Mono"; white-space: pre-wrap; }
 .job-detail-panel .job-log { max-height: 380px; }
 .job-detail-alert { margin-top: 14px; padding: 14px 15px; border: 1px solid var(--danger-text); border-left: 4px solid var(--danger); border-radius: 8px; background: var(--danger-soft); color: var(--danger-text); font-size: 14px; line-height: 1.5; }
@@ -638,6 +644,7 @@ body.dark-mode .brand-logo, body.dark-mode .hero-mark { filter: drop-shadow(0 12
   .setup-health-list { grid-template-columns: 1fr; }
   .setup-staged-grid { grid-template-columns: 1fr; }
   .job-status-grid { grid-template-columns: 1fr; }
+  .provenance-grid, .results-provenance-grid { grid-template-columns: 1fr; }
   .slurm-controls { grid-template-columns: 1fr; }
   .vina-options { grid-template-columns: 1fr; }
   .download-bar { align-items: flex-start; flex-direction: column; }

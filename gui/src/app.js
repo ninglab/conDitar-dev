@@ -763,6 +763,7 @@ async function loadCompletedJob(job) {
     logs: result.logs || {},
     summary: result.summary || {},
     toolRuns: result.toolRuns || [],
+    loadedJob: result.job || job,
   };
   state.currentJob = job;
   state.selectedJob = job;
@@ -791,6 +792,7 @@ function updateJobDetail(job, logText, logs = null) {
   $("#job-detail-id").textContent = job?.id || "None";
   $("#job-detail-target").textContent = targetLabel(job);
   $("#job-detail-started").textContent = formatDate(job?.started_at || job?.created_at);
+  renderJobProvenance(job);
   const note = job?.status_note ? `${job.status_note}\n\n` : "";
   const error = job?.error_message ? `Error: ${job.error_message}\n\n` : "";
   const fallback = job ? jobPaths(job) : null;
@@ -828,7 +830,7 @@ function renderJobsTable() {
     .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
   $("#jobs-table").innerHTML = jobs.length ? jobs.map((job) => `
     <tr data-job-id="${escapeHtml(job.id)}" class="${state.selectedJob?.id === job.id ? "active" : ""}">
-      <td>${escapeHtml(shortJobId(job.id))}<br><small title="${escapeHtml(job.id)}">${escapeHtml(job.mode || "run")}</small></td>
+      <td>${escapeHtml(shortJobId(job.id))}<br><small title="${escapeHtml(job.id)}">${escapeHtml(engineLabel(job))} · ${escapeHtml(conditioningLabel(job))}</small></td>
       <td><span class="status-badge" data-status="${escapeHtml(job.status)}">${escapeHtml(job.status)}</span>${job.status_note ? `<br><small>${escapeHtml(job.status_note)}</small>` : ""}</td>
       <td>${escapeHtml(targetLabel(job))}<br><small>${escapeHtml(inputLabel(job))}</small></td>
       <td>${formatDate(job.created_at)}<br><small>${escapeHtml(slurmLabel(job))}</small></td>
@@ -1064,6 +1066,7 @@ function renderSummary() {
   const vinaScoreValues = candidates.map((item) => propertyMetric(item, "VINA_SCORE_ONLY")).filter(Number.isFinite);
   if (vinaScoreValues.length) cards[2] = ["Mean Vina score", formatMetric(mean(vinaScoreValues)), "kcal/mol"];
   $("#metric-strip").innerHTML = cards.map(([label, value, unit]) => `<div class="metric-card"><span>${label}</span><strong>${value}</strong><small>${unit}</small></div>`).join("");
+  renderResultsProvenance();
   renderQualitySummary(candidates);
 }
 
@@ -1978,10 +1981,67 @@ function resolveViewerMolecule(value) {
 function updateResultsSource() {
   if (state.resultSource === "job" && state.selectedJob) {
     const count = state.study?.summary?.sdf_count ?? state.study?.candidates?.length ?? 0;
-    $("#results-source").textContent = `Loaded ${count} generated SDF${count === 1 ? "" : "s"} from job ${state.selectedJob.id}.`;
+    $("#results-source").textContent = `Loaded ${count} generated SDF${count === 1 ? "" : "s"} from ${engineLabel(state.selectedJob)} job ${state.selectedJob.id}.`;
     return;
   }
   $("#results-source").textContent = "Upload input structures and submit a job to review generated outputs here.";
+}
+
+function renderJobProvenance(job) {
+  const container = $("#job-detail-provenance");
+  if (!container) return;
+  const rows = job ? provenanceRows(job, { includeOutput: false }) : [];
+  container.hidden = !rows.length;
+  container.innerHTML = rows.map(([label, value]) => provenanceItem(label, value)).join("");
+}
+
+function renderResultsProvenance() {
+  const container = $("#results-provenance");
+  if (!container) return;
+  const job = state.study?.loadedJob || state.selectedJob;
+  const rows = state.resultSource === "job" && job ? provenanceRows(job, {
+    includeOutput: true,
+    candidateCount: state.study?.summary?.sdf_count ?? state.study?.candidates?.length ?? null,
+  }) : [];
+  container.hidden = !rows.length;
+  container.innerHTML = rows.map(([label, value]) => provenanceItem(label, value)).join("");
+}
+
+function provenanceItem(label, value) {
+  return `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`;
+}
+
+function provenanceRows(job, { includeOutput = false, candidateCount = null } = {}) {
+  const preprocess = job?.preprocess || {};
+  const sourceFiles = preprocess.source_files || {};
+  const rows = [
+    ["Engine", engineLabel(job)],
+    ["Conditioning", conditioningLabel(job)],
+    ["Input", inputLabel(job)],
+    ["PDB", provenanceFilename(job?.inputs?.pdb || sourceFiles.pdb || sourceFiles.protein || sourceFiles.pocket)],
+    ["SDF", provenanceFilename(job?.inputs?.sdf || sourceFiles.sdf || sourceFiles.ligand)],
+    ["Target", targetLabel(job)],
+  ];
+  const prepSource = preprocess.source || preprocess.workflow || preprocess.preprocessing?.method;
+  if (prepSource) rows.push(["Preprocess", workflowLabel(prepSource)]);
+  if (includeOutput) rows.push(["Generated", candidateCount == null ? "n/a" : `${candidateCount} SDF${candidateCount === 1 ? "" : "s"}`]);
+  return rows.filter(([, value]) => value !== null && value !== undefined && value !== "");
+}
+
+function provenanceFilename(path) {
+  if (!path) return "none";
+  return String(path).split("/").pop() || "none";
+}
+
+function engineLabel(job) {
+  return job?.engine === "diffsmol" ? "DiffSMol" : "conDitar";
+}
+
+function conditioningLabel(job) {
+  if (job?.engine === "diffsmol") return "Shape ligand";
+  if (job?.mode === "reference") return "Protein + ligand";
+  if (job?.mode === "pocket") return "Pocket";
+  return job?.mode || "Run";
 }
 
 function targetLabel(job) {
