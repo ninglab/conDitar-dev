@@ -838,6 +838,8 @@ class LocalJobManager:
         if selected_paths:
             return self._export_filtered_job(paths, job_id, selected_paths, payload)
         archive = paths.outputs / f"{job_id}_study.zip"
+        manifest_path = paths.outputs / "run_manifest.json"
+        manifest_path.write_text(json.dumps(self._run_manifest(paths, job), indent=2))
         with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
             for path in sorted(paths.root.rglob("*")):
                 if not path.is_file() or path == archive:
@@ -871,6 +873,14 @@ class LocalJobManager:
             "run_config": payload.get("run_config") or {},
         }
         (export_root / "export_metadata.json").write_text(json.dumps(metadata, indent=2))
+        job = self._read_job(job_id) or {}
+        (export_root / "run_manifest.json").write_text(json.dumps(self._run_manifest(
+            paths,
+            job,
+            selected_paths=[str(path.relative_to(paths.root)) for path in selected],
+            filters=payload.get("filters") or [],
+            export_metadata=metadata,
+        ), indent=2))
         if metadata["metrics_csv"]:
             (export_root / "metrics.csv").write_text(metadata["metrics_csv"])
         archive = export_root.with_suffix(".zip")
@@ -885,6 +895,77 @@ class LocalJobManager:
             "relative_directory": str(export_root.relative_to(paths.root)),
             "size": archive.stat().st_size,
             "selected_count": len(selected),
+        }
+
+    def _run_manifest(
+        self,
+        paths: JobPaths,
+        job: dict,
+        selected_paths: list[str] | None = None,
+        filters: list | None = None,
+        export_metadata: dict | None = None,
+    ) -> dict:
+        inputs = job.get("inputs") or {}
+        generated = self._output_sdfs(paths, job)
+        generated_rel = {str(path.relative_to(paths.root)) for path in generated}
+        artifacts = []
+        if paths.outputs.exists():
+            for path in sorted(paths.outputs.rglob("*")):
+                if not path.is_file() or str(path.relative_to(paths.root)) in generated_rel:
+                    continue
+                artifacts.append({
+                    "name": path.name,
+                    "relative_path": str(path.relative_to(paths.root)),
+                    "size": path.stat().st_size,
+                    "sha256": self._sha256_file(path),
+                })
+        input_files = {}
+        for key, relative in inputs.items():
+            if not relative:
+                input_files[key] = None
+                continue
+            path = paths.root / relative
+            input_files[key] = {
+                "name": path.name,
+                "relative_path": relative,
+                "sha256": self._sha256_file(path) if path.exists() else None,
+            }
+        return {
+            "schema_version": 1,
+            "created_at": utc_now(),
+            "job": {
+                "id": job.get("id"),
+                "engine": job.get("engine") or CONDITAR_ENGINE,
+                "mode": job.get("mode"),
+                "target": job.get("target"),
+                "status": job.get("status"),
+                "created_at": job.get("created_at"),
+                "started_at": job.get("started_at"),
+                "finished_at": job.get("finished_at"),
+            },
+            "inputs": input_files,
+            "preprocess": job.get("preprocess"),
+            "parameters": job.get("parameters") or {},
+            "postprocess": job.get("postprocess") or {},
+            "container": job.get("container") or {},
+            "command": job.get("command") or [],
+            "outputs": {
+                "generated_sdfs": [
+                    {
+                        "name": path.name,
+                        "relative_path": str(path.relative_to(paths.root)),
+                        "size": path.stat().st_size,
+                        "sha256": self._sha256_file(path),
+                    }
+                    for path in generated
+                ],
+                "artifacts": artifacts,
+            },
+            "export": {
+                "selected_paths": selected_paths or [str(path.relative_to(paths.root)) for path in generated],
+                "filters": filters or [],
+                "metadata": export_metadata or {},
+            },
         }
 
     def archive_job(self, job_id: str) -> dict:

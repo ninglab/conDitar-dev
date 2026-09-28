@@ -3796,6 +3796,7 @@ async function downloadAll() {
   zip.file("metrics.csv", csvText(candidates));
   zip.file("run_config.json", JSON.stringify(exportMetadata.run_config, null, 2));
   zip.file("export_metadata.json", JSON.stringify(exportMetadata, null, 2));
+  zip.file("run_manifest.json", JSON.stringify(buildRunManifest(candidates, exportMetadata), null, 2));
   if (state.study.logs?.stdout) zip.file("logs/stdout.log", state.study.logs.stdout);
   if (state.study.logs?.stderr) zip.file("logs/stderr.log", state.study.logs.stderr);
   if (state.study.logs?.extra) zip.file("logs/additional_logs.txt", state.study.logs.extra);
@@ -3847,6 +3848,50 @@ function buildExportMetadata(candidates = exportCandidates()) {
   };
 }
 
+function buildRunManifest(candidates = exportCandidates(), exportMetadata = buildExportMetadata(candidates)) {
+  const job = state.study?.loadedJob || state.selectedJob || state.currentJob || null;
+  const inputPdb = job?.inputs?.pdb ? filenameOnly(job.inputs.pdb) : state.study?.example?.pdb || null;
+  const inputSdf = job?.inputs?.sdf ? filenameOnly(job.inputs.sdf) : state.study?.example?.sdf || null;
+  return {
+    schema_version: 1,
+    created_at: new Date().toISOString(),
+    job: job ? {
+      id: job.id || null,
+      engine: job.engine || "conditar",
+      mode: job.mode || null,
+      target: job.target || null,
+      status: job.status || null,
+      created_at: job.created_at || null,
+      started_at: job.started_at || null,
+      finished_at: job.finished_at || null,
+    } : null,
+    inputs: {
+      pdb: inputPdb,
+      sdf: inputSdf,
+      preprocess_metadata: job?.inputs?.preprocess_metadata ? filenameOnly(job.inputs.preprocess_metadata) : null,
+    },
+    preprocess: job?.preprocess || null,
+    parameters: job?.parameters || state.parameters || {},
+    postprocess: job?.postprocess || {},
+    container: job?.container || {},
+    command: job?.command || [],
+    outputs: {
+      generated_sdfs: candidates.map((item) => ({
+        id: item.id,
+        name: item.name,
+        relative_path: item.path || item.name,
+      })),
+      artifacts: state.study?.artifacts || [],
+    },
+    export: {
+      selected_count: candidates.length,
+      total_count: state.study?.candidates?.length || 0,
+      filters: exportMetadata.filters || [],
+      metadata: exportMetadata,
+    },
+  };
+}
+
 function csvText(candidates = filteredCandidates()) {
   const toolOutputs = toolOutputDefinitions();
   const header = [
@@ -3895,7 +3940,22 @@ function updateExportScope() {
   const filtered = $("#export-filtered")?.checked;
   if ($("#export-scope-count")) $("#export-scope-count").textContent = `(${count} of ${total} candidates)`;
   if ($("#download-all")) $("#download-all").firstChild.textContent = filtered ? "Download filtered " : "Download all ";
+  renderExportManifestSummary(count, total);
   updateExportFilterStatus();
+}
+
+function renderExportManifestSummary(selectedCount = exportCandidates().length, total = state.study?.candidates?.length || 0) {
+  const container = $("#export-manifest-summary");
+  if (!container) return;
+  const job = state.study?.loadedJob || state.selectedJob || null;
+  const rows = state.study ? [
+    ["Manifest", "run_manifest.json"],
+    ["Engine", job ? engineLabel(job) : state.engine === "diffsmol" ? "DiffSMol" : "conDitar"],
+    ["Selected", `${selectedCount}/${total} candidates`],
+    ["Includes", "inputs, command, container, logs"],
+  ] : [];
+  container.hidden = !rows.length;
+  container.innerHTML = rows.map(([label, value]) => provenanceItem(label, value)).join("");
 }
 
 function csvCell(value) {
