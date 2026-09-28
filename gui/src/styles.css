@@ -62,12 +62,39 @@ body.dark-mode {
   --shadow: 0 18px 52px rgba(0, 0, 0, .24);
 }
 
+body.diffsmol-engine {
+  --bg: #eef8f2;
+  --line: #9bd6af;
+  --accent: #0b8f49;
+  --accent-dark: #07542e;
+  --accent-soft: #e6f7ed;
+  --surface-soft: #f7fcf9;
+  --surface-alt: #eaf8ef;
+  --hero-bg: radial-gradient(circle at 78% 28%, rgba(11, 143, 73, .16), transparent 32%), linear-gradient(130deg, #f7fcf9 0%, #eaf8ef 56%, #f8fffb 100%);
+  --inverse-bg: #073d25;
+  --inverse-muted: #bce8ca;
+}
+
+body.dark-mode.diffsmol-engine {
+  --bg: #06170f;
+  --line: #245f3f;
+  --accent: #48d17e;
+  --accent-dark: #cbf7d9;
+  --accent-soft: #0f3020;
+  --surface-soft: #0d2519;
+  --surface-alt: #143621;
+  --hero-bg: radial-gradient(circle at 78% 28%, rgba(72, 209, 126, .18), transparent 32%), linear-gradient(130deg, #081f15 0%, #12321f 56%, #06170f 100%);
+  --inverse-bg: #cbf7d9;
+  --inverse-muted: #1d5e38;
+}
+
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body { margin: 0; color: var(--ink); background: var(--bg); font-family: "Manrope", sans-serif; font-size: 15px; }
 button, input, select { font: inherit; }
 button, select { cursor: pointer; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid rgba(7, 91, 255, .22); outline-offset: 2px; }
+body.diffsmol-engine button:focus-visible, body.diffsmol-engine input:focus-visible, body.diffsmol-engine select:focus-visible { outline-color: rgba(11, 143, 73, .24); }
 .app-shell { min-height: 100vh; }
 .topbar { height: 78px; padding: 0 clamp(20px, 2.4vw, 48px); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); background: var(--topbar-bg); position: sticky; top: 0; z-index: 20; backdrop-filter: blur(16px); }
 .brand { display: flex; align-items: center; color: inherit; text-decoration: none; }
@@ -190,9 +217,17 @@ h1 { margin: 0; max-width: 700px; font-size: clamp(38px, 4.5vw, 62px); line-heig
 .panel-index { width: 29px; height: 29px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; color: var(--accent); font: 12px "DM Mono"; }
 .required-label, .chart-key, .list-heading > span { color: var(--muted); font: 13px "DM Mono"; text-transform: uppercase; letter-spacing: .07em; }
 .table-actions { display: flex; align-items: center; gap: 8px; }
+.engine-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 14px; }
+.engine-option { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); color: var(--ink); text-align: left; }
+.engine-option strong, .engine-option span { display: block; min-width: 0; }
+.engine-option strong { font-size: 14px; }
+.engine-option span { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.35; }
+.engine-option.active { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 2px 10px rgba(7, 29, 91, .08); }
+.engine-option.active strong { color: var(--accent-dark); }
 .mode-toggle, .view-toggle { display: grid; grid-template-columns: 1fr 1fr; padding: 4px; background: var(--surface-alt); border-radius: 9px; margin-bottom: 22px; }
 .mode-toggle button, .view-toggle button { min-height: 42px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 14px; }
 .mode-toggle button.active, .view-toggle button.active { background: var(--input-bg); color: var(--accent-dark); font-weight: 700; box-shadow: 0 2px 10px rgba(7, 29, 91, .1); }
+.mode-toggle.is-disabled { opacity: .55; pointer-events: none; }
 .field-label { display: block; margin: 0 0 7px; color: var(--muted); font-size: 13px; font-weight: 700; }
 .info-tip { position: relative; display: inline-grid; width: 16px; height: 16px; margin-left: 5px; place-items: center; border: 1px solid #a9c4ff; border-radius: 50%; color: var(--accent); background: var(--surface-soft); font: 700 11px "DM Mono"; cursor: help; vertical-align: 1px; }
 .info-tip::after { content: attr(data-tip); position: absolute; left: 50%; bottom: calc(100% + 8px); z-index: 40; width: min(260px, 70vw); padding: 9px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--inverse-bg); color: var(--inverse-text); font: 12px/1.45 "Manrope"; text-transform: none; letter-spacing: 0; box-shadow: var(--shadow); opacity: 0; pointer-events: none; transform: translate(-50%, 4px); transition: opacity .12s, transform .12s; white-space: normal; }
@@ -311,6 +346,7 @@ select, input[type="text"], input[type="number"], input[type="search"] { border:
 .advanced-subsection > .postprocess-controls, .advanced-subsection > .job-controls, .advanced-subsection > .slurm-controls { margin: 0 13px 13px; }
 .subsection-note { display: block; margin: -2px 0 10px; color: var(--muted); font-size: 13px; line-height: 1.4; }
 .run-bar { margin-top: 18px; padding: 17px 20px; display: flex; align-items: center; justify-content: space-between; gap: 24px; border-radius: var(--radius); background: linear-gradient(135deg, #06164a, #075bff); color: var(--on-accent); box-shadow: 0 16px 36px rgba(7, 91, 255, .18); }
+body.diffsmol-engine .run-bar { background: linear-gradient(135deg, #073d25, #0b8f49); box-shadow: 0 16px 36px rgba(11, 143, 73, .18); }
 .run-bar > div { min-width: 0; }
 .run-bar strong { display: block; margin-bottom: 4px; font-size: 15px; }
 .run-summary { color: #dbe7ff; font-size: 13px; }
@@ -332,6 +368,7 @@ select, input[type="text"], input[type="number"], input[type="search"] { border:
 .setup-health-item small { margin-top: 6px; color: #62441a; font-size: 12px; line-height: 1.35; }
 .primary-button, .secondary-button { min-height: 48px; padding: 0 22px; border-radius: 7px; font-size: 14px; font-weight: 700; white-space: nowrap; }
 .primary-button { border: 1px solid #2c8bff; background: var(--accent); color: var(--on-accent); }
+body.diffsmol-engine .primary-button { border-color: #37b96f; }
 .primary-button b { margin-left: 18px; }
 .secondary-button { border: 1px solid var(--line); background: var(--input-bg); color: var(--ink); }
 .danger-action { border-color: var(--danger-text); color: var(--danger-text); background: var(--danger-soft); }

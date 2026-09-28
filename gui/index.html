@@ -121,9 +121,11 @@
               <div class="prepared-meta" id="preprocess-complex-meta"></div>
               <div class="prepared-actions">
                 <button class="secondary-button" id="preprocess-preview-reference" type="button">Preview full pair</button>
+                <button class="secondary-button" id="preprocess-preview-ligand" type="button">Preview ligand</button>
                 <button class="secondary-button" id="preprocess-preview-pocket" type="button">Preview pocket</button>
                 <button class="secondary-button" id="preprocess-download-complex" type="button">Download prepared files</button>
                 <button class="primary-button" id="preprocess-use-reference" type="button"><span>Stage protein + reference ligand</span><b>→</b></button>
+                <button class="secondary-button" id="preprocess-use-ligand" type="button">Stage ligand for DiffSMol</button>
                 <button class="secondary-button" id="preprocess-use-pocket" type="button">Stage cropped pocket</button>
               </div>
             </div>
@@ -207,6 +209,17 @@
         <div class="setup-grid">
           <article class="panel input-panel">
             <div class="panel-heading"><div><h3>Input structures</h3></div><span class="required-label">PDB required</span></div>
+            <label class="field-label">Generation engine</label>
+            <div class="engine-selector" role="group" aria-label="Generation engine">
+              <button class="engine-option active" type="button" data-engine="conditar">
+                <strong>conDitar</strong>
+                <span>Target-conditioned generation</span>
+              </button>
+              <button class="engine-option" type="button" data-engine="diffsmol">
+                <strong>DiffSMol</strong>
+                <span>Reference-ligand shape expansion</span>
+              </button>
+            </div>
             <div class="mode-toggle" role="group" aria-label="Conditioning mode">
               <button class="active" data-mode="reference">Protein + reference ligand</button>
               <button data-mode="pocket">Pocket only</button>

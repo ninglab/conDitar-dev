@@ -43,6 +43,9 @@ SLURM_GPU_TARGET = "slurm_gpu"
 LEGACY_SLURM_GPU_TARGET = "osc_gpu"
 SLURM_GPU_TARGETS = {SLURM_GPU_TARGET, LEGACY_SLURM_GPU_TARGET}
 LOCAL_QUEUE_TARGETS = {LOCAL_CPU_TARGET, OPENSHIFT_JOB_TARGET, OPENSHIFT_MOCK_TARGET}
+CONDITAR_ENGINE = "conditar"
+DIFFSMOL_ENGINE = "diffsmol"
+GENERATION_ENGINES = {CONDITAR_ENGINE, DIFFSMOL_ENGINE}
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 TRUE_VALUES = {"1", "true", "yes", "on"}
 SLURM_PENDING_STATES = {"CONFIGURING", "PENDING", "REQUEUED", "RESIZING", "SUSPENDED"}
@@ -91,6 +94,8 @@ class LocalJobManager:
         self.project_root = project_root
         self.job_root = Path(os.environ.get("CONDITAR_JOB_ROOT", project_root / "job_data" / "jobs")).expanduser()
         self.docker_image = os.environ.get("CONDITAR_DOCKER_IMAGE", "osuninglab/conditar-dev:2026-07-10")
+        self.diffsmol_image = os.environ.get("DIFFSMOL_DOCKER_IMAGE", "ninglab/diffsmol:latest")
+        self.diffsmol_container_command = os.environ.get("DIFFSMOL_CONTAINER_COMMAND", "").strip()
         self.source_mount = os.environ.get("CONDITAR_SOURCE_MOUNT", "").strip()
         self.container_runtime_kind, self.container_runtime = self._resolve_container_runtime()
         self.default_tmp = Path(os.environ.get("CONDITAR_TMP", "/tmp/conditar-gui"))
@@ -116,7 +121,8 @@ class LocalJobManager:
         self._worker.start()
 
     def health(self) -> dict:
-        image = self._container_image_status()
+        image = self._container_image_status(self.docker_image)
+        diffsmol_image = self._container_image_status(self.diffsmol_image)
         archive_path = Path(self.docker_tar).expanduser() if self.docker_tar else None
         archive_exists = bool(archive_path and archive_path.is_file())
         storage = self._job_storage_status()
@@ -219,6 +225,7 @@ class LocalJobManager:
             },
             "gpu_available": bool(Path("/dev/nvidia0").exists()),
             "docker_image": self.docker_image,
+            "diffsmol_image": diffsmol_image,
             "docker_tar": self.docker_tar,
             "slurm": {
                 "sbatch": self.sbatch_bin,
@@ -529,8 +536,9 @@ class LocalJobManager:
             target = SLURM_GPU_TARGET
         if target not in {LOCAL_CPU_TARGET, SLURM_GPU_TARGET, OPENSHIFT_JOB_TARGET, OPENSHIFT_MOCK_TARGET}:
             raise ValueError("Only local CPU, Slurm GPU, and OpenShift jobs are supported.")
+        engine = payload.get("engine") or CONDITAR_ENGINE
         pdb = payload.get("pdb") or {}
-        if not pdb.get("text"):
+        if engine == CONDITAR_ENGINE and not pdb.get("text"):
             raise ValueError("A PDB input is required.")
 
         job_id = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
@@ -539,9 +547,12 @@ class LocalJobManager:
         paths.outputs.mkdir(parents=True)
         paths.logs.mkdir(parents=True)
 
-        pdb_name = safe_name(pdb.get("name", "input.pdb"), "input.pdb")
-        pdb_path = paths.inputs / pdb_name
-        pdb_path.write_text(pdb["text"])
+        pdb_path = None
+        pdb_name = None
+        if pdb.get("text"):
+            pdb_name = safe_name(pdb.get("name", "input.pdb"), "input.pdb")
+            pdb_path = paths.inputs / pdb_name
+            pdb_path.write_text(pdb["text"])
 
         sdf_path = None
         sdf = payload.get("sdf")
@@ -561,14 +572,14 @@ class LocalJobManager:
         postprocess = self._postprocess_options(payload.get("postprocess") or {})
         tool_requests = payload.get("tools") or []
         if target == LOCAL_CPU_TARGET:
-            image_status = self._container_image_status()
+            image_status = self._container_image_status(self._engine_image(engine))
             if image_status.get("checked") and not image_status.get("exists"):
                 raise ValueError(
-                    f"conDitar container image not found: {self.docker_image}. "
+                    f"{self._engine_label(engine)} container image not found: {self._engine_image(engine)}. "
                     f"Load it with `docker load -i /path/to/image.tar.gz`, or build it, then restart the GUI. "
                     f"Details: {image_status.get('detail') or image_status.get('error') or 'image inspect failed'}"
                 )
-        command = self._build_command(paths, pdb_path, sdf_path, parameters, target, postprocess)
+        command = self._build_command(engine, paths, pdb_path, sdf_path, parameters, target, postprocess)
         slurm_options = self._slurm_options(payload.get("slurm") or {}) if is_slurm_gpu_target(target) else None
         if is_slurm_gpu_target(target) and not slurm_options["account"]:
             raise ValueError("Slurm GPU jobs require a Slurm account number. Enter it in Run setup.")
@@ -580,11 +591,12 @@ class LocalJobManager:
             "started_at": None,
             "finished_at": None,
             "email": payload.get("email") or None,
+            "engine": engine,
             "mode": payload.get("mode") or "pocket",
             "example_id": payload.get("example_id") or None,
-            "input_name": payload.get("input_name") or pdb_name,
+            "input_name": payload.get("input_name") or pdb_name or (sdf_path.name if sdf_path else None) or "input",
             "inputs": {
-                "pdb": str(pdb_path.relative_to(paths.root)),
+                "pdb": str(pdb_path.relative_to(paths.root)) if pdb_path else None,
                 "sdf": str(sdf_path.relative_to(paths.root)) if sdf_path else None,
                 "preprocess_metadata": str(preprocess_manifest_path.relative_to(paths.root)) if preprocess_manifest_path else None,
             },
@@ -600,7 +612,7 @@ class LocalJobManager:
             "container": {
                 "backend": self._backend_label(target),
                 "runtime": self._runtime_label(target),
-                "docker_image": self._job_image_label(target),
+                "docker_image": self._job_image_label(target, engine),
                 "source_mount": self.source_mount or None,
             },
             "command": command,
@@ -644,7 +656,7 @@ class LocalJobManager:
         scripts = []
         for job in jobs:
             paths = self._paths(job["id"])
-            pdb_path = paths.root / job["inputs"]["pdb"]
+            pdb_path = paths.root / job["inputs"]["pdb"] if job["inputs"].get("pdb") else None
             sdf_path = paths.root / job["inputs"]["sdf"] if job["inputs"].get("sdf") else None
             script = paths.root / "run.slurm"
             script.write_text(self._slurm_script(job, paths, pdb_path, sdf_path, slurm))
@@ -898,7 +910,7 @@ class LocalJobManager:
             raise ValueError("Only failed or canceled jobs can be rerun.")
         inputs = job.get("inputs") or {}
         pdb_path = paths.root / inputs.get("pdb", "")
-        if not pdb_path.exists():
+        if inputs.get("pdb") and not pdb_path.exists():
             raise ValueError(f"Original PDB input was not found: {pdb_path}")
         sdf_payload = None
         if inputs.get("sdf"):
@@ -908,11 +920,12 @@ class LocalJobManager:
             sdf_payload = {"name": sdf_path.name, "text": sdf_path.read_text(errors="replace")}
         payload = {
             "target": job.get("target") or "local_cpu",
+            "engine": job.get("engine") or CONDITAR_ENGINE,
             "mode": job.get("mode") or ("reference" if sdf_payload else "pocket"),
             "example_id": job.get("example_id"),
             "input_name": f"rerun_{job.get('input_name') or pdb_path.stem}",
             "email": job.get("email") or "",
-            "pdb": {"name": pdb_path.name, "text": pdb_path.read_text(errors="replace")},
+            "pdb": {"name": pdb_path.name, "text": pdb_path.read_text(errors="replace")} if inputs.get("pdb") else None,
             "sdf": sdf_payload,
             "slurm": job.get("slurm") or {},
             "postprocess": job.get("postprocess") or {},
@@ -953,18 +966,35 @@ class LocalJobManager:
 
     def _build_command(
         self,
+        engine: str,
         paths: JobPaths,
-        pdb_path: Path,
+        pdb_path: Path | None,
         sdf_path: Path | None,
         parameters: dict,
         target: str = "local_cpu",
         postprocess: dict | None = None,
     ) -> list[str]:
+        if engine == DIFFSMOL_ENGINE:
+            if is_slurm_gpu_target(target):
+                return self._build_diffsmol_docker_command(paths, sdf_path, parameters, device="cuda:0", gpu=True)
+            if target == OPENSHIFT_JOB_TARGET:
+                return self._build_diffsmol_openshift_job_args(paths, sdf_path, parameters)
+            if target == OPENSHIFT_MOCK_TARGET:
+                return self._build_diffsmol_mock_command(paths, sdf_path, parameters)
+            if not self.container_runtime:
+                raise ValueError("Docker/Podman runtime not found for DiffSMol.")
+            return self._build_diffsmol_docker_command(paths, sdf_path, parameters, device="cpu", gpu=False)
         if is_slurm_gpu_target(target):
+            if not pdb_path:
+                raise ValueError("conDitar requires a PDB input.")
             return self._build_docker_command(paths, pdb_path, sdf_path, parameters, device="cuda:0", gpu=True, postprocess=postprocess)
         if target == OPENSHIFT_JOB_TARGET:
+            if not pdb_path:
+                raise ValueError("conDitar requires a PDB input.")
             return self._build_openshift_job_args(paths, pdb_path, sdf_path, parameters, postprocess)
         if target == OPENSHIFT_MOCK_TARGET:
+            if not pdb_path:
+                raise ValueError("conDitar requires a PDB input.")
             return self._build_openshift_mock_command(paths, pdb_path, sdf_path, parameters, postprocess)
         if not self.container_runtime:
             if self.container_runtime_kind:
@@ -978,6 +1008,8 @@ class LocalJobManager:
                 "DOCKER_BIN, or PODMAN_BIN."
             )
         if self.container_runtime_kind in {"docker", "podman"}:
+            if not pdb_path:
+                raise ValueError("conDitar requires a PDB input.")
             return self._build_docker_command(paths, pdb_path, sdf_path, parameters, device="cpu", gpu=False, postprocess=postprocess)
         raise ValueError(f"Unsupported container runtime: {self.container_runtime_kind}")
 
@@ -1006,12 +1038,18 @@ class LocalJobManager:
             return "python mock runner"
         return self.container_runtime
 
-    def _job_image_label(self, target: str) -> str | None:
+    def _job_image_label(self, target: str, engine: str = CONDITAR_ENGINE) -> str | None:
         if target == OPENSHIFT_MOCK_TARGET:
             return None
         if target == OPENSHIFT_JOB_TARGET or is_slurm_gpu_target(target) or self.container_runtime_kind in {"docker", "podman"}:
-            return self.docker_image
+            return self._engine_image(engine)
         return None
+
+    def _engine_image(self, engine: str) -> str:
+        return self.diffsmol_image if engine == DIFFSMOL_ENGINE else self.docker_image
+
+    def _engine_label(self, engine: str) -> str:
+        return "DiffSMol" if engine == DIFFSMOL_ENGINE else "conDitar"
 
     def _build_openshift_job_args(
         self,
@@ -1140,6 +1178,120 @@ class LocalJobManager:
         self._append_postprocess_args(command, postprocess)
         return command
 
+    def _build_diffsmol_docker_command(
+        self,
+        paths: JobPaths,
+        sdf_path: Path | None,
+        parameters: dict,
+        device: str = "cpu",
+        gpu: bool = False,
+    ) -> list[str]:
+        if not sdf_path:
+            raise ValueError("DiffSMol shape generation requires a 3D SDF reference ligand.")
+        tmp_dir = paths.root / "tmp"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        runtime = os.environ.get("PODMAN_BIN", "podman") if gpu else self.container_runtime
+        command = [
+            runtime,
+            "run",
+            "--rm",
+        ]
+        if gpu:
+            command.extend(["--device", "nvidia.com/gpu=all"])
+        command.extend([
+            "-e",
+            f"DIFFSMOL_DEVICE={device}",
+            "-v",
+            f"{paths.inputs.resolve()}:/inputs:ro",
+            "-v",
+            f"{paths.outputs.resolve()}:/results",
+            "-v",
+            f"{tmp_dir.resolve()}:/tmp/diffsmol",
+            self.diffsmol_image,
+        ])
+        if self.diffsmol_container_command:
+            command.extend(shlex.split(self.diffsmol_container_command))
+        command.extend([
+            "--sdf",
+            f"/inputs/{sdf_path.name}",
+            "--out",
+            "/results",
+            "--tmp-dir",
+            "/tmp/diffsmol",
+            "--device",
+            device,
+        ])
+        for gui_key, cli_key in (
+            ("num_samples", "--num-samples"),
+            ("batch_size", "--batch-size"),
+        ):
+            value = parameters.get(gui_key)
+            if value not in (None, ""):
+                command.extend([cli_key, str(value)])
+        if parameters.get("diffsmol_guidance"):
+            command.append("--guidance")
+        return command
+
+    def _build_diffsmol_openshift_job_args(
+        self,
+        paths: JobPaths,
+        sdf_path: Path | None,
+        parameters: dict,
+    ) -> list[str]:
+        if not sdf_path:
+            raise ValueError("DiffSMol shape generation requires a 3D SDF reference ligand.")
+        args = []
+        if self.diffsmol_container_command:
+            args.extend(shlex.split(self.diffsmol_container_command))
+        args.extend([
+            "--sdf",
+            f"{self._openshift_job_mount_path(paths)}/inputs/{sdf_path.name}",
+            "--out",
+            f"{self._openshift_job_mount_path(paths)}/outputs",
+            "--tmp-dir",
+            f"{self._openshift_job_mount_path(paths)}/tmp",
+            "--device",
+            self._target_device(OPENSHIFT_JOB_TARGET),
+        ])
+        for gui_key, cli_key in (
+            ("num_samples", "--num-samples"),
+            ("batch_size", "--batch-size"),
+        ):
+            value = parameters.get(gui_key)
+            if value not in (None, ""):
+                args.extend([cli_key, str(value)])
+        if parameters.get("diffsmol_guidance"):
+            args.append("--guidance")
+        return args
+
+    def _build_diffsmol_mock_command(
+        self,
+        paths: JobPaths,
+        sdf_path: Path | None,
+        parameters: dict,
+    ) -> list[str]:
+        if not sdf_path:
+            raise ValueError("DiffSMol shape generation requires a 3D SDF reference ligand.")
+        command = [
+            "diffsmol-openshift-mock",
+            "--sdf",
+            str(sdf_path.relative_to(paths.root)),
+            "--out",
+            str(paths.outputs.relative_to(paths.root)),
+            "--device",
+            "cpu",
+        ]
+        for gui_key, cli_key in (
+            ("num_samples", "--num-samples"),
+            ("batch_size", "--batch-size"),
+        ):
+            value = parameters.get(gui_key)
+            if value not in (None, ""):
+                command.extend([cli_key, str(value)])
+        if parameters.get("diffsmol_guidance"):
+            command.append("--guidance")
+        return command
+
     def _resolve_container_runtime(self) -> tuple[str | None, str | None]:
         requested = os.environ.get("CONDITAR_RUNTIME", "auto").lower()
         if requested in {"docker", "podman"}:
@@ -1162,7 +1314,8 @@ class LocalJobManager:
             return configured if shutil.which(configured) else None
         return shutil.which(fallback)
 
-    def _container_image_status(self) -> dict:
+    def _container_image_status(self, image: str | None = None) -> dict:
+        image = image or self.docker_image
         if not self.container_runtime:
             return {
                 "checked": False,
@@ -1172,7 +1325,7 @@ class LocalJobManager:
             }
         try:
             result = subprocess.run(
-                [self.container_runtime, "image", "inspect", self.docker_image],
+                [self.container_runtime, "image", "inspect", image],
                 text=True,
                 capture_output=True,
                 check=False,
@@ -1186,7 +1339,7 @@ class LocalJobManager:
                 "error": str(error),
             }
         exists = result.returncode == 0
-        detail = f"Image available: {self.docker_image}" if exists else (result.stderr.strip() or result.stdout.strip() or f"Image not found: {self.docker_image}")
+        detail = f"Image available: {image}" if exists else (result.stderr.strip() or result.stdout.strip() or f"Image not found: {image}")
         return {
             "checked": True,
             "exists": exists,
@@ -1236,6 +1389,7 @@ class LocalJobManager:
         if not isinstance(payload, dict):
             raise ValueError("Job payload must be a JSON object.")
         payload = dict(payload)
+        payload["engine"] = self._validated_choice(payload.get("engine") or CONDITAR_ENGINE, GENERATION_ENGINES, "generation engine")
         payload["email"] = self._validated_email(payload.get("email"))
         payload["mode"] = self._validated_choice(payload.get("mode") or "pocket", {"reference", "pocket"}, "mode")
         payload["parameters"] = self._validated_parameters(payload.get("parameters") or {})
@@ -1246,40 +1400,45 @@ class LocalJobManager:
             payload["input_name"] = safe_name(str(payload["input_name"]), "input")
 
         pdb = payload.get("pdb") or {}
-        if not isinstance(pdb, dict) or not str(pdb.get("text") or "").strip():
+        if payload["engine"] == CONDITAR_ENGINE and (not isinstance(pdb, dict) or not str(pdb.get("text") or "").strip()):
             raise ValueError("A PDB or CIF input is required.")
-        pdb, conversion = normalize_structure_payload(pdb, "input.pdb")
-        pdb_text = str(pdb["text"])
-        if len(pdb_text.encode("utf-8")) > 50 * 1024 * 1024:
-            raise ValueError("PDB input is larger than 50 MB.")
-        if not self._looks_like_pdb(pdb_text):
-            raise ValueError("PDB input does not look like a PDB file.")
-        payload["pdb"] = {"name": safe_name(str(pdb.get("name") or "input.pdb"), "input.pdb"), "text": pdb_text}
-        if conversion:
-            payload["structure_conversion"] = conversion
+        if isinstance(pdb, dict) and str(pdb.get("text") or "").strip():
+            pdb, conversion = normalize_structure_payload(pdb, "input.pdb")
+            pdb_text = str(pdb["text"])
+            if len(pdb_text.encode("utf-8")) > 50 * 1024 * 1024:
+                raise ValueError("PDB input is larger than 50 MB.")
+            if not self._looks_like_pdb(pdb_text):
+                raise ValueError("PDB input does not look like a PDB file.")
+            payload["pdb"] = {"name": safe_name(str(pdb.get("name") or "input.pdb"), "input.pdb"), "text": pdb_text}
+            if conversion:
+                payload["structure_conversion"] = conversion
+        else:
+            payload["pdb"] = None
 
         sdf = payload.get("sdf")
         if sdf and isinstance(sdf, dict) and str(sdf.get("text") or "").strip():
-            sdf_text = str(sdf["text"])
+            sdf_text = self._normalize_sdf_text(str(sdf["text"]))
             if len(sdf_text.encode("utf-8")) > 50 * 1024 * 1024:
                 raise ValueError("SDF input is larger than 50 MB.")
-            if "$$$$" not in sdf_text:
+            if not self._looks_like_sdf(sdf_text):
                 raise ValueError("Reference ligand input does not look like an SDF file.")
             payload["sdf"] = {"name": safe_name(str(sdf.get("name") or "reference.sdf"), "reference.sdf"), "text": sdf_text}
         else:
             payload["sdf"] = None
-        if payload["mode"] == "reference" and not payload["sdf"]:
+        if payload["engine"] == DIFFSMOL_ENGINE and not payload["sdf"]:
+            raise ValueError("DiffSMol requires a 3D reference ligand SDF input.")
+        if payload["mode"] == "reference" and payload["engine"] == CONDITAR_ENGINE and not payload["sdf"]:
             raise ValueError("Reference mode requires an SDF ligand input.")
         return payload
 
-    def _preprocess_manifest(self, manifest: dict | None, pdb_path: Path, sdf_path: Path | None, conversion: dict | None = None) -> dict | None:
+    def _preprocess_manifest(self, manifest: dict | None, pdb_path: Path | None, sdf_path: Path | None, conversion: dict | None = None) -> dict | None:
         if not isinstance(manifest, dict):
             return None
         cleaned = dict(manifest)
         staged_inputs = dict(cleaned.get("staged_inputs") or {})
         staged_inputs.update({
-            "pdb": pdb_path.name,
-            "pdb_sha256": self._sha256_file(pdb_path),
+            "pdb": pdb_path.name if pdb_path else None,
+            "pdb_sha256": self._sha256_file(pdb_path) if pdb_path else None,
             "sdf": sdf_path.name if sdf_path else None,
             "sdf_sha256": self._sha256_file(sdf_path) if sdf_path else None,
         })
@@ -1341,6 +1500,15 @@ class LocalJobManager:
                 return True
         return False
 
+    def _looks_like_sdf(self, text: str) -> bool:
+        return "$$$$" in text or (re.search(r"\bV(2000|3000)\b", text) and re.search(r"^\s*M\s+END\s*$", text, re.MULTILINE))
+
+    def _normalize_sdf_text(self, text: str) -> str:
+        stripped = text.rstrip()
+        if "$$$$" in stripped:
+            return stripped + "\n"
+        return stripped + "\n$$$$\n"
+
     def _append_postprocess_args(self, command: list[str], postprocess: dict | None) -> None:
         if not postprocess or not postprocess.get("vina"):
             return
@@ -1356,7 +1524,7 @@ class LocalJobManager:
             str(postprocess.get("vina_cpu") or "4"),
         ])
 
-    def _submit_slurm_job(self, job: dict, paths: JobPaths, pdb_path: Path, sdf_path: Path | None) -> dict:
+    def _submit_slurm_job(self, job: dict, paths: JobPaths, pdb_path: Path | None, sdf_path: Path | None) -> dict:
         if not self.sbatch_bin:
             job["status"] = "failed"
             job["finished_at"] = utc_now()
@@ -1453,7 +1621,7 @@ class LocalJobManager:
         self,
         job: dict,
         paths: JobPaths,
-        pdb_path: Path,
+        pdb_path: Path | None,
         sdf_path: Path | None,
         slurm: dict,
     ) -> str:
@@ -1474,22 +1642,34 @@ class LocalJobManager:
         if slurm["partition"]:
             lines.append(f"#SBATCH --partition={slurm['partition']}")
 
-        command = self._build_docker_command(
-            paths,
-            pdb_path,
-            sdf_path,
-            job["parameters"],
-            device="cuda:0",
-            gpu=True,
-            postprocess=job.get("postprocess"),
-        )
+        if job.get("engine") == DIFFSMOL_ENGINE:
+            command = self._build_diffsmol_docker_command(
+                paths,
+                sdf_path,
+                job["parameters"],
+                device="cuda:0",
+                gpu=True,
+            )
+        else:
+            if not pdb_path:
+                raise ValueError("conDitar requires a PDB input.")
+            command = self._build_docker_command(
+                paths,
+                pdb_path,
+                sdf_path,
+                job["parameters"],
+                device="cuda:0",
+                gpu=True,
+                postprocess=job.get("postprocess"),
+            )
         command_text = " ".join(shlex.quote(part) for part in command)
         podman_command = shlex.quote(os.environ.get("PODMAN_BIN", "podman"))
+        image = self._engine_image(job.get("engine") or CONDITAR_ENGINE)
         legacy_image = "localhost/conditar-dev:container-dev"
         public_images = {"osuninglab/conditar-dev:2026-07-10", "docker.io/osuninglab/conditar-dev:2026-07-10"}
-        allow_legacy_fallback = self.docker_image in public_images
+        allow_legacy_fallback = image in public_images
         run_image_setup = "\n".join([
-            f"CONDITAR_RUN_IMAGE={shlex.quote(self.docker_image)}",
+            f"CONDITAR_RUN_IMAGE={shlex.quote(image)}",
             f"CONDITAR_LEGACY_IMAGE={shlex.quote(legacy_image)}",
         ])
         image_fallback = "\n".join([
@@ -1502,7 +1682,7 @@ class LocalJobManager:
             "  exit 125",
             "fi",
         ])
-        command_text = command_text.replace(shlex.quote(self.docker_image), '"$CONDITAR_RUN_IMAGE"', 1)
+        command_text = command_text.replace(shlex.quote(image), '"$CONDITAR_RUN_IMAGE"', 1)
         image_check = ""
         if self.docker_tar:
             image_check = "\n".join([
@@ -2105,7 +2285,9 @@ class LocalJobManager:
         self._send_email(job, paths)
 
     def _openshift_job_manifest(self, job: dict, paths: JobPaths) -> dict:
-        job_name = f"conditar-{job['id'][-8:]}"
+        engine = job.get("engine") or CONDITAR_ENGINE
+        app_name = "diffsmol" if engine == DIFFSMOL_ENGINE else "conditar"
+        job_name = f"{app_name}-{job['id'][-8:]}"
         namespace = os.environ.get("CONDITAR_OPENSHIFT_NAMESPACE", "")
         pvc_name = os.environ.get("CONDITAR_OPENSHIFT_PVC", "conditar-gui-jobs")
         service_account = os.environ.get("CONDITAR_OPENSHIFT_SERVICE_ACCOUNT", "")
@@ -2134,6 +2316,7 @@ class LocalJobManager:
                 "app": "conditar",
                 "component": "generator",
                 "conditar-gui-job": job["id"],
+                "generation-engine": engine,
             },
         }
         if namespace:
@@ -2156,8 +2339,8 @@ class LocalJobManager:
             },
             "containers": [
                 {
-                    "name": "conditar",
-                    "image": self.docker_image,
+                    "name": app_name,
+                    "image": self._engine_image(engine),
                     "imagePullPolicy": image_pull_policy,
                     "args": job.get("command") or [],
                     "env": [

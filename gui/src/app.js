@@ -19,6 +19,7 @@ const state = {
   study: null,
   selected: null,
   exampleId: "custom",
+  engine: "conditar",
   mode: "reference",
   view: "3d",
   workspaceViewerMolecule: "selected",
@@ -64,7 +65,7 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 
 function initialize() {
   initializeTheme();
-  const commonKeys = new Set(["num_samples", "pocket_radius"]);
+  const commonKeys = new Set(["num_samples", "pocket_radius", "diffsmol_guidance"]);
   renderParameterFields(PARAMETERS.filter((parameter) => commonKeys.has(parameter.key)), $("#parameter-fields"));
   renderParameterFields(
     [...PARAMETERS.filter((parameter) => !commonKeys.has(parameter.key)), ...ADVANCED_PARAMETERS],
@@ -72,6 +73,7 @@ function initialize() {
   );
   bindEvents();
   setMode("reference", false);
+  updateEngineControls();
   updateInputLabels(null);
   updateCommand();
   refreshJobs(false);
@@ -82,7 +84,9 @@ function renderParameterFields(parameters, container) {
   container.innerHTML = parameters.map((parameter) => {
     const control = parameter.type === "select"
       ? `<select id="param-${parameter.key}">${parameter.options.map((option) => `<option ${option === parameter.value ? "selected" : ""}>${option}</option>`).join("")}</select>`
-      : `<input id="param-${parameter.key}" type="${parameter.type}" value="${parameter.value}" ${parameter.min !== undefined ? `min="${parameter.min}"` : ""} ${parameter.max !== undefined ? `max="${parameter.max}"` : ""} ${parameter.step ? `step="${parameter.step}"` : ""}>`;
+      : parameter.type === "checkbox"
+        ? `<input id="param-${parameter.key}" type="checkbox" ${parameter.value ? "checked" : ""}>`
+        : `<input id="param-${parameter.key}" type="${parameter.type}" value="${parameter.value}" ${parameter.min !== undefined ? `min="${parameter.min}"` : ""} ${parameter.max !== undefined ? `max="${parameter.max}"` : ""} ${parameter.step ? `step="${parameter.step}"` : ""}>`;
     return `<div class="parameter-field" data-parameter-key="${escapeHtml(parameter.key)}"><label for="param-${parameter.key}">${parameter.label}${tooltip(parameter.tooltip)}${parameter.suffix ? `<span>${parameter.suffix}</span>` : ""}</label>${control}<small>${parameter.help || ""}</small></div>`;
   }).join("");
 }
@@ -108,12 +112,14 @@ function bindEvents() {
     }
     loadExample(event.target.value);
   });
+  $$(".engine-option").forEach((button) => button.addEventListener("click", () => setEngine(button.dataset.engine)));
   $$(".mode-toggle button").forEach((button) => button.addEventListener("click", () => setMode(button.dataset.mode)));
   $$(".view-toggle button").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
   $$(".workflow-step").forEach((button) => button.addEventListener("click", () => setActiveTab(button.dataset.section)));
   [...PARAMETERS, ...ADVANCED_PARAMETERS].forEach((parameter) => {
     $(`#param-${parameter.key}`).addEventListener("input", (event) => {
-      state.parameters[parameter.key] = parameter.type === "number" ? Number(event.target.value) : event.target.value;
+      state.parameters[parameter.key] = parameter.type === "number" ? Number(event.target.value) : parameter.type === "checkbox" ? event.target.checked : event.target.value;
+      updateEngineControls();
       updateCommand();
     });
   });
@@ -138,9 +144,11 @@ function bindEvents() {
   $("#preprocess-apply-ligand").addEventListener("click", applyPreprocessSelectedLigand);
   $("#preprocess-complex-radius").addEventListener("input", renderPreparedStructureTray);
   $("#preprocess-preview-reference").addEventListener("click", () => previewPreprocessedComplexVariant("reference"));
+  $("#preprocess-preview-ligand").addEventListener("click", () => previewPreprocessedComplexVariant("shape"));
   $("#preprocess-preview-pocket").addEventListener("click", () => previewPreprocessedComplexVariant("pocket"));
   $("#preprocess-download-complex").addEventListener("click", downloadPreprocessedComplex);
   $("#preprocess-use-reference").addEventListener("click", () => usePreprocessedComplex("reference"));
+  $("#preprocess-use-ligand").addEventListener("click", () => usePreprocessedComplex("shape"));
   $("#preprocess-use-pocket").addEventListener("click", () => usePreprocessedComplex("pocket"));
   $("#preprocess-refresh-protein").addEventListener("click", () => chooseFileAgain("#preprocess-protein-input"));
   $("#preprocess-protein-input").addEventListener("change", handlePreprocessProteinUpload);
@@ -447,11 +455,14 @@ async function loadExample(exampleId) {
 }
 
 function setMode(mode, updateSelect = true) {
+  if (state.engine === "diffsmol") mode = "reference";
   state.mode = mode;
   $$(".mode-toggle button").forEach((button) => button.classList.toggle("active", button.dataset.mode === mode));
-  $("#sdf-dropzone").hidden = mode === "pocket";
+  $("#sdf-dropzone").hidden = mode === "pocket" && state.engine !== "diffsmol";
   const pocketRadiusField = $("[data-parameter-key='pocket_radius']");
-  if (pocketRadiusField) pocketRadiusField.hidden = mode === "pocket";
+  if (pocketRadiusField) pocketRadiusField.hidden = state.engine === "diffsmol" || mode === "pocket";
+  const guidanceField = $("[data-parameter-key='diffsmol_guidance']");
+  if (guidanceField) guidanceField.hidden = state.engine !== "diffsmol";
   $("#mode-note").textContent = mode === "reference"
     ? "The reference ligand defines the generation center. Pocket radius controls the surrounding protein context."
     : "The prepared pocket PDB supplies the generation region without a reference ligand.";
@@ -466,6 +477,10 @@ function setMode(mode, updateSelect = true) {
       updateInputLabels(null);
     }
     $("#example-select").value = "custom";
+  }
+  if (state.engine === "diffsmol") {
+    $("#mode-note").textContent = "DiffSMol uses a 3D reference ligand SDF for shape-conditioned generation; protein inputs are optional context.";
+    $("#hero-input-mode").textContent = "Shape";
   }
   updateCommand();
 }
@@ -491,8 +506,53 @@ function renderStudy() {
   updateCommand();
 }
 
+function setEngine(engine) {
+  state.engine = engine === "diffsmol" ? "diffsmol" : "conditar";
+  if (state.engine === "diffsmol" && state.mode !== "reference") {
+    setMode("reference", false);
+  }
+  updateEngineControls();
+  updateCommand();
+}
+
+function updateEngineControls() {
+  const isDiffSmol = state.engine === "diffsmol";
+  document.body.classList.toggle("diffsmol-engine", isDiffSmol);
+  $$(".engine-option").forEach((button) => button.classList.toggle("active", button.dataset.engine === state.engine));
+  $(".mode-toggle")?.classList.toggle("is-disabled", isDiffSmol);
+  $("#pdb-dropzone").hidden = false;
+  $("#sdf-dropzone").hidden = state.mode === "pocket" && !isDiffSmol;
+  $("#pdb-detail").textContent = isDiffSmol
+    ? "Optional context; DiffSMol uses the SDF shape"
+    : "Required · uploaded with this job";
+  $("#sdf-detail").textContent = isDiffSmol
+    ? "Required 3D reference ligand for shape expansion"
+    : (state.customSdf ? "Reference ligand · local upload" : "Required for protein + ligand mode");
+  const guidanceField = $("[data-parameter-key='diffsmol_guidance']");
+  if (guidanceField) guidanceField.hidden = !isDiffSmol;
+  const pocketRadiusField = $("[data-parameter-key='pocket_radius']");
+  if (pocketRadiusField) pocketRadiusField.hidden = isDiffSmol || state.mode === "pocket";
+  const batchSizeField = $("[data-parameter-key='batch_size']");
+  if (batchSizeField) batchSizeField.querySelector("small").textContent = isDiffSmol
+    ? "Samples processed per DiffSMol batch"
+    : "Samples processed per conDitar batch";
+  const headingLabel = $(".input-panel .required-label");
+  if (headingLabel) headingLabel.textContent = isDiffSmol ? "SDF required" : "PDB required";
+  if (isDiffSmol) {
+    $("#mode-note").textContent = "DiffSMol uses a 3D reference ligand SDF for shape-conditioned generation; the protein/pocket is kept only as context for review and downstream scoring.";
+    $("#hero-input-mode").textContent = "Shape";
+  } else {
+    setMode(state.mode, false);
+  }
+  updateBatchLabel();
+}
+
 async function submitGenerationJob() {
-  if (!state.batchInputs.length && !state.study && !state.customPdb) {
+  if (state.engine === "diffsmol" && !state.batchInputs.length && !state.customSdf && !state.study?.referenceSdf) {
+    showToast("DiffSMol needs a 3D reference ligand SDF.");
+    return;
+  }
+  if (state.engine !== "diffsmol" && !state.batchInputs.length && !state.study && !state.customPdb) {
     showToast("Load or upload a PDB before submitting a job.");
     return;
   }
@@ -539,17 +599,19 @@ function buildJobPayload(inputOverride = null) {
     name: example?.pdb.split("/").pop() || "input.pdb",
     text: state.study.pdbText,
   } : null);
-  const sdf = state.mode === "reference"
+  const sdf = state.engine === "diffsmol" || state.mode === "reference"
     ? (inputOverride?.sdf || state.customSdf || (state.study?.referenceSdf ? {
       name: example?.sdf?.split("/").pop() || "reference.sdf",
       text: state.study.referenceSdf,
     } : null))
     : null;
+  const mode = state.engine === "diffsmol" ? "reference" : state.mode;
   return {
+    engine: state.engine,
     target: resolvedTarget(),
-    mode: state.mode,
+    mode,
     example_id: state.exampleId,
-    input_name: inputOverride?.name || pdb?.name || state.exampleId,
+    input_name: inputOverride?.name || (state.engine === "diffsmol" ? sdf?.name : pdb?.name) || state.exampleId,
     email: $("#job-email").disabled ? "" : $("#job-email").value.trim(),
     pdb,
     sdf,
@@ -582,6 +644,14 @@ function buildSlurmPayload() {
 }
 
 function buildPostprocessPayload() {
+  if (state.engine === "diffsmol" && !state.customPdb && !state.study?.pdbText) {
+    return {
+      vina: false,
+      vina_mode: "none",
+      vina_exhaustiveness: $("#vina-exhaustiveness").value,
+      vina_cpu: $("#vina-cpu").value,
+    };
+  }
   const selected = selectedBuiltinEvaluations();
   return {
     vina: selected.length > 0,
@@ -948,7 +1018,8 @@ function notifyWatchedTerminalJobs(jobs) {
 function updateRunEstimate() {
   const estimate = $("#run-estimate");
   if (!estimate) return;
-  const inputs = Math.max(1, state.batchInputs.length || (state.customPdb || state.study ? 1 : 0));
+  const hasSingleInput = state.engine === "diffsmol" ? (state.customSdf || state.study?.referenceSdf) : (state.customPdb || state.study);
+  const inputs = Math.max(1, state.batchInputs.length || (hasSingleInput ? 1 : 0));
   const samples = Math.max(1, Number(state.parameters.num_samples) || 1);
   const totalSamples = inputs * samples;
   const target = resolvedTarget();
@@ -970,7 +1041,8 @@ function updateRunEstimate() {
   const concurrencyNote = isGpu
     ? "Slurm GPU jobs can run in parallel once scheduled."
     : "Local CPU jobs run serially; keep this server window open.";
-  estimate.textContent = `Rule-of-thumb runtime: about ${formatDuration(totalSamples * minutesPerSample)} for ${inputs} input${inputs === 1 ? "" : "s"} × ${samples} sample${samples === 1 ? "" : "s"} on ${isGpu ? "Slurm GPU" : "local CPU"}. ${concurrencyNote}`;
+  const engineLabel = state.engine === "diffsmol" ? "DiffSMol" : "conDitar";
+  estimate.textContent = `Rule-of-thumb runtime: about ${formatDuration(totalSamples * minutesPerSample)} for ${inputs} ${engineLabel} input${inputs === 1 ? "" : "s"} × ${samples} sample${samples === 1 ? "" : "s"} on ${isGpu ? "Slurm GPU" : "local CPU"}. ${concurrencyNote}`;
 }
 
 function formatDuration(minutes) {
@@ -2060,6 +2132,19 @@ function updateCommand() {
     ? `${state.batchInputs.length} folders`
     : (state.customPdb?.name || EXAMPLES[state.exampleId]?.pdb || "<choose structure>");
   const sdfName = state.customSdf?.name || EXAMPLES[state.exampleId]?.sdf;
+  if (state.engine === "diffsmol") {
+    const args = [
+      "diffsmol-sample",
+      `--device ${isSlurmGpuTarget(resolvedTarget()) || isOpenShiftJobTarget(resolvedTarget()) ? "cuda:0" : "cpu"}`,
+      `--num_samples ${state.parameters.num_samples}`,
+      `--batch_size ${state.parameters.batch_size}`,
+      `--sdf ${sdfName || "<choose ligand.sdf>"}`,
+    ];
+    if (state.parameters.diffsmol_guidance) args.push("--guidance");
+    $("#command-preview").textContent = args.join(" ");
+    updateRunEstimate();
+    return;
+  }
   const args = [
     "conditar-sample",
     `--device ${isSlurmGpuTarget(resolvedTarget()) || isOpenShiftJobTarget(resolvedTarget()) ? "cuda:0" : "cpu"}`,
@@ -2113,6 +2198,7 @@ async function handleSdfUpload(event) {
   const text = await readValidatedTextFile(file, "sdf");
   if (!text) return;
   state.customSdf = { name: file.name, text };
+  if (state.engine === "diffsmol") setMode("reference", false);
   state.stagedPreprocessManifest = null;
   renderSetupPreprocessSummary();
   state.batchInputs = [];
@@ -2122,6 +2208,8 @@ async function handleSdfUpload(event) {
   $("#example-select").value = "custom";
   state.exampleId = "custom";
   updateCustomOptionLabel(state.customPdb?.name || file.name);
+  updateCommand();
+  showToast(`${file.name} loaded as reference ligand.`);
 }
 
 async function handlePreprocessTargetUpload(event) {
@@ -2289,6 +2377,18 @@ function handlePreprocessComplexResult(result) {
         metadata: result.pocket_pdb?.metadata || {},
         detail: `Reference ligand · ${result.selected?.label || "selected ligand"}`,
       },
+      {
+        id: "shape",
+        mode: "shape",
+        label: "Reference ligand only",
+        pdb: null,
+        sdf: result.sdf,
+        metadata: {
+          method: "bound_ligand_shape",
+          ligand: result.selected || null,
+        },
+        detail: `DiffSMol shape input · ${result.selected?.label || "selected ligand"}`,
+      },
       ...(result.pocket_pdb?.text ? [{
         id: "pocket",
         mode: "pocket",
@@ -2331,8 +2431,23 @@ function boundComplexSettingsSignature() {
 
 function preprocessedComplexVariant(result, variantId = "pocket") {
   if (!result) return null;
+  if (variantId === "shape" && result.sdf?.text) {
+    return {
+      id: "shape",
+      mode: "shape",
+      pdb: null,
+      sdf: result.sdf,
+      title: "Reference ligand only",
+      detail: `DiffSMol shape input · ${result.selected?.label || "selected ligand"}`,
+      metadata: {
+        method: "bound_ligand_shape",
+        ligand: result.selected || null,
+      },
+    };
+  }
   if (variantId === "pocket" && result.pocket_pdb?.text) {
     return {
+      id: "pocket",
       mode: "pocket",
       pdb: result.pocket_pdb,
       sdf: null,
@@ -2341,6 +2456,7 @@ function preprocessedComplexVariant(result, variantId = "pocket") {
     };
   }
   return {
+    id: "reference",
     mode: "reference",
     pdb: result.pdb,
     sdf: result.sdf,
@@ -2368,7 +2484,7 @@ function renderPreparedComplexOutput(result) {
 
 async function renderPreprocessedComplexPreview(result, variantId = "pocket") {
   const variant = preprocessedComplexVariant(result, variantId);
-  if (!variant?.pdb?.text || !variant?.sdf?.text) return;
+  if (!variant?.pdb?.text && !variant?.sdf?.text) return;
   await renderPreprocessViewer({
     title: variant.title,
     pdb: variant.pdb,
@@ -2427,7 +2543,7 @@ function renderPreparedStructureTray() {
     const staged = isStagedView ? " staged" : "";
     const cardClass = `prepared-structure-card${active}${staged}${stale ? " stale" : ""}`;
     const mode = variant.mode || item.mode;
-    const modeLabel = mode === "reference" ? "Protein + ligand" : mode === "pocket" ? "Pocket" : "Context";
+    const modeLabel = preparedModeLabel(mode);
     const residues = meta.residue_count ? `${meta.residue_count} residues` : "residues n/a";
     const atoms = meta.atom_count ? `${meta.atom_count} atoms` : "atoms n/a";
     const files = preparedStructureFileLines(item);
@@ -2490,6 +2606,14 @@ function preparedVariantById(entry, variantId) {
   return entry.variants.find((variant) => variant.id === variantId) || selectedPreparedVariant(entry);
 }
 
+function preparedVariantPdb(entry, variant) {
+  return Object.prototype.hasOwnProperty.call(variant || {}, "pdb") ? variant.pdb : entry?.pdb;
+}
+
+function preparedVariantSdf(entry, variant) {
+  return Object.prototype.hasOwnProperty.call(variant || {}, "sdf") ? variant.sdf : entry?.sdf || null;
+}
+
 function renderPreprocessStagingStatus() {
   const status = $("#preprocess-staged-status");
   if (!status) return;
@@ -2497,8 +2621,15 @@ function renderPreprocessStagingStatus() {
   status.classList.toggle("is-staged", Boolean(entry));
   const variant = preparedVariantById(entry, state.stagedPreparedVariantId);
   const mode = variant.mode || entry?.mode;
-  status.textContent = entry ? `Staged: ${mode === "reference" ? "protein + ligand" : "pocket"}` : "Nothing staged";
+  status.textContent = entry ? `Staged: ${preparedModeLabel(mode).toLowerCase()}` : "Nothing staged";
   status.title = entry ? `${entry.label || ""}${variant.label ? ` · ${variant.label}` : ""}` : "";
+}
+
+function preparedModeLabel(mode) {
+  if (mode === "reference") return "Protein + ligand";
+  if (mode === "pocket") return "Pocket";
+  if (mode === "shape") return "Shape ligand";
+  return "Context";
 }
 
 function preparedStructureFileLines(item) {
@@ -2531,10 +2662,10 @@ async function handlePreparedStructureAction(event) {
   entry = await resolvePreparedStructure(entry);
   if (!entry) return;
   const variant = selectedPreparedVariant(entry);
-  const pdb = variant.pdb || entry.pdb;
-  const sdf = variant.sdf || entry.sdf || null;
+  const pdb = preparedVariantPdb(entry, variant);
+  const sdf = preparedVariantSdf(entry, variant);
   const stageMode = variant.mode || entry.mode;
-  if (!pdb?.text) return;
+  if (!pdb?.text && !sdf?.text) return;
   if (action === "use") {
     state.stagedPreparedStructureId = entry.id;
     state.stagedPreparedVariantId = variant.id || null;
@@ -2542,13 +2673,13 @@ async function handlePreparedStructureAction(event) {
     stagePreparedInputs({
       mode: stageMode,
       pdb,
-      sdf: stageMode === "reference" ? sdf : null,
-      label: entry.label || pdb.name,
+      sdf: stageMode === "reference" || stageMode === "shape" ? sdf : null,
+      label: entry.label || pdb?.name || sdf?.name,
       detail: variant.detail || entry.detail || entry.source || "Prepared structure",
       preprocessManifest: buildPreprocessManifest(entry, variant, {
         mode: stageMode,
         pdb,
-        sdf: stageMode === "reference" ? sdf : null,
+        sdf: stageMode === "reference" || stageMode === "shape" ? sdf : null,
       }),
     });
     return;
@@ -2665,11 +2796,11 @@ async function resolvePreparedStructure(entry) {
 
 async function previewPreparedStructure(entry) {
   const variant = selectedPreparedVariant(entry);
-  const pdb = variant.pdb || entry?.pdb;
-  const sdf = variant.sdf || entry?.sdf || null;
-  if (!pdb?.text) return;
+  const pdb = preparedVariantPdb(entry, variant);
+  const sdf = preparedVariantSdf(entry, variant);
+  if (!pdb?.text && !sdf?.text) return;
   await renderPreprocessViewer({
-    title: variant.label || entry.label || pdb.name,
+    title: variant.label || entry.label || pdb?.name || sdf?.name,
     pdb,
     sdf: sdf || (entry.center ? centerMarkerMolecule({ center: entry.center }) : null),
   });
@@ -2679,13 +2810,13 @@ async function renderPreprocessViewer({ title, pdb, sdf }) {
   const container = $("#preprocess-main-viewer-3d");
   const loading = $("#preprocess-main-viewer-loading");
   const heading = $("#preprocess-main-viewer-title");
-  if (!container || !pdb?.text) return;
+  if (!container || (!pdb?.text && !sdf?.text)) return;
   container.closest(".preprocess-main-viewer-panel")?.classList.remove("empty-viewer");
-  heading.textContent = title || pdb.name || "Prepared structure";
+  heading.textContent = title || pdb?.name || sdf?.name || "Prepared structure";
   loading.hidden = false;
   try {
     container.innerHTML = "";
-    await render3D(container, sdf || null, pdb.text, {});
+    await render3D(container, sdf || null, pdb?.text || "", {});
   } catch (error) {
     container.innerHTML = `<div class="viewer-error">${escapeHtml(error.message)}</div>`;
   } finally {
@@ -2695,9 +2826,9 @@ async function renderPreprocessViewer({ title, pdb, sdf }) {
 
 async function downloadPreparedStructure(entry) {
   const variant = selectedPreparedVariant(entry);
-  const pdb = variant.pdb || entry.pdb;
-  const sdf = variant.sdf || entry.sdf || null;
-  await downloadPreparedArchive(`${filenameStem(pdb?.name || "prepared_structure")}_preprocess.zip`, [
+  const pdb = preparedVariantPdb(entry, variant);
+  const sdf = preparedVariantSdf(entry, variant);
+  await downloadPreparedArchive(`${filenameStem(pdb?.name || sdf?.name || "prepared_structure")}_preprocess.zip`, [
     pdb,
     sdf,
     {
@@ -2762,6 +2893,34 @@ function usePreprocessedComplex(mode) {
     showToast("Bound-complex settings changed. Regenerate the context before staging.");
     return;
   }
+  if (mode === "shape") {
+    const shapeSdf = boundComplexShapeSdf(result, contextEntry);
+    if (!shapeSdf?.text) {
+      showToast("No reference ligand SDF is available.");
+      return;
+    }
+    if (contextEntry) setPreparedContextVariant(contextEntry.id, "shape");
+    stagePreparedInputs({
+      mode: "shape",
+      pdb: null,
+      sdf: shapeSdf,
+      label: shapeSdf.name,
+      detail: `DiffSMol shape input · ${result.selected?.label || "selected ligand"}`,
+      preprocessManifest: buildPreprocessManifest(contextEntry || {
+        contextType: "bound-complex",
+        source: "Bound-ligand complex split",
+        groupLabel: state.preprocessComplex?.name || null,
+        sourceFiles: { complex: state.preprocessComplex?.name || null, ligand: shapeSdf?.name || null },
+        metadata: { method: "bound_ligand_shape", ligand: result.selected || null },
+      }, preprocessedComplexVariant(result, "shape"), {
+        mode: "shape",
+        pdb: null,
+        sdf: shapeSdf,
+      }),
+    });
+    markPreparedStructureStaged((item) => item.id === contextEntry?.id, "shape");
+    return;
+  }
   if (mode === "pocket") {
     if (!result.pocket_pdb?.text) {
       showToast("No cropped pocket PDB is available.");
@@ -2809,6 +2968,15 @@ function usePreprocessedComplex(mode) {
     }),
   });
   markPreparedStructureStaged((item) => item.id === contextEntry?.id, "reference");
+}
+
+function boundComplexShapeSdf(result, contextEntry) {
+  if (result?.sdf?.text) return result.sdf;
+  const variants = contextEntry?.variants || [];
+  return variants.find((variant) => variant.id === "shape")?.sdf
+    || variants.find((variant) => variant.id === "reference")?.sdf
+    || contextEntry?.sdf
+    || null;
 }
 
 function setPreparedContextVariant(id, variantId) {
@@ -3187,7 +3355,7 @@ function renderSetupPreprocessSummary() {
   const selected = manifest.selected_variant || {};
   const prep = manifest.preprocessing || {};
   $("#setup-staged-title").textContent = `Staged from ${workflowLabel(workflow)}`;
-  $("#setup-staged-mode").textContent = staged.mode === "reference" ? "Protein + ligand" : "Pocket";
+  $("#setup-staged-mode").textContent = preparedModeLabel(staged.mode);
   const rows = [
     ["View", selected.label || null],
     ["Source", manifest.set || manifest.source || null],
@@ -3210,25 +3378,27 @@ function workflowLabel(workflow) {
 }
 
 function stagePreparedInputs({ mode, pdb, sdf, label, detail, preprocessManifest = null }) {
+  const isShapeInput = mode === "shape";
   state.customPdb = pdb;
   state.customSdf = sdf;
   state.stagedPreprocessManifest = preprocessManifest;
   state.batchInputs = [];
-  $("#pdb-name").textContent = pdb.name;
-  $("#pdb-detail").textContent = detail || "Prepared input";
+  if (isShapeInput) setEngine("diffsmol");
+  setMode(isShapeInput ? "reference" : mode, false);
+  $("#pdb-name").textContent = pdb?.name || "No protein staged";
+  $("#pdb-detail").textContent = pdb ? (detail || "Prepared input") : "DiffSMol ligand-shape input";
   $("#sdf-name").textContent = sdf?.name || "No reference SDF";
-  $("#sdf-detail").textContent = sdf ? "Prepared reference ligand" : "Pocket mode uses the cropped PDB";
+  $("#sdf-detail").textContent = isShapeInput ? "Prepared shape reference ligand" : sdf ? "Prepared reference ligand" : "Pocket mode uses the cropped PDB";
   $("#example-select").value = "custom";
   state.exampleId = "custom";
-  setMode(mode, false);
-  updateCustomOptionLabel(label || pdb.name);
+  updateCustomOptionLabel(label || pdb?.name || sdf?.name);
   updateBatchLabel();
   renderSetupPreprocessSummary();
   updateCommand();
   renderPreparedStructureTray();
   setActiveTab("setup");
   renderPreprocessStagingStatus();
-  showToast(mode === "reference" ? "Prepared protein and reference ligand staged." : "Prepared pocket staged.");
+  showToast(isShapeInput ? "Reference ligand staged for DiffSMol." : mode === "reference" ? "Prepared protein and reference ligand staged." : "Prepared pocket staged.");
 }
 
 async function handleFolderUpload(event) {
@@ -3274,28 +3444,30 @@ async function groupBatchFiles(files) {
   for (const [folder, folderFiles] of byFolder) {
     const pdbFile = chooseStructureInputFile(folderFiles, ["protein", "pocket"]);
     const sdfFile = chooseInputFile(folderFiles, ".sdf", ["ligand", "reference", "ref"]);
-    if (!pdbFile) {
+    if (state.engine !== "diffsmol" && !pdbFile) {
       skipped.push(`${folder}: no PDB/CIF`);
       continue;
     }
-    const pdbText = await readValidatedTextFile(pdbFile, "pdb", false);
+    const pdbText = pdbFile ? await readValidatedTextFile(pdbFile, "pdb", false) : null;
     const sdfText = sdfFile ? await readValidatedTextFile(sdfFile, "sdf", false) : null;
-    if (!pdbText) {
+    if (state.engine !== "diffsmol" && !pdbText) {
       skipped.push(`${folder}: invalid PDB/CIF`);
       continue;
     }
-    if (state.mode === "reference" && !sdfText) {
+    if ((state.mode === "reference" || state.engine === "diffsmol") && !sdfText) {
       skipped.push(`${folder}: no valid SDF`);
       continue;
     }
     jobs.push({
       name: folder,
-      pdb: { name: pdbFile.name, text: pdbText },
+      pdb: pdbText ? { name: pdbFile.name, text: pdbText } : null,
       sdf: sdfText ? { name: sdfFile.name, text: sdfText } : null,
     });
   }
   if (!jobs.length) {
-    throw new Error(state.mode === "reference"
+    throw new Error(state.engine === "diffsmol"
+      ? "No valid batch folders found. Each DiffSMol folder needs a 3D SDF reference ligand."
+      : state.mode === "reference"
       ? "No valid batch folders found. Each folder needs a PDB/CIF and SDF in reference mode."
       : "No valid batch folders found. Each folder needs a PDB/CIF.");
   }
@@ -3332,12 +3504,12 @@ async function readValidatedTextFile(file, kind, showError = true) {
   const validExtension = kind === "pdb" ? isStructureFilename(lower) : lower.endsWith(".sdf");
   const validContent = kind === "pdb"
     ? looksLikeStructureText(text)
-    : text.includes("$$$$");
+    : looksLikeSdfText(text);
   if (!validExtension || !validContent) {
     if (showError) showToast(`${file.name} does not look like a valid ${kind === "pdb" ? "PDB/CIF" : kind.toUpperCase()} file.`);
     return null;
   }
-  return text;
+  return kind === "sdf" ? normalizeSdfText(text) : text;
 }
 
 function isStructureFilename(name) {
@@ -3353,6 +3525,17 @@ function looksLikeStructureText(text) {
       || trimmed.startsWith("_atom_site.")
       || trimmed === "loop_";
   });
+}
+
+function looksLikeSdfText(text) {
+  const body = String(text || "");
+  if (body.includes("$$$$")) return true;
+  return /\bV(2000|3000)\b/.test(body) && /^\s*M\s+END\s*$/m.test(body);
+}
+
+function normalizeSdfText(text) {
+  const body = String(text || "").replace(/\s+$/g, "");
+  return body.includes("$$$$") ? `${body}\n` : `${body}\n$$$$\n`;
 }
 
 async function readLigandPanelFile(file) {
@@ -3485,7 +3668,7 @@ function updateBatchLabel() {
   $("#folder-name").textContent = count ? `${count} batch folder${count === 1 ? "" : "s"}` : "Batch folders";
   $("#folder-detail").textContent = count
     ? `Generate will submit ${count} ${batchKind} job${count === 1 ? "" : "s"}`
-    : "Optional: one PDB and optional SDF per folder";
+    : state.engine === "diffsmol" ? "Optional: one SDF per folder" : "Optional: one PDB and optional SDF per folder";
   $("#batch-mode-banner").hidden = !count;
   $("#batch-mode-banner").classList.toggle("is-warning", Boolean(count && !isSlurmGpu && !isOpenShiftJob && !isOpenShiftMock));
   $("#batch-mode-title").textContent = batchTitle;
@@ -3494,7 +3677,7 @@ function updateBatchLabel() {
     : "Each selected folder will submit as a separate job.";
   $("#preview-run span").textContent = count
     ? `Submit ${count} batch job${count === 1 ? "" : "s"}`
-    : "Generate molecules";
+    : state.engine === "diffsmol" ? "Generate shape analogs" : "Generate molecules";
   updateRunEstimate();
 }
 
