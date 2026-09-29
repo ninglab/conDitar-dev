@@ -27,7 +27,7 @@ def affinity(results: list[dict]) -> float | None:
 
 def score_molecule(
     mol: Chem.Mol,
-    protein: Path,
+    protein: Path | None,
     tmp_dir: Path,
     mode: str,
     exhaustiveness: int,
@@ -39,12 +39,16 @@ def score_molecule(
     task = None
 
     if mode in {"vina_score", "vina_dock", "all"}:
+        if protein is None:
+            raise ValueError("Protein PDB is required for Vina scoring.")
         task = task or VinaDockingTask(str(protein), mol, tmp_dir=str(tmp_dir))
         vina_results["score_only"] = task.run(mode="score_only", exhaustiveness=exhaustiveness, cpu=cpu)
         vina_results["minimize"] = task.run(mode="minimize", exhaustiveness=exhaustiveness, cpu=cpu)
         if mode in {"vina_dock", "all"}:
             vina_results["dock"] = task.run(mode="dock", exhaustiveness=exhaustiveness, cpu=cpu)
     if mode in {"qvina", "all"}:
+        if protein is None:
+            raise ValueError("Protein PDB is required for QVina scoring.")
         task = task or VinaDockingTask(str(protein), mol, tmp_dir=str(tmp_dir))
         vina_results["qvina"] = task.qvina(exhaustiveness=exhaustiveness, qvina_bin=qvina_bin)
 
@@ -61,7 +65,7 @@ def set_prop(mol: Chem.Mol, name: str, value) -> None:
 
 def annotate_molecule(
     mol: Chem.Mol,
-    protein: Path,
+    protein: Path | None,
     tmp_dir: Path,
     mode: str,
     exhaustiveness: int,
@@ -104,7 +108,7 @@ def annotate_molecule(
 
 def annotate_sdf_file(
     sdf_path: Path,
-    protein: Path,
+    protein: Path | None,
     tmp_dir: Path,
     mode: str,
     exhaustiveness: int,
@@ -133,7 +137,7 @@ def annotate_sdf_file(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Post-process generated conDitar SDFs with Vina scoring.")
     parser.add_argument("--generated-dir", required=True, type=Path)
-    parser.add_argument("--protein", required=True, type=Path)
+    parser.add_argument("--protein", default=None, type=Path)
     parser.add_argument("--tmp-dir", default="/tmp/conditar/vina", type=Path)
     parser.add_argument("--mode", choices=DOCKING_MODES, default="vina_score")
     parser.add_argument("--exhaustiveness", type=int, default=8)
@@ -144,7 +148,9 @@ def main() -> int:
 
     if not args.verbose:
         RDLogger.DisableLog("rdApp.*")
-    if not args.protein.exists():
+    if args.mode != "none" and args.protein is None:
+        raise ValueError("Protein PDB is required unless mode is none.")
+    if args.protein is not None and not args.protein.exists():
         raise FileNotFoundError(f"Protein PDB not found: {args.protein}")
     if not args.generated_dir.exists():
         raise FileNotFoundError(f"Generated SDF directory not found: {args.generated_dir}")

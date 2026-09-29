@@ -387,6 +387,8 @@ body.diffsmol-engine .primary-button { border-color: #37b96f; }
 .postprocess-controls { margin-bottom: 14px; }
 .check-control { display: inline-flex; align-items: center; gap: 8px; color: var(--ink); font-size: 14px; font-weight: 700; }
 .check-control input { width: 16px; height: 16px; accent-color: var(--accent); }
+.check-control.is-disabled { opacity: .52; cursor: not-allowed; }
+.check-control.is-disabled input { cursor: not-allowed; }
 .vina-run-settings.is-disabled { opacity: .62; }
 .vina-options { display: grid; grid-template-columns: repeat(2, minmax(90px, 160px)); gap: 10px; margin-top: 10px; }
 .vina-options[hidden] { display: none; }

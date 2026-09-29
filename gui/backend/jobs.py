@@ -46,6 +46,8 @@ LOCAL_QUEUE_TARGETS = {LOCAL_CPU_TARGET, OPENSHIFT_JOB_TARGET, OPENSHIFT_MOCK_TA
 CONDITAR_ENGINE = "conditar"
 DIFFSMOL_ENGINE = "diffsmol"
 GENERATION_ENGINES = {CONDITAR_ENGINE, DIFFSMOL_ENGINE}
+VINA_METRICS = {"vina_score", "vina_dock", "qvina"}
+CHEMISTRY_METRICS = {"qed", "sa", "logp", "lipinski"}
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 TRUE_VALUES = {"1", "true", "yes", "on"}
 SLURM_PENDING_STATES = {"CONFIGURING", "PENDING", "REQUEUED", "RESIZING", "SUSPENDED"}
@@ -740,6 +742,7 @@ class LocalJobManager:
                 files.append({
                     "name": path.name,
                     "relative_path": str(path.relative_to(paths.root)),
+                    "sha256": self._sha256_file(path),
                     "text": path.read_text(errors="replace"),
                 })
             for path in sorted(paths.outputs.rglob("*")):
@@ -825,6 +828,122 @@ class LocalJobManager:
             else:
                 job["status_note"] = f"Post-run evaluators completed: {completed}/{len(requests)}."
             self._write_job(paths, job)
+
+    def _run_builtin_postprocess(self, paths: JobPaths, job: dict) -> None:
+        if job.get("engine") != DIFFSMOL_ENGINE:
+            return
+        postprocess = job.get("postprocess") or {}
+        if postprocess.get("status") in {"completed", "failed", "skipped"}:
+            return
+        selected = set(str(item) for item in (postprocess.get("metrics") or []))
+        wants_vina = bool(postprocess.get("vina")) or bool(selected & VINA_METRICS)
+        wants_chemistry = bool(selected & CHEMISTRY_METRICS)
+        if not wants_vina and not wants_chemistry:
+            return
+        output_sdfs = self._output_sdfs(paths, job)
+        if not output_sdfs:
+            return
+
+        inputs = job.get("inputs") or {}
+        pdb_path = paths.root / inputs.get("pdb", "") if inputs.get("pdb") else None
+        has_protein = bool(pdb_path and pdb_path.exists())
+        mode = postprocess.get("vina_mode") or "vina_score"
+        if not wants_vina:
+            mode = "none"
+        elif not has_protein:
+            mode = "none"
+            postprocess["vina_skipped_reason"] = "Protein PDB was not provided; Vina/QVina requires protein context."
+
+        tmp_dir = paths.root / "tmp" / "vina"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        if not self.container_runtime:
+            postprocess["status"] = "failed"
+            postprocess["error"] = "Docker/Podman runtime is required for DiffSMol built-in post-processing."
+            job["postprocess"] = postprocess
+            job["status_note"] = postprocess["error"]
+            self._write_job(paths, job)
+            return
+        image_status = self._container_image_status(self.docker_image)
+        if image_status.get("checked") and not image_status.get("exists"):
+            postprocess["status"] = "failed"
+            postprocess["error"] = f"conDitar image is required for DiffSMol post-processing: {self.docker_image}"
+            job["postprocess"] = postprocess
+            job["status_note"] = postprocess["error"]
+            self._write_job(paths, job)
+            return
+
+        command = [
+            self.container_runtime,
+            "run",
+            "--rm",
+            "-e",
+            "HOME=/tmp",
+            "-v",
+            f"{paths.outputs.resolve()}:/outputs",
+            "-v",
+            f"{paths.inputs.resolve()}:/inputs:ro",
+            "-v",
+            f"{tmp_dir.resolve()}:/tmp/conditar/vina",
+            "-v",
+            f"{self.project_root.parent.resolve()}:/workspace:ro",
+            "-w",
+            "/workspace",
+            "--entrypoint",
+            "python",
+            self.docker_image,
+            "-m",
+            "scripts.conDitar.postprocess_vina",
+            "--generated-dir",
+            "/outputs",
+            "--tmp-dir",
+            "/tmp/conditar/vina",
+            "--mode",
+            mode,
+            "--exhaustiveness",
+            str(postprocess.get("vina_exhaustiveness") or "8"),
+            "--cpu",
+            str(postprocess.get("vina_cpu") or "4"),
+        ]
+        if mode != "none" and pdb_path:
+            command.extend(["--protein", f"/inputs/{pdb_path.name}"])
+
+        postprocess["status"] = "running"
+        postprocess["applied_mode"] = mode
+        job["status"] = "running"
+        job["finished_at"] = None
+        job["status_note"] = (
+            "Running DiffSMol docking/properties post-processing."
+            if mode != "none"
+            else "Running DiffSMol SDF-only chemistry post-processing."
+        )
+        job["postprocess"] = postprocess
+        self._write_job(paths, job)
+        paths.logs.mkdir(parents=True, exist_ok=True)
+        with paths.stdout.open("a") as stdout, paths.stderr.open("a") as stderr:
+            stdout.write("\n$ " + " ".join(shlex.quote(part) for part in command) + "\n\n")
+            stdout.flush()
+            result = subprocess.run(command, cwd=str(self.project_root), text=True, stdout=stdout, stderr=stderr, check=False)
+
+        postprocess["status"] = "completed" if result.returncode == 0 else "failed"
+        postprocess["exit_code"] = result.returncode
+        job["status"] = "completed"
+        job["finished_at"] = utc_now()
+        job["exit_code"] = 0
+        if result.returncode == 0:
+            job["status_note"] = (
+                "DiffSMol outputs annotated with docking/properties."
+                if mode != "none"
+                else "DiffSMol outputs annotated with SDF-only chemistry properties."
+            )
+            postprocess.pop("error", None)
+        else:
+            postprocess["error"] = (
+                f"Built-in post-processing exited with status {result.returncode}. "
+                f"See logs: {paths.stderr} and {paths.stdout}."
+            )
+            job["status_note"] = postprocess["error"]
+        job["postprocess"] = postprocess
+        self._write_job(paths, job)
 
     def export_job(self, job_id: str, payload: dict | None = None) -> dict:
         paths = self._paths(job_id)
@@ -1475,6 +1594,12 @@ class LocalJobManager:
             payload["input_name"] = safe_name(str(payload["input_name"]), "input")
 
         pdb = payload.get("pdb") or {}
+        sdf = payload.get("sdf")
+        has_pdb_text = isinstance(pdb, dict) and bool(str(pdb.get("text") or "").strip())
+        has_sdf_text = isinstance(sdf, dict) and bool(str(sdf.get("text") or "").strip())
+        if payload["engine"] == CONDITAR_ENGINE and not has_pdb_text and has_sdf_text:
+            payload["engine"] = DIFFSMOL_ENGINE
+            payload["mode"] = "reference"
         if payload["engine"] == CONDITAR_ENGINE and (not isinstance(pdb, dict) or not str(pdb.get("text") or "").strip()):
             raise ValueError("A PDB or CIF input is required.")
         if isinstance(pdb, dict) and str(pdb.get("text") or "").strip():
@@ -1490,13 +1615,17 @@ class LocalJobManager:
         else:
             payload["pdb"] = None
 
-        sdf = payload.get("sdf")
         if sdf and isinstance(sdf, dict) and str(sdf.get("text") or "").strip():
             sdf_text = self._normalize_sdf_text(str(sdf["text"]))
             if len(sdf_text.encode("utf-8")) > 50 * 1024 * 1024:
                 raise ValueError("SDF input is larger than 50 MB.")
             if not self._looks_like_sdf(sdf_text):
                 raise ValueError("Reference ligand input does not look like an SDF file.")
+            if payload["engine"] == DIFFSMOL_ENGINE and self._sdf_molecule_count(sdf_text) != 1:
+                raise ValueError(
+                    "DiffSMol requires one 3D reference ligand SDF. "
+                    "Ligand databases or multi-molecule SDF panels belong in the docking-panel preprocessing workflow."
+                )
             payload["sdf"] = {"name": safe_name(str(sdf.get("name") or "reference.sdf"), "reference.sdf"), "text": sdf_text}
         else:
             payload["sdf"] = None
@@ -1583,6 +1712,9 @@ class LocalJobManager:
         if "$$$$" in stripped:
             return stripped + "\n"
         return stripped + "\n$$$$\n"
+
+    def _sdf_molecule_count(self, text: str) -> int:
+        return len([block for block in text.split("$$$$") if block.strip()])
 
     def _append_postprocess_args(self, command: list[str], postprocess: dict | None) -> None:
         if not postprocess or not postprocess.get("vina"):
@@ -1840,12 +1972,17 @@ class LocalJobManager:
                 job["error_message"] = self._container_failure_message(paths, exit_code)
             self._write_job(paths, job)
             if job["status"] == "completed":
+                self._run_builtin_postprocess(paths, job)
+                job = self.get_job(job["id"]) or job
                 self._run_requested_tools(paths, job)
             self._send_email(job, paths)
             return job
 
         state = self._slurm_state(job)
         if output_sdfs and (not state or state in SLURM_SUCCESS_STATES):
+            if self._output_completion_blocked_by_postprocess(job) and state not in SLURM_SUCCESS_STATES:
+                self._hold_for_builtin_postprocess(paths, job)
+                return job
             self._mark_completed_from_outputs(paths, job, output_sdfs)
             return job
 
@@ -1859,6 +1996,9 @@ class LocalJobManager:
                     job["status_note"] = f"Slurm is waiting: {reason}"
             elif state in SLURM_RUNNING_STATES:
                 if output_sdfs:
+                    if self._output_completion_blocked_by_postprocess(job):
+                        self._hold_for_builtin_postprocess(paths, job)
+                        return job
                     self._mark_completed_from_outputs(paths, job, output_sdfs)
                     return job
                 else:
@@ -1875,6 +2015,8 @@ class LocalJobManager:
                         f"{paths.stderr} and {paths.stdout}."
                     )
                 else:
+                    self._run_builtin_postprocess(paths, job)
+                    job = self.get_job(job["id"]) or job
                     self._run_requested_tools(paths, job)
                 self._send_email(job, paths)
             elif state in SLURM_FAILURE_STATES:
@@ -1889,6 +2031,9 @@ class LocalJobManager:
             self._write_job(paths, job)
         elif is_slurm_gpu_target(job.get("target")):
             if output_sdfs:
+                if self._output_completion_blocked_by_postprocess(job):
+                    self._hold_for_builtin_postprocess(paths, job)
+                    return job
                 self._mark_completed_from_outputs(paths, job, output_sdfs)
             elif self._job_has_logs(paths, job):
                 if job.get("status") == "queued":
@@ -1909,7 +2054,7 @@ class LocalJobManager:
     def _refresh_openshift_job(self, job: dict, paths: JobPaths) -> dict:
         output_sdfs = self._output_sdfs(paths, job)
         openshift = job.get("openshift") or {}
-        if output_sdfs:
+        if output_sdfs and not self._output_completion_blocked_by_postprocess(job):
             self._mark_completed_from_outputs(paths, job, output_sdfs)
             job.setdefault("openshift", {}).setdefault("state", "succeeded")
             self._write_job(paths, job)
@@ -1971,6 +2116,23 @@ class LocalJobManager:
             output_sdfs = [path for path in output_sdfs if path.name.lower() != "reference.sdf"]
         return output_sdfs
 
+    def _output_completion_blocked_by_postprocess(self, job: dict) -> bool:
+        postprocess = job.get("postprocess") or {}
+        return (
+            job.get("engine") == CONDITAR_ENGINE
+            and bool(postprocess.get("vina"))
+            and (postprocess.get("vina_mode") or "vina_score") != "none"
+        )
+
+    def _hold_for_builtin_postprocess(self, paths: JobPaths, job: dict) -> None:
+        job["status"] = "running"
+        job["started_at"] = job.get("started_at") or utc_now()
+        job["status_note"] = (
+            "Generated SDF output was found; waiting for built-in docking/properties post-processing "
+            "to finish before releasing Results."
+        )
+        self._write_job(paths, job)
+
     def _mark_completed_from_outputs(self, paths: JobPaths, job: dict, output_sdfs: list[Path] | None = None) -> None:
         output_sdfs = output_sdfs if output_sdfs is not None else self._output_sdfs(paths, job)
         job["status"] = "completed"
@@ -1993,6 +2155,8 @@ class LocalJobManager:
         )
         self._write_job(paths, job)
         if job["status"] == "completed":
+            self._run_builtin_postprocess(paths, job)
+            job = self.get_job(job["id"]) or job
             self._run_requested_tools(paths, job)
         self._send_email(job, paths)
 
@@ -2284,6 +2448,8 @@ class LocalJobManager:
             )
         self._write_job(paths, job)
         if job["status"] == "completed":
+            self._run_builtin_postprocess(paths, job)
+            job = self.get_job(job["id"]) or job
             self._run_requested_tools(paths, job)
         self._send_email(job, paths)
 
@@ -2705,6 +2871,8 @@ class LocalJobManager:
         )
         job["error_message"] = None
         self._write_job(paths, job)
+        self._run_builtin_postprocess(paths, job)
+        job = self.get_job(job["id"]) or job
         self._run_requested_tools(paths, job)
         self._send_email(job, paths)
 

@@ -1,6 +1,6 @@
 import { ADVANCED_PARAMETERS, EXAMPLES, PARAMETERS } from "./config.js?v=20260723-theme-1";
 import { drawCategoryChart, drawHistogram } from "./charts.js?v=20260723-theme-1";
-import { ExampleDataService } from "./data-service.js?v=20260723-theme-1";
+import { ExampleDataService } from "./data-service.js?v=20260723-results-fix-1";
 import { vinaWasRun } from "./sdf.js?v=20260723-theme-1";
 import { render2D, render3D } from "./viewers.js?v=20260723-theme-1";
 
@@ -14,6 +14,8 @@ const SLURM_GPU_TARGET = "slurm_gpu";
 const LEGACY_SLURM_GPU_TARGET = "osc_gpu";
 const MAX_CATEGORICAL_FILTER_VALUES = 24;
 const THEME_STORAGE_KEY = "conditar-theme";
+const VINA_EVALUATIONS = new Set(["vina_score", "vina_dock", "qvina"]);
+const CHEMISTRY_EVALUATIONS = new Set(["qed", "sa", "logp", "lipinski"]);
 
 const state = {
   study: null,
@@ -492,6 +494,37 @@ function updateInputLabels(example) {
   $("#sdf-detail").textContent = example?.sdf ? "Reference ligand · bundled input" : "Required for protein + ligand mode";
 }
 
+function clearLoadedStudyForCustomInput() {
+  if (!state.study && !state.selected) return;
+  state.study = null;
+  state.selected = null;
+  state.exportSelection = new Set();
+  state.exportFilters = {};
+  state.resultSource = "upload";
+  renderExportFilters();
+  renderResultsTable();
+}
+
+function setupStudyInput() {
+  return state.resultSource === "example" ? state.study : null;
+}
+
+function setupPdbInput(inputOverride = null) {
+  const study = setupStudyInput();
+  return inputOverride?.pdb || state.customPdb || (study?.pdbText ? {
+    name: study.example?.pdb?.split("/").pop() || "input.pdb",
+    text: study.pdbText,
+  } : null);
+}
+
+function setupSdfInput(inputOverride = null) {
+  const study = setupStudyInput();
+  return inputOverride?.sdf || state.customSdf || (study?.referenceSdf ? {
+    name: study.example?.sdf?.split("/").pop() || "reference.sdf",
+    text: study.referenceSdf,
+  } : null);
+}
+
 function renderStudy() {
   renderSummary();
   renderToolChest();
@@ -512,6 +545,7 @@ function setEngine(engine) {
     setMode("reference", false);
   }
   updateEngineControls();
+  updateVinaControls();
   updateCommand();
 }
 
@@ -544,15 +578,20 @@ function updateEngineControls() {
   } else {
     setMode(state.mode, false);
   }
+  updateBuiltinEvaluationAvailability();
   updateBatchLabel();
 }
 
 async function submitGenerationJob() {
-  if (state.engine === "diffsmol" && !state.batchInputs.length && !state.customSdf && !state.study?.referenceSdf) {
+  if (shouldTreatCurrentInputAsDiffSmol()) {
+    setEngine("diffsmol");
+    showToast("SDF-only input selected; using DiffSMol shape generation.");
+  }
+  if (state.engine === "diffsmol" && !state.batchInputs.length && !setupSdfInput()) {
     showToast("DiffSMol needs a 3D reference ligand SDF.");
     return;
   }
-  if (state.engine !== "diffsmol" && !state.batchInputs.length && !state.study && !state.customPdb) {
+  if (state.engine !== "diffsmol" && !state.batchInputs.length && !setupPdbInput()) {
     showToast("Load or upload a PDB before submitting a job.");
     return;
   }
@@ -593,17 +632,17 @@ async function submitGenerationJob() {
   }
 }
 
+function shouldTreatCurrentInputAsDiffSmol() {
+  return state.engine !== "diffsmol"
+    && !state.batchInputs.length
+    && Boolean(setupSdfInput())
+    && !setupPdbInput();
+}
+
 function buildJobPayload(inputOverride = null) {
-  const example = EXAMPLES[state.exampleId];
-  const pdb = inputOverride?.pdb || state.customPdb || (state.study?.pdbText ? {
-    name: example?.pdb.split("/").pop() || "input.pdb",
-    text: state.study.pdbText,
-  } : null);
+  const pdb = setupPdbInput(inputOverride);
   const sdf = state.engine === "diffsmol" || state.mode === "reference"
-    ? (inputOverride?.sdf || state.customSdf || (state.study?.referenceSdf ? {
-      name: example?.sdf?.split("/").pop() || "reference.sdf",
-      text: state.study.referenceSdf,
-    } : null))
+    ? setupSdfInput(inputOverride)
     : null;
   const mode = state.engine === "diffsmol" ? "reference" : state.mode;
   return {
@@ -617,7 +656,7 @@ function buildJobPayload(inputOverride = null) {
     sdf,
     preprocess: inputOverride ? null : state.stagedPreprocessManifest,
     slurm: buildSlurmPayload(),
-    postprocess: buildPostprocessPayload(),
+    postprocess: buildPostprocessPayload(inputOverride),
     tools: buildEvaluationToolsPayload(),
     parameters: {
       ...state.parameters,
@@ -643,19 +682,16 @@ function buildSlurmPayload() {
   };
 }
 
-function buildPostprocessPayload() {
-  if (state.engine === "diffsmol" && !state.customPdb && !state.study?.pdbText) {
-    return {
-      vina: false,
-      vina_mode: "none",
-      vina_exhaustiveness: $("#vina-exhaustiveness").value,
-      vina_cpu: $("#vina-cpu").value,
-    };
+function buildPostprocessPayload(inputOverride = null) {
+  let selected = selectedBuiltinEvaluations({ includeDisabled: true });
+  if (state.engine === "diffsmol") {
+    const hasProtein = hasDiffSmolProteinContext(inputOverride);
+    selected = selected.filter((item) => CHEMISTRY_EVALUATIONS.has(item) || (hasProtein && VINA_EVALUATIONS.has(item)));
   }
-  const selected = selectedBuiltinEvaluations();
+  const vinaMode = selectedVinaMode(selected);
   return {
-    vina: selected.length > 0,
-    vina_mode: selectedVinaMode(selected),
+    vina: vinaMode !== "none",
+    vina_mode: vinaMode,
     vina_exhaustiveness: $("#vina-exhaustiveness").value,
     vina_cpu: $("#vina-cpu").value,
     metrics: selected,
@@ -669,8 +705,13 @@ function buildEvaluationToolsPayload() {
   }));
 }
 
-function selectedBuiltinEvaluations() {
-  return $$(".builtin-evaluation-toggle:checked").map((input) => input.value);
+function selectedBuiltinEvaluations(options = {}) {
+  const selector = options.includeDisabled ? ".builtin-evaluation-toggle:checked" : ".builtin-evaluation-toggle:checked:not(:disabled)";
+  return $$(selector).map((input) => input.value);
+}
+
+function hasDiffSmolProteinContext(inputOverride = null) {
+  return Boolean(setupPdbInput(inputOverride)?.text);
 }
 
 function selectedVinaMode(selected = selectedBuiltinEvaluations()) {
@@ -714,7 +755,7 @@ async function pollJob(jobId) {
       updateJobDetail(job, logText || "Waiting for job output.", logs);
     }
     renderJobsTable();
-    if (job.status === "completed") {
+    if (isResultsReadyJob(job)) {
       notifyJobTerminal(job, "completed");
       await refreshJobs(false);
       if (isSelected) await loadCompletedJob(job);
@@ -736,37 +777,35 @@ async function loadCompletedJob(job) {
   const result = await service.loadJobResults(job);
   const resultLogText = combineLogs(result.logs || {});
   const candidates = result.candidates || [];
+  const loadedJob = result.job || job;
   if (!candidates.length) {
-    state.selectedJob = result.job || job;
+    state.selectedJob = loadedJob;
     updateJobDetail(state.selectedJob, resultLogText || "No SDF files were found in the job output directory.", result.logs || {});
     showToast(state.selectedJob?.error_message || "No SDF results were found for this job.");
     setActiveTab("jobs");
     return;
   }
   const vinaFailures = candidates.filter((item) => String(item.properties?.VINA_STATUS || "").toLowerCase() === "failed");
-  const fallbackExample = state.study?.example || EXAMPLES[state.exampleId] || {};
   const pdbInput = result.inputs?.pdb || null;
   const sdfInput = result.inputs?.sdf || null;
   state.study = {
-    ...state.study,
     example: {
-      ...fallbackExample,
-      id: job.id,
-      label: job.id,
-      pdb: pdbInput?.name || fallbackExample.pdb || "input.pdb",
-      sdf: sdfInput?.name || fallbackExample.sdf || null,
+      id: loadedJob.id,
+      label: loadedJob.id,
+      pdb: pdbInput?.name || null,
+      sdf: sdfInput?.name || null,
     },
-    pdbText: pdbInput?.text || state.study?.pdbText || "",
-    referenceSdf: sdfInput?.text || state.study?.referenceSdf || null,
+    pdbText: pdbInput?.text || "",
+    referenceSdf: sdfInput?.text || null,
     candidates,
     artifacts: result.artifacts || [],
     logs: result.logs || {},
     summary: result.summary || {},
     toolRuns: result.toolRuns || [],
-    loadedJob: result.job || job,
+    loadedJob,
   };
-  state.currentJob = job;
-  state.selectedJob = job;
+  state.currentJob = loadedJob;
+  state.selectedJob = loadedJob;
   state.resultSource = "job";
   state.selected = candidates[0];
   state.exportSelection = new Set();
@@ -835,7 +874,7 @@ function renderJobsTable() {
       <td>${escapeHtml(targetLabel(job))}<br><small>${escapeHtml(inputLabel(job))}</small></td>
       <td>${formatDate(job.created_at)}<br><small>${escapeHtml(slurmLabel(job))}</small></td>
       <td>
-        ${job.status === "completed" ? `<button class="secondary-button compact-action load-job-results">Results</button>` : ""}
+        ${isResultsReadyJob(job) ? `<button class="secondary-button compact-action load-job-results">Results</button>` : ""}
         ${isActiveJob(job) ? `<button class="secondary-button compact-action cancel-job">Cancel</button>` : ""}
         ${CLEANUP_JOB_STATUSES.has(job.status) ? `<button class="secondary-button compact-action rerun-job">Rerun</button>` : ""}
         ${CLEANUP_JOB_STATUSES.has(job.status) ? `<button class="secondary-button compact-action danger-action cleanup-job">Clean up</button>` : ""}
@@ -940,8 +979,8 @@ async function loadSelectedJobResults(jobId) {
   const job = await service.getJob(jobId);
   state.selectedJob = job;
   updateJobDetail(job, "Loading results...");
-  if (job.status !== "completed") {
-    showToast("Only completed jobs have results to load.");
+  if (!isResultsReadyJob(job)) {
+    showToast(isBuiltinPostprocessRunning(job) ? "Post-processing is still running. Results will be ready after annotation finishes." : "Only completed jobs have results to load.");
     return;
   }
   await loadCompletedJob(job);
@@ -1020,7 +1059,7 @@ function notifyWatchedTerminalJobs(jobs) {
 function updateRunEstimate() {
   const estimate = $("#run-estimate");
   if (!estimate) return;
-  const hasSingleInput = state.engine === "diffsmol" ? (state.customSdf || state.study?.referenceSdf) : (state.customPdb || state.study);
+  const hasSingleInput = state.engine === "diffsmol" ? setupSdfInput() : setupPdbInput();
   const inputs = Math.max(1, state.batchInputs.length || (hasSingleInput ? 1 : 0));
   const samples = Math.max(1, Number(state.parameters.num_samples) || 1);
   const totalSamples = inputs * samples;
@@ -2081,11 +2120,19 @@ function batchTargetNoun(target) {
 }
 
 function isActiveJob(job) {
-  return ACTIVE_JOB_STATUSES.has(job?.status);
+  return ACTIVE_JOB_STATUSES.has(job?.status) || isBuiltinPostprocessRunning(job);
 }
 
 function isTerminalJob(job) {
-  return TERMINAL_JOB_STATUSES.has(job?.status);
+  return TERMINAL_JOB_STATUSES.has(job?.status) && !isBuiltinPostprocessRunning(job);
+}
+
+function isBuiltinPostprocessRunning(job) {
+  return (job?.postprocess || {}).status === "running";
+}
+
+function isResultsReadyJob(job) {
+  return job?.status === "completed" && !isBuiltinPostprocessRunning(job);
 }
 
 function shortJobId(jobId) {
@@ -2129,9 +2176,29 @@ function updateJobTargetControls() {
   updateCommand();
 }
 
+function updateBuiltinEvaluationAvailability() {
+  const isDiffSmol = state.engine === "diffsmol";
+  const hasProtein = hasDiffSmolProteinContext();
+  $$(".builtin-evaluation-toggle").forEach((input) => {
+    const disabled = isDiffSmol && VINA_EVALUATIONS.has(input.value) && !hasProtein;
+    input.disabled = disabled;
+    input.closest(".check-control")?.classList.toggle("is-disabled", disabled);
+  });
+  const note = $("#builtin-evaluation-note");
+  if (note) {
+    note.textContent = !isDiffSmol
+      ? "Select generated-molecule properties to compute with each run."
+      : hasProtein
+        ? "DiffSMol can annotate SDF-only chemistry and use the attached protein for Vina/QVina post-processing."
+        : "DiffSMol can annotate SDF-only chemistry now; attach a protein if you want Vina/QVina post-processing.";
+  }
+}
+
 function updateVinaControls() {
+  updateBuiltinEvaluationAvailability();
   const selected = selectedBuiltinEvaluations();
-  const enabled = selected.length > 0;
+  const vinaSelected = selected.some((item) => VINA_EVALUATIONS.has(item));
+  const enabled = vinaSelected;
   $("#vina-options").classList.toggle("is-disabled", !enabled);
   $("#vina-exhaustiveness").disabled = !enabled;
   $("#vina-cpu").disabled = !enabled;
@@ -2188,10 +2255,12 @@ function compareMetric(a, b) {
 }
 
 function updateCommand() {
+  const pdbInput = setupPdbInput();
+  const sdfInput = setupSdfInput();
   const pdbName = state.batchInputs.length
     ? `${state.batchInputs.length} folders`
-    : (state.customPdb?.name || EXAMPLES[state.exampleId]?.pdb || "<choose structure>");
-  const sdfName = state.customSdf?.name || EXAMPLES[state.exampleId]?.sdf;
+    : (pdbInput?.name || "<choose structure>");
+  const sdfName = sdfInput?.name || null;
   if (state.engine === "diffsmol") {
     const args = [
       "python /opt/DiffSMol/docker/generate.py",
@@ -2201,6 +2270,10 @@ function updateCommand() {
       "--output <job outputs>",
     ];
     if (state.parameters.diffsmol_guidance) args.push("--guidance");
+    const postprocess = buildPostprocessPayload();
+    if (postprocess.metrics?.length) {
+      args.push(`&& postprocess ${postprocess.vina ? postprocess.vina_mode : "chemistry-only"}`);
+    }
     $("#command-preview").textContent = args.join(" ");
     updateRunEstimate();
     return;
@@ -2236,6 +2309,7 @@ async function handlePdbUpload(event) {
   if (!file) return;
   const text = await readValidatedTextFile(file, "pdb");
   if (!text) return;
+  clearLoadedStudyForCustomInput();
   state.customPdb = { name: file.name, text };
   state.stagedPreprocessManifest = null;
   renderSetupPreprocessSummary();
@@ -2243,13 +2317,17 @@ async function handlePdbUpload(event) {
   updateBatchLabel();
   $("#pdb-name").textContent = file.name;
   $("#pdb-detail").textContent = `${formatBytes(file.size)} · local upload`;
+  if (!state.customSdf) {
+    $("#sdf-name").textContent = "Choose a reference SDF";
+    $("#sdf-detail").textContent = state.engine === "diffsmol"
+      ? "Required 3D reference ligand for shape expansion"
+      : "Required for protein + ligand mode";
+  }
   $("#example-select").value = "custom";
   state.exampleId = "custom";
   updateCustomOptionLabel(file.name);
-  if (state.study) {
-    state.study.pdbText = state.customPdb.text;
-    renderSelectedStructure();
-  }
+  updateVinaControls();
+  updateCommand();
 }
 
 async function handleSdfUpload(event) {
@@ -2257,7 +2335,16 @@ async function handleSdfUpload(event) {
   if (!file) return;
   const text = await readValidatedTextFile(file, "sdf");
   if (!text) return;
+  const moleculeCount = countSdfMolecules(text);
+  if (moleculeCount !== 1) {
+    showToast(`${file.name} has ${moleculeCount || "no"} molecules. Upload one 3D reference ligand SDF here; use Docking panel for ligand databases.`);
+    event.target.value = "";
+    return;
+  }
+  clearLoadedStudyForCustomInput();
   state.customSdf = { name: file.name, text };
+  const useSdfOnlyDiffSmol = state.engine !== "diffsmol" && !setupPdbInput();
+  if (useSdfOnlyDiffSmol) setEngine("diffsmol");
   if (state.engine === "diffsmol") setMode("reference", false);
   state.stagedPreprocessManifest = null;
   renderSetupPreprocessSummary();
@@ -2265,11 +2352,18 @@ async function handleSdfUpload(event) {
   updateBatchLabel();
   $("#sdf-name").textContent = file.name;
   $("#sdf-detail").textContent = `${formatBytes(file.size)} · local upload`;
+  if (!state.customPdb) {
+    $("#pdb-name").textContent = "Choose a PDB file";
+    $("#pdb-detail").textContent = state.engine === "diffsmol"
+      ? "Optional context; DiffSMol uses the SDF shape"
+      : "Required · uploaded with this job";
+  }
   $("#example-select").value = "custom";
   state.exampleId = "custom";
   updateCustomOptionLabel(state.customPdb?.name || file.name);
+  updateVinaControls();
   updateCommand();
-  showToast(`${file.name} loaded as reference ligand.`);
+  showToast(useSdfOnlyDiffSmol ? `${file.name} loaded for DiffSMol shape generation.` : `${file.name} loaded as reference ligand.`);
 }
 
 async function handlePreprocessTargetUpload(event) {
@@ -3439,6 +3533,7 @@ function workflowLabel(workflow) {
 
 function stagePreparedInputs({ mode, pdb, sdf, label, detail, preprocessManifest = null }) {
   const isShapeInput = mode === "shape";
+  clearLoadedStudyForCustomInput();
   state.customPdb = pdb;
   state.customSdf = sdf;
   state.stagedPreprocessManifest = preprocessManifest;
@@ -3510,6 +3605,10 @@ async function groupBatchFiles(files) {
     }
     const pdbText = pdbFile ? await readValidatedTextFile(pdbFile, "pdb", false) : null;
     const sdfText = sdfFile ? await readValidatedTextFile(sdfFile, "sdf", false) : null;
+    if (sdfText && countSdfMolecules(sdfText) !== 1) {
+      skipped.push(`${folder}: SDF must contain one reference ligand, not a ligand database`);
+      continue;
+    }
     if (state.engine !== "diffsmol" && !pdbText) {
       skipped.push(`${folder}: invalid PDB/CIF`);
       continue;
@@ -3813,17 +3912,18 @@ async function downloadAll() {
 
 function buildConfiguration() {
   const job = state.resultSource === "job" ? state.selectedJob || state.currentJob : null;
-  const example = state.study?.example || EXAMPLES[state.exampleId];
   const mode = job?.mode || state.mode;
+  const pdbInput = setupPdbInput();
+  const sdfInput = setupSdfInput();
   return {
     interface_version: "0.1.0",
     backend_connected: true,
     job_id: job?.id || null,
     conditioning_mode: mode,
     inputs: {
-      pdb_filename: job ? (job.inputs?.pdb ? filenameOnly(job.inputs.pdb) : example?.pdb || null) : state.customPdb?.name || example?.pdb || null,
+      pdb_filename: job ? (job.inputs?.pdb ? filenameOnly(job.inputs.pdb) : null) : pdbInput?.name || null,
       sdf_filename: mode === "reference"
-        ? (job ? (job.inputs?.sdf ? filenameOnly(job.inputs.sdf) : example?.sdf || null) : state.customSdf?.name || example?.sdf || null)
+        ? (job ? (job.inputs?.sdf ? filenameOnly(job.inputs.sdf) : null) : sdfInput?.name || null)
         : null,
     },
     parameters: { ...(job?.parameters || state.parameters) },

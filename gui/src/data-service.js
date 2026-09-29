@@ -101,6 +101,7 @@ export class ExampleDataService {
         index,
         id: candidateId(index),
         path: file.relative_path,
+        sha256: file.sha256 || null,
       })),
     };
   }
