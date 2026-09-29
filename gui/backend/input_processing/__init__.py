@@ -16,7 +16,7 @@ from .pocket_staging import (
     pocket_pdb_from_points,
     pocket_pdb_from_residues,
 )
-from .structure_conversion import cif_to_pdb, looks_like_cif, normalize_structure_payload
+from .structure_conversion import clean_structure_payload, cif_to_pdb, looks_like_cif, normalize_structure_payload
 
 __all__ = [
     "ligand_candidates_from_complex",
@@ -32,6 +32,7 @@ __all__ = [
     "pocket_pdb_from_points",
     "pocket_pdb_from_residues",
     "parse_residue_spec",
+    "clean_structure_payload",
     "cif_to_pdb",
     "looks_like_cif",
     "normalize_structure_payload",

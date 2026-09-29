@@ -3,6 +3,8 @@ from __future__ import annotations
 from io import StringIO
 from pathlib import Path
 
+from .constants import SOLVENT_OR_ION_RESNAMES
+
 
 def looks_like_cif(text: str) -> bool:
     for line in text.splitlines()[:200]:
@@ -34,6 +36,36 @@ def normalize_structure_payload(payload: dict, fallback_name: str = "input.pdb")
         "source_format": "cif",
         "source_name": name,
         "normalized_name": pdb_name,
+    }
+
+
+def clean_structure_payload(payload: dict) -> tuple[dict, dict | None]:
+    if not isinstance(payload, dict):
+        raise ValueError("Structure payload must be a JSON object.")
+    cleaned_text, report = clean_pdb_solvent_records(str(payload.get("text") or ""))
+    if not report:
+        return payload, None
+    return {**payload, "text": cleaned_text}, report
+
+
+def clean_pdb_solvent_records(text: str) -> tuple[str, dict | None]:
+    removed = {}
+    kept_lines = []
+    for line in str(text or "").splitlines():
+        if line.startswith(("HETATM", "ANISOU")):
+            resname = line[17:20].strip().upper()
+            if resname in SOLVENT_OR_ION_RESNAMES:
+                removed[resname] = removed.get(resname, 0) + 1
+                continue
+        kept_lines.append(line)
+    if not removed:
+        return text, None
+    if kept_lines and not kept_lines[-1].startswith("END"):
+        kept_lines.append("END")
+    return "\n".join(kept_lines).rstrip() + "\n", {
+        "method": "remove_solvent_and_ions",
+        "removed_atom_count": sum(removed.values()),
+        "removed_residue_names": removed,
     }
 
 

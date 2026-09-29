@@ -3,6 +3,17 @@ import { drawCategoryChart, drawHistogram } from "./charts.js?v=20260723-theme-1
 import { ExampleDataService } from "./data-service.js?v=20260723-results-fix-1";
 import { vinaWasRun } from "./sdf.js?v=20260723-theme-1";
 import { render2D, render3D } from "./viewers.js?v=20260723-theme-1";
+import {
+  CHEMISTRY_METRICS as WORKFLOW_CHEMISTRY_METRICS,
+  VINA_METRICS as WORKFLOW_VINA_METRICS,
+  filterMetricsForWorkflow,
+  normalizeWorkflowWarning,
+  requiredInputs,
+  resolveGenerationWorkflow,
+  setupWarningsForWorkflow,
+  validateGenerationSetup,
+  warningText,
+} from "./workflow-rules.js?v=20260723-workflow-contract-1";
 
 const service = new ExampleDataService();
 const ACTIVE_JOB_STATUSES = new Set(["queued", "running"]);
@@ -14,8 +25,9 @@ const SLURM_GPU_TARGET = "slurm_gpu";
 const LEGACY_SLURM_GPU_TARGET = "osc_gpu";
 const MAX_CATEGORICAL_FILTER_VALUES = 24;
 const THEME_STORAGE_KEY = "conditar-theme";
-const VINA_EVALUATIONS = new Set(["vina_score", "vina_dock", "qvina"]);
-const CHEMISTRY_EVALUATIONS = new Set(["qed", "sa", "logp", "lipinski"]);
+const VINA_EVALUATIONS = WORKFLOW_VINA_METRICS;
+const CHEMISTRY_EVALUATIONS = WORKFLOW_CHEMISTRY_METRICS;
+const DIFFSMOL_SHAPE_HEAVY_ATOM_WARNING = 35;
 
 const state = {
   study: null,
@@ -141,6 +153,7 @@ function bindEvents() {
   $("#preprocess-refresh-complex").addEventListener("click", () => chooseFileAgain("#preprocess-complex-input"));
   $("#preprocess-refresh-target").addEventListener("click", () => chooseFileAgain("#preprocess-target-input"));
   $("#preprocess-target-input").addEventListener("change", handlePreprocessTargetUpload);
+  $("#preprocess-preview-residue-pocket").addEventListener("click", previewResiduePocket);
   $("#preprocess-build-residue-pocket").addEventListener("click", buildResiduePocket);
   $("#preprocess-complex-input").addEventListener("change", handlePreprocessComplexUpload);
   $("#preprocess-apply-ligand").addEventListener("click", applyPreprocessSelectedLigand);
@@ -481,7 +494,7 @@ function setMode(mode, updateSelect = true) {
     $("#example-select").value = "custom";
   }
   if (state.engine === "diffsmol") {
-    $("#mode-note").textContent = "DiffSMol uses a 3D reference ligand SDF for shape-conditioned generation; protein inputs are optional context.";
+    $("#mode-note").textContent = "DiffSMol uses a 3D reference ligand SDF; add a pocket PDB for pocket-conditioned generation.";
     $("#hero-input-mode").textContent = "Shape";
   }
   updateCommand();
@@ -525,6 +538,28 @@ function setupSdfInput(inputOverride = null) {
   } : null);
 }
 
+function currentGenerationInput(inputOverride = null) {
+  const engine = state.engine === "diffsmol" ? "diffsmol" : "conditar";
+  const mode = engine === "diffsmol" ? "reference" : state.mode;
+  const pdb = setupPdbInput(inputOverride);
+  const sdf = engine === "diffsmol" || mode === "reference"
+    ? setupSdfInput(inputOverride)
+    : null;
+  const workflow = resolveGenerationWorkflow({ engine, mode, pdb, sdf });
+  return {
+    engine,
+    mode,
+    workflow,
+    pdb,
+    sdf,
+    hasPdb: Boolean(pdb?.text),
+    hasSdf: Boolean(sdf?.text),
+    batchCount: state.batchInputs.length,
+    inputName: inputOverride?.name || (engine === "diffsmol" ? sdf?.name : pdb?.name) || state.exampleId,
+    preprocess: inputOverride ? null : state.stagedPreprocessManifest,
+  };
+}
+
 function renderStudy() {
   renderSummary();
   renderToolChest();
@@ -551,13 +586,16 @@ function setEngine(engine) {
 
 function updateEngineControls() {
   const isDiffSmol = state.engine === "diffsmol";
+  const generationInput = currentGenerationInput();
+  const requirements = requiredInputs(state.engine, state.mode, generationInput);
+  const hasPocketContext = generationInput.workflow.id === "diffsmol_pocket";
   document.body.classList.toggle("diffsmol-engine", isDiffSmol);
   $$(".engine-option").forEach((button) => button.classList.toggle("active", button.dataset.engine === state.engine));
   $(".mode-toggle")?.classList.toggle("is-disabled", isDiffSmol);
   $("#pdb-dropzone").hidden = false;
   $("#sdf-dropzone").hidden = state.mode === "pocket" && !isDiffSmol;
   $("#pdb-detail").textContent = isDiffSmol
-    ? "Optional context; DiffSMol uses the SDF shape"
+    ? (hasPocketContext ? "Pocket-conditioned generation will use this pocket" : "Optional: add a pocket PDB for pocket-conditioned generation")
     : "Required · uploaded with this job";
   $("#sdf-detail").textContent = isDiffSmol
     ? "Required 3D reference ligand for shape expansion"
@@ -571,10 +609,18 @@ function updateEngineControls() {
     ? "Samples processed per DiffSMol batch"
     : "Samples processed per conDitar batch";
   const headingLabel = $(".input-panel .required-label");
-  if (headingLabel) headingLabel.textContent = isDiffSmol ? "SDF required" : "PDB required";
+  if (headingLabel) {
+    headingLabel.textContent = requirements.sdf === "required" && requirements.pdb === "required"
+      ? "PDB + SDF required"
+      : requirements.sdf === "required"
+      ? "SDF required"
+      : "PDB required";
+  }
   if (isDiffSmol) {
-    $("#mode-note").textContent = "DiffSMol uses a 3D reference ligand SDF for shape-conditioned generation; the protein/pocket is kept only as context for review and downstream scoring.";
-    $("#hero-input-mode").textContent = "Shape";
+    $("#mode-note").textContent = hasPocketContext
+      ? "DiffSMol will run pocket-conditioned generation from the attached pocket and 3D ligand shape."
+      : "DiffSMol ligand-only mode will not produce reliable docking scores. Attach a pocket PDB if you want pocket-conditioned generation and Vina/QVina post-processing.";
+    $("#hero-input-mode").textContent = hasPocketContext ? "Shape + Pocket" : "Ligand Shape";
   } else {
     setMode(state.mode, false);
   }
@@ -587,12 +633,12 @@ async function submitGenerationJob() {
     setEngine("diffsmol");
     showToast("SDF-only input selected; using DiffSMol shape generation.");
   }
-  if (state.engine === "diffsmol" && !state.batchInputs.length && !setupSdfInput()) {
-    showToast("DiffSMol needs a 3D reference ligand SDF.");
-    return;
-  }
-  if (state.engine !== "diffsmol" && !state.batchInputs.length && !setupPdbInput()) {
-    showToast("Load or upload a PDB before submitting a job.");
+  const validation = validateGenerationSetup({
+    ...currentGenerationInput(),
+    batchCount: state.batchInputs.length,
+  });
+  if (!validation.ready) {
+    showToast(validation.errors[0]);
     return;
   }
   const button = $("#preview-run");
@@ -640,21 +686,17 @@ function shouldTreatCurrentInputAsDiffSmol() {
 }
 
 function buildJobPayload(inputOverride = null) {
-  const pdb = setupPdbInput(inputOverride);
-  const sdf = state.engine === "diffsmol" || state.mode === "reference"
-    ? setupSdfInput(inputOverride)
-    : null;
-  const mode = state.engine === "diffsmol" ? "reference" : state.mode;
+  const generationInput = currentGenerationInput(inputOverride);
   return {
-    engine: state.engine,
+    engine: generationInput.engine,
     target: resolvedTarget(),
-    mode,
+    mode: generationInput.mode,
     example_id: state.exampleId,
-    input_name: inputOverride?.name || (state.engine === "diffsmol" ? sdf?.name : pdb?.name) || state.exampleId,
+    input_name: generationInput.inputName,
     email: $("#job-email").disabled ? "" : $("#job-email").value.trim(),
-    pdb,
-    sdf,
-    preprocess: inputOverride ? null : state.stagedPreprocessManifest,
+    pdb: generationInput.pdb,
+    sdf: generationInput.sdf,
+    preprocess: generationInput.preprocess,
     slurm: buildSlurmPayload(),
     postprocess: buildPostprocessPayload(inputOverride),
     tools: buildEvaluationToolsPayload(),
@@ -683,11 +725,9 @@ function buildSlurmPayload() {
 }
 
 function buildPostprocessPayload(inputOverride = null) {
+  const generationInput = currentGenerationInput(inputOverride);
   let selected = selectedBuiltinEvaluations({ includeDisabled: true });
-  if (state.engine === "diffsmol") {
-    const hasProtein = hasDiffSmolProteinContext(inputOverride);
-    selected = selected.filter((item) => CHEMISTRY_EVALUATIONS.has(item) || (hasProtein && VINA_EVALUATIONS.has(item)));
-  }
+  selected = filterMetricsForWorkflow(selected, generationInput.workflow);
   const vinaMode = selectedVinaMode(selected);
   return {
     vina: vinaMode !== "none",
@@ -710,8 +750,8 @@ function selectedBuiltinEvaluations(options = {}) {
   return $$(selector).map((input) => input.value);
 }
 
-function hasDiffSmolProteinContext(inputOverride = null) {
-  return Boolean(setupPdbInput(inputOverride)?.text);
+function hasDiffSmolPocketContext(inputOverride = null) {
+  return currentGenerationInput(inputOverride).workflow.id === "diffsmol_pocket";
 }
 
 function selectedVinaMode(selected = selectedBuiltinEvaluations()) {
@@ -2077,7 +2117,7 @@ function engineLabel(job) {
 }
 
 function conditioningLabel(job) {
-  if (job?.engine === "diffsmol") return "Shape ligand";
+  if (job?.engine === "diffsmol") return job?.inputs?.pdb ? "Ligand + pocket" : "Ligand only";
   if (job?.mode === "reference") return "Protein + ligand";
   if (job?.mode === "pocket") return "Pocket";
   return job?.mode || "Run";
@@ -2178,9 +2218,9 @@ function updateJobTargetControls() {
 
 function updateBuiltinEvaluationAvailability() {
   const isDiffSmol = state.engine === "diffsmol";
-  const hasProtein = hasDiffSmolProteinContext();
+  const hasPocket = hasDiffSmolPocketContext();
   $$(".builtin-evaluation-toggle").forEach((input) => {
-    const disabled = isDiffSmol && VINA_EVALUATIONS.has(input.value) && !hasProtein;
+    const disabled = isDiffSmol && VINA_EVALUATIONS.has(input.value) && !hasPocket;
     input.disabled = disabled;
     input.closest(".check-control")?.classList.toggle("is-disabled", disabled);
   });
@@ -2188,9 +2228,9 @@ function updateBuiltinEvaluationAvailability() {
   if (note) {
     note.textContent = !isDiffSmol
       ? "Select generated-molecule properties to compute with each run."
-      : hasProtein
-        ? "DiffSMol can annotate SDF-only chemistry and use the attached protein for Vina/QVina post-processing."
-        : "DiffSMol can annotate SDF-only chemistry now; attach a protein if you want Vina/QVina post-processing.";
+      : hasPocket
+        ? "DiffSMol is in ligand + pocket mode. Generation uses the pocket, and Vina/QVina can score the outputs afterward."
+        : "DiffSMol is ligand-only. Vina/QVina is disabled because docking scores require a pocket PDB.";
   }
 }
 
@@ -2204,6 +2244,64 @@ function updateVinaControls() {
   $("#vina-cpu").disabled = !enabled;
   $("#vina-mode-summary").textContent = selectedEvaluationLabel(selected);
   updateCommand();
+}
+
+function setupWarnings() {
+  const generationInput = currentGenerationInput();
+  if (generationInput.batchCount) return [];
+  const sdfHeavyAtoms = generationInput.sdf?.text ? sdfHeavyAtomCount(generationInput.sdf.text) : 0;
+  return setupWarningsForWorkflow({
+    workflow: generationInput.workflow,
+    sdf: generationInput.sdf,
+    sdfHeavyAtoms,
+    heavyAtomWarningThreshold: DIFFSMOL_SHAPE_HEAVY_ATOM_WARNING,
+    selectedMetrics: selectedBuiltinEvaluations({ includeDisabled: true }),
+    stagedPocketWarnings: stagedPocketWarnings(),
+  });
+}
+
+function stagedPocketWarnings() {
+  const manifest = state.stagedPreprocessManifest;
+  if (!manifest) return [];
+  const prep = manifest.preprocessing || {};
+  const staged = manifest.staged_inputs || {};
+  const mode = staged.mode || manifest.selected_variant?.mode || "";
+  const hasPocketInput = Boolean(staged.pdb) && (mode === "pocket" || state.engine === "diffsmol");
+  if (!hasPocketInput) return [];
+  const warnings = [...(prep.structured_warnings || []), ...(prep.warnings || [])];
+  const residueCount = Number(prep.residue_count);
+  if (Number.isFinite(residueCount) && residueCount > 0 && !warnings.some((item) => String(item).includes("fewer than"))) {
+    if (residueCount < 10) {
+      warnings.push(`Pocket has ${residueCount} complete residues. More than 10-20 residues is advised for stable generation/scoring.`);
+    } else if (residueCount < 20) {
+      warnings.push(`Pocket has ${residueCount} complete residues. More than 20 residues is advised when possible.`);
+    }
+  }
+  const seen = new Set();
+  return warnings
+    .map((item) => normalizeWorkflowWarning(item, { code: "pocket_size", title: "Pocket size", appliesTo: "pocket" }))
+    .filter((item) => {
+      const key = `${item.code}:${item.text}`;
+      if (!item.text || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function updateSetupWarningBanner() {
+  const banner = $("#setup-warning-banner");
+  if (!banner) return;
+  const warnings = setupWarnings();
+  if (!warnings.length) {
+    banner.hidden = true;
+    banner.innerHTML = "";
+    return;
+  }
+  banner.hidden = false;
+  banner.innerHTML = `
+    <strong>Check before generating</strong>
+    <ul>${warnings.map((warning) => `<li><b>${escapeHtml(warning.title)}:</b> ${escapeHtml(warningText(warning))}</li>`).join("")}</ul>
+  `;
 }
 
 function formatDate(value) {
@@ -2255,18 +2353,19 @@ function compareMetric(a, b) {
 }
 
 function updateCommand() {
-  const pdbInput = setupPdbInput();
-  const sdfInput = setupSdfInput();
+  const generationInput = currentGenerationInput();
   const pdbName = state.batchInputs.length
     ? `${state.batchInputs.length} folders`
-    : (pdbInput?.name || "<choose structure>");
-  const sdfName = sdfInput?.name || null;
-  if (state.engine === "diffsmol") {
+    : (generationInput.pdb?.name || "<choose structure>");
+  const sdfName = generationInput.sdf?.name || null;
+  if (generationInput.engine === "diffsmol") {
+    const hasPocketContext = generationInput.workflow.id === "diffsmol_pocket";
     const args = [
-      "python /opt/DiffSMol/docker/generate.py",
+      hasPocketContext ? "python /launcher/diffsmol_pocket_generate.py" : "python /opt/DiffSMol/docker/generate.py",
       `--device ${isSlurmGpuTarget(resolvedTarget()) || isOpenShiftJobTarget(resolvedTarget()) ? "cuda:0" : "cpu"}`,
       `--num-samples ${state.parameters.num_samples}`,
       `--input ${sdfName || "<choose ligand.sdf>"}`,
+      ...(hasPocketContext ? [`--protein ${pdbName}`] : []),
       "--output <job outputs>",
     ];
     if (state.parameters.diffsmol_guidance) args.push("--guidance");
@@ -2276,6 +2375,7 @@ function updateCommand() {
     }
     $("#command-preview").textContent = args.join(" ");
     updateRunEstimate();
+    updateSetupWarningBanner();
     return;
   }
   const args = [
@@ -2285,14 +2385,15 @@ function updateCommand() {
     `--batch_size ${state.parameters.batch_size}`,
     `--pdb_filename ${pdbName}`,
   ];
-  if (state.mode !== "pocket") args.splice(4, 0, `--pocket_radius ${state.parameters.pocket_radius}`);
-  if (state.mode === "reference" && sdfName) args.push(`--sdf_filename ${sdfName}`);
+  if (generationInput.mode !== "pocket") args.splice(4, 0, `--pocket_radius ${state.parameters.pocket_radius}`);
+  if (generationInput.mode === "reference" && sdfName) args.push(`--sdf_filename ${sdfName}`);
   const selected = selectedBuiltinEvaluations();
   if (selected.length) {
     args.push(`--vina_score --vina_mode ${selectedVinaMode(selected)} --vina_exhaustiveness ${$("#vina-exhaustiveness").value}`);
   }
   $("#command-preview").textContent = args.join(" ");
   updateRunEstimate();
+  updateSetupWarningBanner();
 }
 
 function resetParameters() {
@@ -2341,6 +2442,7 @@ async function handleSdfUpload(event) {
     event.target.value = "";
     return;
   }
+  const heavyAtoms = sdfHeavyAtomCount(text);
   clearLoadedStudyForCustomInput();
   state.customSdf = { name: file.name, text };
   const useSdfOnlyDiffSmol = state.engine !== "diffsmol" && !setupPdbInput();
@@ -2351,11 +2453,14 @@ async function handleSdfUpload(event) {
   state.batchInputs = [];
   updateBatchLabel();
   $("#sdf-name").textContent = file.name;
-  $("#sdf-detail").textContent = `${formatBytes(file.size)} · local upload`;
+  $("#sdf-detail").textContent = [
+    `${formatBytes(file.size)} · local upload`,
+    heavyAtoms ? `${heavyAtoms} heavy atoms` : "",
+  ].filter(Boolean).join(" · ");
   if (!state.customPdb) {
     $("#pdb-name").textContent = "Choose a PDB file";
     $("#pdb-detail").textContent = state.engine === "diffsmol"
-      ? "Optional context; DiffSMol uses the SDF shape"
+      ? "Optional: add a pocket PDB for pocket-conditioned generation"
       : "Required · uploaded with this job";
   }
   $("#example-select").value = "custom";
@@ -2363,7 +2468,8 @@ async function handleSdfUpload(event) {
   updateCustomOptionLabel(state.customPdb?.name || file.name);
   updateVinaControls();
   updateCommand();
-  showToast(useSdfOnlyDiffSmol ? `${file.name} loaded for DiffSMol shape generation.` : `${file.name} loaded as reference ligand.`);
+  const message = useSdfOnlyDiffSmol ? `${file.name} loaded for DiffSMol shape generation.` : `${file.name} loaded as reference ligand.`;
+  showToast(message);
 }
 
 async function handlePreprocessTargetUpload(event) {
@@ -2398,28 +2504,45 @@ async function handlePreprocessTargetUpload(event) {
   showToast("Target loaded for preprocessing.");
 }
 
-async function buildResiduePocket() {
+function residuePocketPayload() {
   const source = state.preprocessTarget || state.preprocessProtein || state.customPdb;
   const residues = $("#manual-residue-spec").value.trim();
   if (!source?.text) {
-    showToast("Choose a target protein first.");
-    return;
+    throw new Error("Choose a target protein first.");
   }
   if (!residues) {
-    showToast("Enter residues like A:45-62, A:88.");
-    return;
+    throw new Error("Enter residues like A:45-62, A:88.");
   }
-  const button = $("#preprocess-build-residue-pocket");
-  button.disabled = true;
-  $("#preprocess-target-detail").textContent = "Building residue pocket...";
-  try {
-    const radiusText = $("#manual-residue-radius").value;
-    const result = await service.preprocessPocketFromResidues({
+  const radiusText = $("#manual-residue-radius").value;
+  return {
+    source,
+    residues,
+    payload: {
       pdb: source,
       residues,
       radius: radiusText === "" ? null : Number(radiusText),
-    });
+    },
+  };
+}
+
+async function runResiduePocketAction({ save }) {
+  const button = save ? $("#preprocess-build-residue-pocket") : $("#preprocess-preview-residue-pocket");
+  button.disabled = true;
+  $("#preprocess-target-detail").textContent = save ? "Building residue pocket..." : "Previewing residue pocket...";
+  try {
+    const { source, residues, payload } = residuePocketPayload();
+    const result = await service.preprocessPocketFromResidues(payload);
     const meta = result.metadata || {};
+    $("#preprocess-target-detail").textContent = `${meta.residue_count || 0} residues · ${meta.atom_count || 0} atoms`;
+    await renderPreprocessViewer({
+      title: result.pdb?.name || "Residue pocket preview",
+      pdb: result.pdb,
+      sdf: centerMarkerMolecule({ center: { x: 0, y: 0, z: 0 } }),
+    });
+    if (!save) {
+      showToast("Residue pocket preview updated.");
+      return;
+    }
     const entry = addPreparedStructure({
       mode: "pocket",
       label: result.pdb.name,
@@ -2431,15 +2554,22 @@ async function buildResiduePocket() {
       metadata: meta,
       detail: `Residue pocket · ${meta.residue_count || "n/a"} residues`,
     });
-    $("#preprocess-target-detail").textContent = `${meta.residue_count || 0} residues · ${meta.atom_count || 0} atoms`;
     await previewPreparedStructure(entry);
     showToast("Residue pocket added to prepared structures.");
   } catch (error) {
-    $("#preprocess-target-detail").textContent = "Residue pocket failed";
+    $("#preprocess-target-detail").textContent = save ? "Residue pocket failed" : "Residue preview failed";
     showToast(error.message);
   } finally {
     button.disabled = false;
   }
+}
+
+async function previewResiduePocket() {
+  await runResiduePocketAction({ save: false });
+}
+
+async function buildResiduePocket() {
+  await runResiduePocketAction({ save: true });
 }
 
 async function handlePreprocessComplexUpload(event) {
@@ -2703,6 +2833,7 @@ function renderPreparedStructureTray() {
     const files = preparedStructureFileLines(item);
     const sourceLabel = item.groupLabel || item.source || meta.provenance || "Prepared structure";
     const statusLabel = stale ? "Update needed" : isStagedView ? "Staged" : active ? "Previewing" : modeLabel;
+    const warningLines = preprocessWarningObjects(meta).map(warningText);
     const variantSelector = item.variants?.length ? `
           <label class="prepared-variant-control">
             <span>View</span>
@@ -2721,6 +2852,7 @@ function renderPreparedStructureTray() {
           <small>${escapeHtml(item.variants?.length ? `Selected view: ${variant.label || modeLabel}` : modeLabel)} · ${escapeHtml(residues)} · ${escapeHtml(atoms)}</small>
           <small class="prepared-source-line">${escapeHtml(sourceLabel)}</small>
           ${stale ? "<small class='prepared-warning-line'>Settings changed. Regenerate this candidate before staging.</small>" : ""}
+          ${warningLines.map((line) => `<small class="prepared-warning-line">${escapeHtml(line)}</small>`).join("")}
           ${variantSelector}
           <details class="prepared-provenance">
             <summary>Source details</summary>
@@ -2866,18 +2998,34 @@ async function updatePreparedStructureVariant(id, variantId) {
 
 function removePreparedStructure(id) {
   const removed = state.preparedStructures.find((item) => item.id === id);
+  const wasStaged = state.stagedPreparedStructureId === id;
   state.preparedStructures = state.preparedStructures.filter((item) => item.id !== id);
   if (state.selectedPreparedStructureId === id) {
     state.selectedPreparedStructureId = state.preparedStructures[0]?.id || null;
   }
-  if (state.stagedPreparedStructureId === id) {
-    state.stagedPreparedStructureId = null;
-    state.stagedPreparedVariantId = null;
-    state.stagedPreprocessManifest = null;
-  }
+  if (wasStaged) clearStagedPreparedInputs();
   renderPreparedStructureTray();
   renderPreprocessStagingStatus();
-  showToast(removed?.label ? `Removed ${removed.label}.` : "Prepared structure removed.");
+  showToast(wasStaged
+    ? "Removed staged input from Generate setup."
+    : removed?.label ? `Removed ${removed.label}.` : "Prepared structure removed.");
+}
+
+function clearStagedPreparedInputs() {
+  state.stagedPreparedStructureId = null;
+  state.stagedPreparedVariantId = null;
+  state.stagedPreprocessManifest = null;
+  state.customPdb = null;
+  state.customSdf = null;
+  state.batchInputs = [];
+  updateInputLabels(null);
+  updateCustomOptionLabel("");
+  $("#example-select").value = "custom";
+  state.exampleId = "custom";
+  renderSetupPreprocessSummary();
+  updateBatchLabel();
+  updateVinaControls();
+  updateCommand();
 }
 
 async function resolvePreparedStructure(entry) {
@@ -3456,6 +3604,7 @@ function sdfCoord(value) {
 function buildPreprocessManifest(entry, variant, staged) {
   const sourceFiles = entry?.sourceFiles || {};
   const metadata = variant?.metadata || entry?.metadata || {};
+  const structuredWarnings = preprocessWarningObjects(metadata);
   return {
     schema_version: 1,
     created_at: new Date().toISOString(),
@@ -3488,10 +3637,47 @@ function buildPreprocessManifest(entry, variant, staged) {
       residue_count: metadata.residue_count || null,
       atom_count: metadata.atom_count || null,
       residues: metadata.residues || null,
-      warnings: metadata.warnings || [],
+      warnings: structuredWarnings.map(warningText),
+      structured_warnings: structuredWarnings,
       details: metadata,
     },
   };
+}
+
+function preprocessWarningObjects(metadata = {}) {
+  const warnings = [
+    ...(metadata.structured_warnings || []),
+    ...(metadata.warnings || []),
+  ];
+  const residueCount = Number(metadata.residue_count);
+  if (Number.isFinite(residueCount) && residueCount > 0 && !warnings.some((item) => warningText(item).includes("fewer than"))) {
+    if (residueCount < 10) {
+      warnings.push({
+        code: "pocket_lt_10_residues",
+        severity: "warning",
+        title: "Pocket size",
+        text: `Pocket has ${residueCount} complete residues. More than 10-20 residues is advised for stable generation/scoring.`,
+        appliesTo: "pocket",
+      });
+    } else if (residueCount < 20) {
+      warnings.push({
+        code: "pocket_lt_20_residues",
+        severity: "warning",
+        title: "Pocket size",
+        text: `Pocket has ${residueCount} complete residues. More than 20 residues is advised when possible.`,
+        appliesTo: "pocket",
+      });
+    }
+  }
+  const seen = new Set();
+  return warnings
+    .map((warning) => normalizeWorkflowWarning(warning, { code: "pocket_warning", title: "Pocket size", appliesTo: "pocket" }))
+    .filter((warning) => {
+      const key = `${warning.code}:${warning.text}`;
+      if (!warning.text || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 function renderSetupPreprocessSummary() {
@@ -3517,6 +3703,7 @@ function renderSetupPreprocessSummary() {
     ["SDF", staged.sdf || "none"],
     ["Radius", selected.radius || prep.radius ? `${selected.radius || prep.radius} A` : null],
     ["Residues", prep.residue_count ? String(prep.residue_count) : null],
+    ["Warnings", (prep.structured_warnings || prep.warnings || []).length ? (prep.structured_warnings || prep.warnings || []).map(warningText).join("; ") : null],
   ].filter(([, value]) => value !== null && value !== "");
   $("#setup-staged-grid").innerHTML = rows.map(([label, value]) => `
     <div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>
@@ -3543,7 +3730,12 @@ function stagePreparedInputs({ mode, pdb, sdf, label, detail, preprocessManifest
   $("#pdb-name").textContent = pdb?.name || "No protein staged";
   $("#pdb-detail").textContent = pdb ? (detail || "Prepared input") : "DiffSMol ligand-shape input";
   $("#sdf-name").textContent = sdf?.name || "No reference SDF";
-  $("#sdf-detail").textContent = isShapeInput ? "Prepared shape reference ligand" : sdf ? "Prepared reference ligand" : "Pocket mode uses the cropped PDB";
+  const heavyAtoms = sdf?.text ? sdfHeavyAtomCount(sdf.text) : 0;
+  $("#sdf-detail").textContent = isShapeInput
+    ? `Prepared shape reference ligand${heavyAtoms ? ` · ${heavyAtoms} heavy atoms` : ""}`
+    : sdf
+      ? `Prepared reference ligand${heavyAtoms ? ` · ${heavyAtoms} heavy atoms` : ""}`
+      : "Pocket mode uses the cropped PDB";
   $("#example-select").value = "custom";
   state.exampleId = "custom";
   updateCustomOptionLabel(label || pdb?.name || sdf?.name);
@@ -3553,7 +3745,9 @@ function stagePreparedInputs({ mode, pdb, sdf, label, detail, preprocessManifest
   renderPreparedStructureTray();
   setActiveTab("setup");
   renderPreprocessStagingStatus();
-  showToast(isShapeInput ? "Reference ligand staged for DiffSMol." : mode === "reference" ? "Prepared protein and reference ligand staged." : "Prepared pocket staged.");
+  showToast(isShapeInput
+    ? (pdb ? "Pocket and reference ligand staged for DiffSMol." : "Reference ligand staged for DiffSMol.")
+    : mode === "reference" ? "Prepared protein and reference ligand staged." : "Prepared pocket staged.");
 }
 
 async function handleFolderUpload(event) {
@@ -3801,6 +3995,20 @@ async function waitForRDKit() {
 
 function countSdfMolecules(text) {
   return text.split("$$$$").filter((block) => block.trim()).length;
+}
+
+function sdfHeavyAtomCount(text) {
+  const block = String(text || "").split("$$$$")[0] || "";
+  const lines = block.split(/\r?\n/);
+  const counts = lines[3] || "";
+  const atomCount = Number.parseInt(counts.slice(0, 3).trim(), 10);
+  if (!Number.isFinite(atomCount) || atomCount <= 0) return 0;
+  let heavyAtoms = 0;
+  for (const line of lines.slice(4, 4 + atomCount)) {
+    const symbol = line.slice(31, 34).trim() || line.trim().split(/\s+/)[3] || "";
+    if (symbol && symbol.toUpperCase() !== "H") heavyAtoms += 1;
+  }
+  return heavyAtoms;
 }
 
 function updateBatchLabel() {

@@ -25,6 +25,7 @@ from email.message import EmailMessage
 from pathlib import Path
 
 from .input_processing import (
+    clean_structure_payload,
     normalize_structure_payload,
     pocket_candidates_from_docked_sdfs,
     pocket_candidates_from_pose_centers,
@@ -33,6 +34,7 @@ from .input_processing import (
     preprocess_complex_payload,
 )
 from .tool_chest import ToolChest
+from .workflow_rules import filter_postprocess_for_workflow, validate_generation_inputs
 
 
 TERMINAL_STATES = {"completed", "failed", "canceled"}
@@ -331,6 +333,7 @@ class LocalJobManager:
 
         pdb = payload.get("pdb") or {}
         pdb, conversion = normalize_structure_payload(pdb, "protein.pdb")
+        pdb, cleaning = clean_structure_payload(pdb)
         ligands = payload.get("ligands") or {}
         pdb_text = str(pdb.get("text") or "")
         ligand_text = str(ligands.get("text") or "")
@@ -371,6 +374,7 @@ class LocalJobManager:
         return {
             **clustered,
             **({"source": conversion} if conversion else {}),
+            **({"cleaning": cleaning} if cleaning else {}),
             "vina_panel": {
                 "status": raw.get("status"),
                 "search_box": raw.get("search_box"),
@@ -378,7 +382,11 @@ class LocalJobManager:
                 "warnings": raw.get("warnings") or [],
                 "run_root": str(run_root),
             },
-            "warnings": [*(clustered.get("warnings") or []), *(raw.get("warnings") or [])],
+            "warnings": [
+                *(clustered.get("warnings") or []),
+                *(raw.get("warnings") or []),
+                *([f"Removed solvent/ion records from protein: {', '.join(sorted((cleaning or {}).get('removed_residue_names', {}).keys()))}."] if cleaning else []),
+            ],
         }
 
     def preprocess_pocket_from_center(self, payload: dict) -> dict:
@@ -386,6 +394,7 @@ class LocalJobManager:
             raise ValueError("Pocket extraction payload must be a JSON object.")
         pdb = payload.get("pdb") or {}
         pdb, conversion = normalize_structure_payload(pdb, "protein.pdb")
+        pdb, cleaning = clean_structure_payload(pdb)
         pdb_text = str(pdb.get("text") or "")
         if not pdb_text.strip() or not self._looks_like_pdb(pdb_text):
             raise ValueError("Pocket extraction requires a protein PDB input.")
@@ -401,7 +410,11 @@ class LocalJobManager:
             },
             "metadata": {key: value for key, value in pocket.items() if key != "text"},
             **({"source": conversion} if conversion else {}),
-            "warnings": pocket.get("warnings") or [],
+            **({"cleaning": cleaning} if cleaning else {}),
+            "warnings": [
+                *(pocket.get("warnings") or []),
+                *([f"Removed solvent/ion records from protein: {', '.join(sorted((cleaning or {}).get('removed_residue_names', {}).keys()))}."] if cleaning else []),
+            ],
         }
 
     def preprocess_pocket_from_residues(self, payload: dict) -> dict:
@@ -409,6 +422,7 @@ class LocalJobManager:
             raise ValueError("Residue pocket extraction payload must be a JSON object.")
         pdb = payload.get("pdb") or {}
         pdb, conversion = normalize_structure_payload(pdb, "protein.pdb")
+        pdb, cleaning = clean_structure_payload(pdb)
         pdb_text = str(pdb.get("text") or "")
         if not pdb_text.strip() or not self._looks_like_pdb(pdb_text):
             raise ValueError("Residue pocket extraction requires a protein PDB input.")
@@ -427,7 +441,11 @@ class LocalJobManager:
             },
             "metadata": {key: value for key, value in pocket.items() if key != "text"},
             **({"source": conversion} if conversion else {}),
-            "warnings": pocket.get("warnings") or [],
+            **({"cleaning": cleaning} if cleaning else {}),
+            "warnings": [
+                *(pocket.get("warnings") or []),
+                *([f"Removed solvent/ion records from protein: {', '.join(sorted((cleaning or {}).get('removed_residue_names', {}).keys()))}."] if cleaning else []),
+            ],
         }
 
     def _vina_panel_command(
@@ -563,7 +581,13 @@ class LocalJobManager:
             sdf_path = paths.inputs / sdf_name
             sdf_path.write_text(sdf["text"])
 
-        preprocess_manifest = self._preprocess_manifest(payload.get("preprocess"), pdb_path, sdf_path, payload.get("structure_conversion"))
+        preprocess_manifest = self._preprocess_manifest(
+            payload.get("preprocess"),
+            pdb_path,
+            sdf_path,
+            payload.get("structure_conversion"),
+            payload.get("structure_cleaning"),
+        )
         preprocess_manifest_path = None
         if preprocess_manifest:
             preprocess_manifest_path = paths.inputs / "preprocess_metadata.json"
@@ -572,6 +596,7 @@ class LocalJobManager:
         parameters = payload.get("parameters") or {}
         parameters["device"] = self._target_device(target)
         postprocess = self._postprocess_options(payload.get("postprocess") or {})
+        postprocess = self._postprocess_for_inputs(engine, postprocess, pdb_path)
         tool_requests = payload.get("tools") or []
         if target == LOCAL_CPU_TARGET:
             image_status = self._container_image_status(self._engine_image(engine))
@@ -607,6 +632,7 @@ class LocalJobManager:
             },
             "parameters": parameters,
             "structure_conversion": payload.get("structure_conversion") or None,
+            "structure_cleaning": payload.get("structure_cleaning") or None,
             "postprocess": postprocess,
             "preprocess": preprocess_manifest,
             "tools": tool_requests,
@@ -852,7 +878,7 @@ class LocalJobManager:
             mode = "none"
         elif not has_protein:
             mode = "none"
-            postprocess["vina_skipped_reason"] = "Protein PDB was not provided; Vina/QVina requires protein context."
+            postprocess["vina_skipped_reason"] = "Pocket PDB was not provided; Vina/QVina requires a pocket."
 
         tmp_dir = paths.root / "tmp" / "vina"
         tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -1178,14 +1204,14 @@ class LocalJobManager:
     ) -> list[str]:
         if engine == DIFFSMOL_ENGINE:
             if is_slurm_gpu_target(target):
-                return self._build_diffsmol_docker_command(paths, sdf_path, parameters, device="cuda:0", gpu=True)
+                return self._build_diffsmol_docker_command(paths, sdf_path, parameters, device="cuda:0", gpu=True, pdb_path=pdb_path)
             if target == OPENSHIFT_JOB_TARGET:
-                return self._build_diffsmol_openshift_job_args(paths, sdf_path, parameters)
+                return self._build_diffsmol_openshift_job_args(paths, sdf_path, parameters, pdb_path=pdb_path)
             if target == OPENSHIFT_MOCK_TARGET:
                 return self._build_diffsmol_mock_command(paths, sdf_path, parameters)
             if not self.container_runtime:
                 raise ValueError("Docker/Podman runtime not found for DiffSMol.")
-            return self._build_diffsmol_docker_command(paths, sdf_path, parameters, device="cpu", gpu=False)
+            return self._build_diffsmol_docker_command(paths, sdf_path, parameters, device="cpu", gpu=False, pdb_path=pdb_path)
         if is_slurm_gpu_target(target):
             if not pdb_path:
                 raise ValueError("conDitar requires a PDB input.")
@@ -1387,10 +1413,12 @@ class LocalJobManager:
         parameters: dict,
         device: str = "cpu",
         gpu: bool = False,
+        pdb_path: Path | None = None,
     ) -> list[str]:
         if not sdf_path:
             raise ValueError("DiffSMol shape generation requires a 3D SDF reference ligand.")
         runtime = os.environ.get("PODMAN_BIN", "podman") if gpu else self.container_runtime
+        launcher_path = self.project_root / "gui" / "backend" / "diffsmol_pocket_generate.py"
         command = [
             runtime,
             "run",
@@ -1409,15 +1437,31 @@ class LocalJobManager:
             f"{paths.inputs.resolve()}:/inputs:ro",
             "-v",
             f"{paths.outputs.resolve()}:/results",
+        ])
+        if pdb_path:
+            command.extend([
+                "-v",
+                f"{launcher_path.resolve()}:/launcher/diffsmol_pocket_generate.py:ro",
+            ])
+        command.extend([
             self.diffsmol_image,
         ])
         if self.diffsmol_container_command:
             command.extend(shlex.split(self.diffsmol_container_command))
+        elif pdb_path:
+            command.extend(["python", "/launcher/diffsmol_pocket_generate.py"])
         else:
             command.extend(["python", "/opt/DiffSMol/docker/generate.py"])
         command.extend([
             "--input",
             f"/inputs/{sdf_path.name}",
+        ])
+        if pdb_path:
+            command.extend([
+                "--protein",
+                f"/inputs/{pdb_path.name}",
+            ])
+        command.extend([
             "--output",
             "/results",
             "--device",
@@ -1435,9 +1479,12 @@ class LocalJobManager:
         paths: JobPaths,
         sdf_path: Path | None,
         parameters: dict,
+        pdb_path: Path | None = None,
     ) -> list[str]:
         if not sdf_path:
             raise ValueError("DiffSMol shape generation requires a 3D SDF reference ligand.")
+        if pdb_path:
+            raise ValueError("DiffSMol pocket-conditioned generation is not available for OpenShift until the pocket launcher is included in the DiffSMol image.")
         args = []
         if self.diffsmol_container_command:
             args.extend(shlex.split(self.diffsmol_container_command))
@@ -1557,6 +1604,9 @@ class LocalJobManager:
             "metrics": [str(item) for item in metrics],
         }
 
+    def _postprocess_for_inputs(self, engine: str, postprocess: dict, pdb_path: Path | None) -> dict:
+        return filter_postprocess_for_workflow(engine, "reference", pdb_path, postprocess)
+
     def _tool_requests(self, payload_tools: list) -> list[dict]:
         if not isinstance(payload_tools, list):
             raise ValueError("Tool selections must be a list.")
@@ -1600,10 +1650,12 @@ class LocalJobManager:
         if payload["engine"] == CONDITAR_ENGINE and not has_pdb_text and has_sdf_text:
             payload["engine"] = DIFFSMOL_ENGINE
             payload["mode"] = "reference"
-        if payload["engine"] == CONDITAR_ENGINE and (not isinstance(pdb, dict) or not str(pdb.get("text") or "").strip()):
-            raise ValueError("A PDB or CIF input is required.")
+        validation_errors = validate_generation_inputs(payload["engine"], payload["mode"], has_pdb_text, has_sdf_text)
+        if validation_errors:
+            raise ValueError(validation_errors[0])
         if isinstance(pdb, dict) and str(pdb.get("text") or "").strip():
             pdb, conversion = normalize_structure_payload(pdb, "input.pdb")
+            pdb, cleaning = clean_structure_payload(pdb)
             pdb_text = str(pdb["text"])
             if len(pdb_text.encode("utf-8")) > 50 * 1024 * 1024:
                 raise ValueError("PDB input is larger than 50 MB.")
@@ -1612,6 +1664,8 @@ class LocalJobManager:
             payload["pdb"] = {"name": safe_name(str(pdb.get("name") or "input.pdb"), "input.pdb"), "text": pdb_text}
             if conversion:
                 payload["structure_conversion"] = conversion
+            if cleaning:
+                payload["structure_cleaning"] = cleaning
         else:
             payload["pdb"] = None
 
@@ -1635,7 +1689,14 @@ class LocalJobManager:
             raise ValueError("Reference mode requires an SDF ligand input.")
         return payload
 
-    def _preprocess_manifest(self, manifest: dict | None, pdb_path: Path | None, sdf_path: Path | None, conversion: dict | None = None) -> dict | None:
+    def _preprocess_manifest(
+        self,
+        manifest: dict | None,
+        pdb_path: Path | None,
+        sdf_path: Path | None,
+        conversion: dict | None = None,
+        cleaning: dict | None = None,
+    ) -> dict | None:
         if not isinstance(manifest, dict):
             return None
         cleaned = dict(manifest)
@@ -1654,6 +1715,8 @@ class LocalJobManager:
         }
         if conversion:
             cleaned["structure_conversion"] = conversion
+        if cleaning:
+            cleaned["structure_cleaning"] = cleaning
         cleaned["recorded_at"] = utc_now()
         return cleaned
 
@@ -1856,6 +1919,7 @@ class LocalJobManager:
                 job["parameters"],
                 device="cuda:0",
                 gpu=True,
+                pdb_path=pdb_path,
             )
         else:
             if not pdb_path:
@@ -1946,15 +2010,54 @@ class LocalJobManager:
             if job.get("status") == "completed" and self._output_sdfs(paths, job):
                 self._run_requested_tools(paths, job)
             if (
+                job.get("target") == LOCAL_CPU_TARGET
+                and job.get("status") == "completed"
+                and not self._output_sdfs(paths, job)
+                and self._local_job_process_running(job["id"])
+            ):
+                job["status"] = "running"
+                job["finished_at"] = None
+                job.setdefault("outputs", {})["sdf_count"] = 0
+                job["status_note"] = "Generator process is still running; waiting for generated SDF outputs."
+                job["error_message"] = None
+                self._write_job(paths, job)
+            if (
                 not is_slurm_gpu_target(job.get("target"))
                 and job.get("status") == "failed"
                 and "Server restarted" in (job.get("error_message") or "")
             ):
+                if job.get("target") == LOCAL_CPU_TARGET and self._local_job_process_running(job["id"]):
+                    job["status"] = "running"
+                    job["finished_at"] = None
+                    job.setdefault("outputs", {})["sdf_count"] = len(self._output_sdfs(paths, job))
+                    job["status_note"] = "Generator process is still running after GUI restart."
+                    job["error_message"] = None
+                    self._write_job(paths, job)
+                    return job
                 self._recover_completed_local_outputs(paths, job)
             return job
         if job.get("target") == OPENSHIFT_JOB_TARGET:
             return self._refresh_openshift_job(job, paths)
         if not is_slurm_gpu_target(job.get("target")):
+            if job.get("target") == LOCAL_CPU_TARGET and job.get("status") == "running":
+                output_sdfs = self._output_sdfs(paths, job)
+                if self._local_job_process_running(job["id"]):
+                    job["status_note"] = "Generator process is running."
+                    job.setdefault("outputs", {})["sdf_count"] = len(output_sdfs)
+                    self._write_job(paths, job)
+                    return job
+                if output_sdfs:
+                    self._mark_completed_from_outputs(paths, job, output_sdfs)
+                    return self._read_job(job["id"]) or job
+                job["status"] = "failed"
+                job["finished_at"] = job.get("finished_at") or utc_now()
+                job["exit_code"] = job.get("exit_code") if job.get("exit_code") is not None else 1
+                job.setdefault("outputs", {})["sdf_count"] = 0
+                job["error_message"] = (
+                    "Generator process stopped but no generated SDF outputs were found. See logs: "
+                    f"{paths.stderr} and {paths.stdout}."
+                )
+                self._write_job(paths, job)
             return job
 
         exit_code_path = paths.logs / "exit_code.txt"
@@ -2320,7 +2423,7 @@ class LocalJobManager:
         return len(list(paths.outputs.rglob("*.sdf"))) if paths.outputs.exists() else 0
 
     def _recover_completed_local_outputs(self, paths: JobPaths, job: dict) -> bool:
-        output_count = self._output_count(paths)
+        output_count = len(self._output_sdfs(paths, job))
         if output_count == 0:
             return False
         job.setdefault("outputs", {})["sdf_count"] = output_count
@@ -2335,6 +2438,25 @@ class LocalJobManager:
         self._write_job(paths, job)
         return True
 
+    def _local_job_process_running(self, job_id: str) -> bool:
+        with self._lock:
+            process = self._processes.get(job_id)
+        if process and process.poll() is None:
+            return True
+        try:
+            result = subprocess.run(
+                ["ps", "axo", "pid=,command="],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=3,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+        if result.returncode != 0:
+            return False
+        return any(job_id in line and "docker run" in line for line in result.stdout.splitlines())
+
     def _recover_incomplete_jobs(self) -> None:
         for job in self.list_jobs():
             if job["status"] not in TERMINAL_STATES:
@@ -2344,6 +2466,14 @@ class LocalJobManager:
                     continue
                 paths = self._paths(job["id"])
                 if self._recover_completed_local_outputs(paths, job):
+                    continue
+                if job.get("target") == LOCAL_CPU_TARGET and self._local_job_process_running(job["id"]):
+                    job["status"] = "running"
+                    job["finished_at"] = None
+                    job["error_message"] = None
+                    job["status_note"] = "Generator process is still running after GUI restart."
+                    job.setdefault("outputs", {})["sdf_count"] = len(self._output_sdfs(paths, job))
+                    self._write_job(paths, job)
                     continue
                 if job.get("status") == "queued" and not job.get("started_at"):
                     job["error_message"] = None

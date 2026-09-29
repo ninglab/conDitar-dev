@@ -353,6 +353,11 @@ body.diffsmol-engine .run-bar { background: linear-gradient(135deg, #073d25, #0b
 .run-estimate { display: block; margin-top: 4px; color: #eef5ff; }
 .run-label { display: block; margin-bottom: 7px; color: #bfd4ff; font: 13px "DM Mono"; letter-spacing: .08em; text-transform: uppercase; }
 .run-bar code { display: block; color: #eef5ff; font: 13px "DM Mono"; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.setup-warning-banner { margin-top: 18px; padding: 14px 16px; border: 1px solid var(--warning); border-left: 5px solid var(--warning); border-radius: 8px; background: var(--warning-bg); color: var(--warning-text); font-size: 14px; line-height: 1.45; }
+.setup-warning-banner[hidden] { display: none; }
+.setup-warning-banner strong { display: block; margin-bottom: 6px; color: var(--warning-text); font-size: 14px; }
+.setup-warning-banner ul { margin: 0; padding-left: 19px; }
+.setup-warning-banner li + li { margin-top: 4px; }
 .batch-mode-banner { display: flex; gap: 8px; align-items: baseline; margin-top: 10px; padding: 11px 14px; border: 1px solid var(--warning); border-radius: 8px; color: var(--warning-text); background: var(--warning-bg); font-size: 14px; }
 .batch-mode-banner[hidden] { display: none; }
 .batch-mode-banner.is-warning { border-color: var(--warning); background: var(--warning-bg); color: var(--warning-text); }

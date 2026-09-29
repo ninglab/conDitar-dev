@@ -160,6 +160,14 @@ def pocket_pdb_from_residue_keys(
     warnings = []
     if skipped_residue_count:
         warnings.append(f"Skipped {skipped_residue_count} incomplete residue{'' if skipped_residue_count == 1 else 's'} without N/CA/C/O backbone atoms.")
+    if len(kept_residues) < 10:
+        warnings.append(
+            "Pocket contains fewer than 10 complete residues; generation and docking scores may be unreliable."
+        )
+    elif len(kept_residues) < 20:
+        warnings.append(
+            "Pocket contains fewer than 20 complete residues; expect more variability and review results carefully."
+        )
     return {
         "text": "\n".join(lines) + "\n",
         "method": method,

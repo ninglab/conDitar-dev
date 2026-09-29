@@ -11,7 +11,7 @@
   <link rel="icon" type="image/png" href="./media/logo/conditar-logo-highres-transparent.png">
   <link rel="apple-touch-icon" href="./media/logo/conditar-logo-highres-transparent.png">
   <link rel="stylesheet" href="./vendor/molstar/molstar.css">
-  <link rel="stylesheet" href="./src/styles.css?v=20260723-state-hardening-1">
+  <link rel="stylesheet" href="./src/styles.css?v=20260723-residue-preview-1">
 </head>
 <body>
   <div class="app-shell">
@@ -146,6 +146,7 @@
                     <label>Expand Angstrom<input id="manual-residue-radius" type="number" min="0" step="0.5" placeholder="exact"></label>
                   </div>
                   <div class="prepared-actions">
+                    <button class="secondary-button" id="preprocess-preview-residue-pocket" type="button"><span>Preview pocket</span></button>
                     <button class="primary-button" id="preprocess-build-residue-pocket" type="button"><span>Save pocket candidate</span><b>→</b></button>
                   </div>
                 </div>
@@ -367,6 +368,7 @@
           </div>
           <pre id="job-log" class="job-log">No job submitted.</pre>
         </div>
+        <div class="setup-warning-banner" id="setup-warning-banner" hidden role="alert" aria-live="polite"></div>
         <div class="run-bar">
           <div>
             <strong>Ready to generate</strong>
@@ -587,6 +589,6 @@
   <script async src="./vendor/molstar/molstar.js"></script>
   <script async src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script defer src="https://unpkg.com/@rdkit/rdkit/dist/RDKit_minimal.js"></script>
-  <script type="module" src="./src/app.js?v=20260723-state-hardening-1"></script>
+  <script type="module" src="./src/app.js?v=20260723-workflow-contract-1"></script>
 </body>
 </html>
