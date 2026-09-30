@@ -2,7 +2,7 @@ import { ADVANCED_PARAMETERS, EXAMPLES, PARAMETERS } from "./config.js?v=2026072
 import { drawCategoryChart, drawHistogram } from "./charts.js?v=20260723-theme-1";
 import { ExampleDataService } from "./data-service.js?v=20260723-results-fix-1";
 import { vinaWasRun } from "./sdf.js?v=20260723-theme-1";
-import { render2D, render3D } from "./viewers.js?v=20260723-theme-1";
+import { render2D, render3D } from "./viewers.js?v=20260930-viewer-hydrogen-1";
 import {
   CHEMISTRY_METRICS as WORKFLOW_CHEMISTRY_METRICS,
   VINA_METRICS as WORKFLOW_VINA_METRICS,
@@ -12,8 +12,9 @@ import {
   resolveGenerationWorkflow,
   setupWarningsForWorkflow,
   validateGenerationSetup,
+  vinaModeForMetrics,
   warningText,
-} from "./workflow-rules.js?v=20260723-workflow-contract-1";
+} from "./workflow-rules.js?v=20260930-evaluation-contract-1";
 
 const service = new ExampleDataService();
 const ACTIVE_JOB_STATUSES = new Set(["queued", "running"]);
@@ -28,6 +29,16 @@ const THEME_STORAGE_KEY = "conditar-theme";
 const VINA_EVALUATIONS = WORKFLOW_VINA_METRICS;
 const CHEMISTRY_EVALUATIONS = WORKFLOW_CHEMISTRY_METRICS;
 const DIFFSMOL_SHAPE_HEAVY_ATOM_WARNING = 35;
+const DEFAULT_BUILTIN_EVALUATIONS = new Set(["vina_score", "qed", "sa", "logp", "lipinski"]);
+const EVALUATION_LABELS = {
+  vina_score: "Vina score + minimize",
+  vina_dock: "Vina redock",
+  qvina: "QVina",
+  qed: "QED",
+  sa: "SA",
+  logp: "LogP",
+  lipinski: "Lipinski",
+};
 
 const state = {
   study: null,
@@ -36,12 +47,14 @@ const state = {
   engine: "conditar",
   mode: "reference",
   view: "3d",
+  showReferenceLigand: false,
   workspaceViewerMolecule: "selected",
   parameters: Object.fromEntries([...PARAMETERS, ...ADVANCED_PARAMETERS].map((item) => [item.key, item.value])),
   customPdb: null,
   customSdf: null,
   preprocessComplex: null,
   preprocessComplexResult: null,
+  preprocessComplexResultSignature: null,
   preprocessTarget: null,
   preparedStructures: [],
   selectedPreparedStructureId: null,
@@ -51,6 +64,7 @@ const state = {
   preprocessProtein: null,
   preprocessPanel: null,
   vinaPocketResult: null,
+  vinaPocketResultSignature: null,
   selectedVinaPocketId: null,
   batchInputs: [],
   currentJob: null,
@@ -129,6 +143,10 @@ function bindEvents() {
   $$(".engine-option").forEach((button) => button.addEventListener("click", () => setEngine(button.dataset.engine)));
   $$(".mode-toggle button").forEach((button) => button.addEventListener("click", () => setMode(button.dataset.mode)));
   $$(".view-toggle button").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
+  $("#viewer-reference-toggle").addEventListener("change", (event) => {
+    state.showReferenceLigand = event.target.checked;
+    renderSelectedStructure();
+  });
   $$(".workflow-step").forEach((button) => button.addEventListener("click", () => setActiveTab(button.dataset.section)));
   [...PARAMETERS, ...ADVANCED_PARAMETERS].forEach((parameter) => {
     $(`#param-${parameter.key}`).addEventListener("input", (event) => {
@@ -222,6 +240,8 @@ function bindEvents() {
   $("#theme-toggle").addEventListener("click", toggleTheme);
   $("#pdb-input").addEventListener("change", handlePdbUpload);
   $("#sdf-input").addEventListener("change", handleSdfUpload);
+  $("#pdb-input").addEventListener("click", clearFileInputBeforeChoose);
+  $("#sdf-input").addEventListener("click", clearFileInputBeforeChoose);
   $("#folder-input").addEventListener("change", handleFolderUpload);
   $("#clear-batch").addEventListener("click", clearBatchSelection);
   window.addEventListener("resize", debounce(renderCharts, 120));
@@ -409,6 +429,10 @@ function chooseFileAgain(selector) {
   input.click();
 }
 
+function clearFileInputBeforeChoose(event) {
+  event.currentTarget.value = "";
+}
+
 async function setActiveTab(tab) {
   state.activeTab = tab;
   $$(".workflow-step").forEach((button) => button.classList.toggle("active", button.dataset.section === tab));
@@ -453,6 +477,7 @@ async function loadExample(exampleId) {
     state.study = await service.loadStudy(exampleId, (loaded, total) => {
       $("#hero-status").textContent = `${Math.round((loaded / total) * 100)}%`;
     });
+    state.showReferenceLigand = false;
     state.selected = state.study.candidates[0] || null;
     state.exportSelection = new Set();
     state.exportFilters = {};
@@ -654,6 +679,7 @@ async function submitGenerationJob() {
     const job = response.jobs[0];
     state.currentJob = job;
     state.selectedJob = job;
+    if (response.jobs.some((item) => item.status !== "failed")) resetEvaluationSelections();
     const failedJobs = response.jobs.filter((item) => item.status === "failed");
     const queuedJobs = response.jobs.length - failedJobs.length;
     const message = failedJobs.length
@@ -755,15 +781,34 @@ function hasDiffSmolPocketContext(inputOverride = null) {
 }
 
 function selectedVinaMode(selected = selectedBuiltinEvaluations()) {
-  const chosen = new Set(selected);
-  const wantsScore = chosen.has("vina_score");
-  const wantsDock = chosen.has("vina_dock");
-  const wantsQvina = chosen.has("qvina");
-  if ((wantsScore || wantsDock) && wantsQvina) return "all";
-  if (wantsDock) return "vina_dock";
-  if (wantsQvina) return "qvina";
-  if (wantsScore) return "vina_score";
-  return "none";
+  return vinaModeForMetrics(selected);
+}
+
+function updateRunEvaluationSummary() {
+  const container = $("#run-evaluations");
+  if (!container) return;
+  const generationInput = currentGenerationInput();
+  const builtin = filterMetricsForWorkflow(
+    selectedBuiltinEvaluations({ includeDisabled: true }),
+    generationInput.workflow,
+  ).map((metric) => EVALUATION_LABELS[metric] || metric);
+  const tools = buildEvaluationToolsPayload().map((request) => (
+    state.tools.find((tool) => tool.id === request.id)?.name || request.id
+  ));
+  const selected = [...builtin, ...tools];
+  container.textContent = selected.length
+    ? `This job will run: ${selected.join(", ")}.`
+    : "This job will run generation only; no evaluators are selected.";
+}
+
+function resetEvaluationSelections() {
+  $$(".builtin-evaluation-toggle").forEach((input) => {
+    input.checked = DEFAULT_BUILTIN_EVALUATIONS.has(input.value);
+  });
+  $$(".evaluation-tool-toggle").forEach((input) => {
+    input.checked = false;
+  });
+  updateVinaControls();
 }
 
 function selectedEvaluationLabel(selected = selectedBuiltinEvaluations()) {
@@ -844,6 +889,7 @@ async function loadCompletedJob(job) {
     toolRuns: result.toolRuns || [],
     loadedJob,
   };
+  state.showReferenceLigand = false;
   state.currentJob = loadedJob;
   state.selectedJob = loadedJob;
   state.resultSource = "job";
@@ -1243,6 +1289,8 @@ function renderEvaluationTools() {
       <small>${escapeHtml(tool.available ? (tool.description || "") : (tool.error || "Tool unavailable."))}</small>
     </div>
   `).join("");
+  $$(".evaluation-tool-toggle").forEach((input) => input.addEventListener("change", updateRunEvaluationSummary));
+  updateRunEvaluationSummary();
 }
 
 function toolOptionControl(tool, input, context = "results") {
@@ -1956,6 +2004,12 @@ function handleHistogramHover(event) {
 function renderSelectedStructure() {
   const molecule = state.selected;
   if (!molecule || !state.study || state.activeTab !== "results") return;
+  const hasReference = Boolean(state.study.referenceSdf);
+  const referenceControl = $("#viewer-reference-control");
+  const referenceToggle = $("#viewer-reference-toggle");
+  referenceControl.hidden = !hasReference;
+  referenceToggle.disabled = !hasReference;
+  referenceToggle.checked = hasReference && state.showReferenceLigand;
   $("#selected-name").textContent = molecule.id;
   const metrics = [
     ["Formula", molecule.formula],
@@ -1979,7 +2033,7 @@ function renderSelectedStructure() {
   render2D($("#viewer-2d"), molecule);
   $("#viewer-loading").hidden = false;
   render3D($("#viewer-3d"), molecule, state.study.pdbText, {
-    referenceText: state.study.referenceSdf,
+    referenceText: hasReference && state.showReferenceLigand ? state.study.referenceSdf : null,
   }).finally(() => {
     $("#viewer-loading").hidden = true;
   });
@@ -2243,6 +2297,7 @@ function updateVinaControls() {
   $("#vina-exhaustiveness").disabled = !enabled;
   $("#vina-cpu").disabled = !enabled;
   $("#vina-mode-summary").textContent = selectedEvaluationLabel(selected);
+  updateRunEvaluationSummary();
   updateCommand();
 }
 
@@ -2353,6 +2408,7 @@ function compareMetric(a, b) {
 }
 
 function updateCommand() {
+  updateRunEvaluationSummary();
   const generationInput = currentGenerationInput();
   const pdbName = state.batchInputs.length
     ? `${state.batchInputs.length} folders`
@@ -2409,7 +2465,11 @@ async function handlePdbUpload(event) {
   const file = event.target.files[0];
   if (!file) return;
   const text = await readValidatedTextFile(file, "pdb");
-  if (!text) return;
+  if (!text) {
+    event.target.value = "";
+    updateCommand();
+    return;
+  }
   clearLoadedStudyForCustomInput();
   state.customPdb = { name: file.name, text };
   state.stagedPreprocessManifest = null;
@@ -2435,7 +2495,11 @@ async function handleSdfUpload(event) {
   const file = event.target.files[0];
   if (!file) return;
   const text = await readValidatedTextFile(file, "sdf");
-  if (!text) return;
+  if (!text) {
+    event.target.value = "";
+    updateCommand();
+    return;
+  }
   const moleculeCount = countSdfMolecules(text);
   if (moleculeCount !== 1) {
     showToast(`${file.name} has ${moleculeCount || "no"} molecules. Upload one 3D reference ligand SDF here; use Docking panel for ligand databases.`);
@@ -2579,6 +2643,7 @@ async function handlePreprocessComplexUpload(event) {
   if (!text) return;
   state.preprocessComplex = { name: file.name, text };
   state.preprocessComplexResult = null;
+  state.preprocessComplexResultSignature = null;
   renderPreparedStructureTray();
   $("#preprocess-complex-name").textContent = file.name;
   $("#preprocess-complex-detail").textContent = "Detecting ligands and preparing pocket...";
@@ -2629,6 +2694,7 @@ function handlePreprocessComplexResult(result) {
   }
   state.preprocessComplexResult = result;
   renderPreprocessLigandPicker(result.candidates || [], result.selected?.id || "");
+  state.preprocessComplexResultSignature = boundComplexSettingsSignature();
   $("#preprocess-complex-detail").textContent = `Prepared using ${result.selected?.label || "selected ligand"}`;
   renderPreparedComplexOutput(result);
   const complexGroup = `${state.preprocessComplex?.name || result.pdb.name} · ${result.selected?.label || "selected ligand"}`;
@@ -2641,7 +2707,7 @@ function handlePreprocessComplexResult(result) {
   addPreparedStructure({
     mode: "context",
     contextType: "bound-complex",
-    settingsSignature: boundComplexSettingsSignature(),
+    settingsSignature: state.preprocessComplexResultSignature,
     selectedVariantId: "pocket",
     label: `Bound complex: ${result.selected?.resname || result.selected?.label || "selected ligand"}`,
     source: "Bound-ligand complex split",
@@ -2709,7 +2775,10 @@ function boundComplexSettingsSignature() {
   return JSON.stringify({
     complex: state.preprocessComplex?.name || null,
     radius: preprocessComplexRadius(),
-    ligand: state.preprocessComplexResult?.selected?.id || state.preprocessComplexResult?.selected?.label || null,
+    ligand: $("#preprocess-ligand-select")?.value
+      || state.preprocessComplexResult?.selected?.id
+      || state.preprocessComplexResult?.selected?.label
+      || null,
   });
 }
 
@@ -2823,16 +2892,15 @@ function renderPreparedStructureTray() {
     const meta = variant.metadata || item.metadata || {};
     const active = item.id === state.selectedPreparedStructureId ? " active" : "";
     const isStagedView = item.id === state.stagedPreparedStructureId && (!item.variants?.length || item.selectedVariantId === state.stagedPreparedVariantId);
-    const stale = preparedStructureNeedsUpdate(item);
     const staged = isStagedView ? " staged" : "";
-    const cardClass = `prepared-structure-card${active}${staged}${stale ? " stale" : ""}`;
+    const cardClass = `prepared-structure-card${active}${staged}`;
     const mode = variant.mode || item.mode;
     const modeLabel = preparedModeLabel(mode);
     const residues = meta.residue_count ? `${meta.residue_count} residues` : "residues n/a";
     const atoms = meta.atom_count ? `${meta.atom_count} atoms` : "atoms n/a";
     const files = preparedStructureFileLines(item);
     const sourceLabel = item.groupLabel || item.source || meta.provenance || "Prepared structure";
-    const statusLabel = stale ? "Update needed" : isStagedView ? "Staged" : active ? "Previewing" : modeLabel;
+    const statusLabel = isStagedView ? "Staged" : active ? "Previewing" : modeLabel;
     const warningLines = preprocessWarningObjects(meta).map(warningText);
     const variantSelector = item.variants?.length ? `
           <label class="prepared-variant-control">
@@ -2851,7 +2919,6 @@ function renderPreparedStructureTray() {
           </div>
           <small>${escapeHtml(item.variants?.length ? `Selected view: ${variant.label || modeLabel}` : modeLabel)} · ${escapeHtml(residues)} · ${escapeHtml(atoms)}</small>
           <small class="prepared-source-line">${escapeHtml(sourceLabel)}</small>
-          ${stale ? "<small class='prepared-warning-line'>Settings changed. Regenerate this candidate before staging.</small>" : ""}
           ${warningLines.map((line) => `<small class="prepared-warning-line">${escapeHtml(line)}</small>`).join("")}
           ${variantSelector}
           <details class="prepared-provenance">
@@ -2865,7 +2932,7 @@ function renderPreparedStructureTray() {
           <button class="secondary-button compact-action" type="button" data-prepared-action="preview">Preview</button>
           <button class="secondary-button compact-action" type="button" data-prepared-action="download">Download</button>
           <button class="secondary-button compact-action danger-action" type="button" data-prepared-action="remove">Remove</button>
-          <button class="primary-button compact-action" type="button" data-prepared-action="use" ${stale ? "disabled" : ""}>${isStagedView ? "Staged" : "Stage view"}</button>
+          <button class="primary-button compact-action" type="button" data-prepared-action="use">${isStagedView ? "Staged" : "Stage view"}</button>
         </div>
       </article>
     `;
@@ -2875,11 +2942,18 @@ function renderPreparedStructureTray() {
   renderPreprocessStagingStatus();
 }
 
-function preparedStructureNeedsUpdate(item) {
-  if (!item?.settingsSignature) return false;
-  if (item.contextType === "bound-complex") return item.settingsSignature !== boundComplexSettingsSignature();
-  if (item.contextType === "vina-panel") return item.settingsSignature !== vinaPanelSettingsSignature();
-  return false;
+function boundComplexResultNeedsUpdate() {
+  return Boolean(
+    state.preprocessComplexResultSignature
+    && state.preprocessComplexResultSignature !== boundComplexSettingsSignature(),
+  );
+}
+
+function vinaPanelResultNeedsUpdate() {
+  return Boolean(
+    state.vinaPocketResultSignature
+    && state.vinaPocketResultSignature !== vinaPanelSettingsSignature(),
+  );
 }
 
 function selectedPreparedVariant(entry) {
@@ -3191,7 +3265,7 @@ function usePreprocessedComplex(mode) {
     return;
   }
   const contextEntry = state.preparedStructures.find((item) => item.contextType === "bound-complex" && item.sourceFiles?.complex === state.preprocessComplex?.name);
-  if (contextEntry && preparedStructureNeedsUpdate(contextEntry)) {
+  if (boundComplexResultNeedsUpdate()) {
     showToast("Bound-complex settings changed. Regenerate the context before staging.");
     return;
   }
@@ -3302,6 +3376,7 @@ async function handlePreprocessProteinUpload(event) {
   if (!text) return;
   state.preprocessProtein = { name: file.name, text };
   state.vinaPocketResult = null;
+  state.vinaPocketResultSignature = null;
   state.selectedVinaPocketId = null;
   renderPreparedStructureTray();
   $("#preprocess-protein-name").textContent = file.name;
@@ -3323,6 +3398,7 @@ async function handlePreprocessPanelUpload(event) {
     if (!panel) return;
     state.preprocessPanel = panel;
     state.vinaPocketResult = null;
+    state.vinaPocketResultSignature = null;
     state.selectedVinaPocketId = null;
     renderPreparedStructureTray();
     $("#preprocess-panel-name").textContent = file.name;
@@ -3350,6 +3426,7 @@ async function runVinaPanelPreprocessing() {
       options,
     });
     state.vinaPocketResult = result;
+    state.vinaPocketResultSignature = vinaPanelSettingsSignature();
     state.selectedVinaPocketId = result.candidates?.[0]?.id || null;
     renderVinaPocketCandidates();
     saveVinaPanelContext(result);
@@ -3378,7 +3455,7 @@ function saveVinaPanelContext(result) {
     id: `vina-context-${filenameStem(proteinName)}-${filenameStem(panelName)}`,
     mode: "context",
     contextType: "vina-panel",
-    settingsSignature: vinaPanelSettingsSignature(),
+    settingsSignature: state.vinaPocketResultSignature,
     selectedVariantId: state.selectedVinaPocketId || candidates[0].id,
     label: `Docking panel: ${panelName}`,
     source: "Docking-panel pocket search",
@@ -3465,7 +3542,7 @@ async function useSelectedVinaPocket() {
   const pose = prepared.candidate.representative_pose;
   const contextId = `vina-context-${filenameStem(state.preprocessProtein?.name || "protein")}-${filenameStem(state.preprocessPanel?.name || "panel")}`;
   let contextEntry = state.preparedStructures.find((item) => item.id === contextId);
-  if (contextEntry && preparedStructureNeedsUpdate(contextEntry)) {
+  if (vinaPanelResultNeedsUpdate()) {
     showToast("Docking-panel settings changed. Find candidate pockets again before staging.");
     return;
   }
@@ -4335,6 +4412,8 @@ function setLoading(loading) {
 function showToast(message, duration = 3400) {
   const toast = $("#toast");
   toast.textContent = message;
+  toast.classList.remove("show");
+  void toast.offsetWidth;
   toast.classList.add("show");
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => toast.classList.remove("show"), duration);

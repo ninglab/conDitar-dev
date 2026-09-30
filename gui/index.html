@@ -11,7 +11,7 @@
   <link rel="icon" type="image/png" href="./media/logo/conditar-logo-highres-transparent.png">
   <link rel="apple-touch-icon" href="./media/logo/conditar-logo-highres-transparent.png">
   <link rel="stylesheet" href="./vendor/molstar/molstar.css">
-  <link rel="stylesheet" href="./src/styles.css?v=20260723-residue-preview-1">
+  <link rel="stylesheet" href="./src/styles.css?v=20260930-reference-toggle-1">
 </head>
 <body>
   <div class="app-shell">
@@ -373,6 +373,7 @@
           <div>
             <strong>Ready to generate</strong>
             <span class="run-summary">Uploaded inputs are staged per job; outputs and logs are stored in that job's folder.</span>
+            <span class="run-summary run-evaluations" id="run-evaluations">This job will run: Vina score + minimize, QED, SA, LogP, Lipinski.</span>
             <span class="run-summary run-estimate" id="run-estimate">Estimate updates after you choose inputs.</span>
             <code id="command-preview" hidden></code>
           </div>
@@ -506,6 +507,11 @@
             <div class="viewer-header">
               <div><p class="eyebrow">Selected candidate</p><h3 id="selected-name">Candidate 000</h3></div>
               <div class="viewer-actions">
+                <label class="viewer-reference-toggle" id="viewer-reference-control" hidden>
+                  <input id="viewer-reference-toggle" type="checkbox">
+                  <span class="viewer-reference-track" aria-hidden="true"></span>
+                  <span>Reference ligand</span>
+                </label>
                 <div class="view-toggle"><button class="active" data-view="3d">3D</button><button data-view="2d">2D</button></div>
                 <button class="icon-button" id="download-selected" aria-label="Download selected SDF">↓</button>
               </div>
@@ -589,6 +595,6 @@
   <script async src="./vendor/molstar/molstar.js"></script>
   <script async src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script defer src="https://unpkg.com/@rdkit/rdkit/dist/RDKit_minimal.js"></script>
-  <script type="module" src="./src/app.js?v=20260723-workflow-contract-1"></script>
+  <script type="module" src="./src/app.js?v=20260930-reference-toggle-1"></script>
 </body>
 </html>

@@ -137,6 +137,7 @@ def dock_ligand(
 
     prep_ligand = PrepLig(str(ligand_sdf), "sdf")
     prep_ligand.get_pdbqt(str(ligand_pdbqt))
+    source_pdbqt = ligand_pdbqt.read_text(errors="replace")
     dock = VinaDock(str(ligand_pdbqt), str(receptor_pdbqt))
     dock.pocket_center = search_center
     dock.box_size = box_size
@@ -144,7 +145,7 @@ def dock_ligand(
     center = pose_center_from_pdbqt(pose_text)
     if center is None:
         raise ValueError("Vina returned no pose coordinates.")
-    pose_sdf = pose_sdf_from_template(mol, ligand_name, pose_text, score)
+    pose_sdf = pose_sdf_from_template(mol, ligand_name, source_pdbqt, pose_text, score)
     return {
         "id": f"{ligand_name}:{ligand_index}",
         "name": ligand_name,
@@ -165,15 +166,43 @@ def needs_3d_embedding(mol: Chem.Mol) -> bool:
     return max(z_values) - min(z_values) < 0.001
 
 
-def pose_sdf_from_template(mol: Chem.Mol, ligand_name: str, pose_text: str | None, score: float | None) -> str:
-    coords = pose_coordinates_from_pdbqt(pose_text)
+def pose_sdf_from_template(
+    mol: Chem.Mol,
+    ligand_name: str,
+    source_pdbqt: str,
+    pose_text: str | None,
+    score: float | None,
+) -> str:
+    source_atoms = pdbqt_atoms(source_pdbqt)
+    pose_atoms = pdbqt_atoms(pose_text)
+    if not source_atoms or len(source_atoms) != len(pose_atoms):
+        raise ValueError("Vina pose atom count did not match the prepared ligand.")
+
     posed = Chem.Mol(mol)
-    if coords:
-        conformer = posed.GetConformer(0) if posed.GetNumConformers() else Chem.Conformer(posed.GetNumAtoms())
-        for index, coord in enumerate(coords[:posed.GetNumAtoms()]):
-            conformer.SetAtomPosition(index, coord)
-        if not posed.GetNumConformers():
-            posed.AddConformer(conformer)
+    if not posed.GetNumConformers():
+        raise ValueError("Prepared ligand has no conformer for pose coordinate mapping.")
+    conformer = posed.GetConformer(0)
+    unmatched_heavy = {atom.GetIdx() for atom in posed.GetAtoms() if atom.GetAtomicNum() > 1}
+
+    for source_atom, pose_atom in zip(source_atoms, pose_atoms):
+        if source_atom["is_hydrogen"]:
+            continue
+        if not unmatched_heavy:
+            raise ValueError("Vina pose contains more heavy atoms than the prepared ligand.")
+        source_coord = source_atom["coord"]
+        matched_index = min(
+            unmatched_heavy,
+            key=lambda index: squared_distance(conformer.GetAtomPosition(index), source_coord),
+        )
+        if squared_distance(conformer.GetAtomPosition(matched_index), source_coord) > 0.04:
+            raise ValueError("Vina pose atoms could not be mapped back to the prepared ligand.")
+        conformer.SetAtomPosition(matched_index, pose_atom["coord"])
+        unmatched_heavy.remove(matched_index)
+
+    if unmatched_heavy:
+        raise ValueError("Vina pose is missing heavy atoms from the prepared ligand.")
+    posed = Chem.RemoveHs(posed)
+    validate_pose_geometry(posed)
     posed.SetProp("_Name", ligand_name)
     if score is not None:
         posed.SetProp("VINA_DOCK", str(score))
@@ -194,17 +223,39 @@ def pose_center_from_pdbqt(text: str | None) -> tuple[float, float, float] | Non
 
 
 def pose_coordinates_from_pdbqt(text: str | None) -> list[tuple[float, float, float]]:
+    return [atom["coord"] for atom in pdbqt_atoms(text)]
+
+
+def pdbqt_atoms(text: str | None) -> list[dict]:
     if not text:
         return []
-    coords = []
+    atoms = []
     for line in text.splitlines():
         if not line.startswith(("ATOM  ", "HETATM")):
             continue
         try:
-            coords.append((float(line[30:38]), float(line[38:46]), float(line[46:54])))
+            coord = (float(line[30:38]), float(line[38:46]), float(line[46:54]))
         except ValueError:
             continue
-    return coords
+        atom_type = line.split()[-1] if line.split() else ""
+        atoms.append({
+            "coord": coord,
+            "is_hydrogen": atom_type.upper().startswith("H"),
+        })
+    return atoms
+
+
+def squared_distance(point, coord: tuple[float, float, float]) -> float:
+    return sum((float(point[axis]) - coord[axis]) ** 2 for axis in range(3))
+
+
+def validate_pose_geometry(mol: Chem.Mol, max_bond_length: float = 3.0) -> None:
+    conformer = mol.GetConformer(0)
+    for bond in mol.GetBonds():
+        start = conformer.GetAtomPosition(bond.GetBeginAtomIdx())
+        end = conformer.GetAtomPosition(bond.GetEndAtomIdx())
+        if math.sqrt(squared_distance(start, (end.x, end.y, end.z))) > max_bond_length:
+            raise ValueError("Converted Vina pose contains an implausibly long bond.")
 
 
 if __name__ == "__main__":

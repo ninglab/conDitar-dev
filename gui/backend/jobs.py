@@ -925,16 +925,19 @@ class LocalJobManager:
             "/tmp/conditar/vina",
             "--mode",
             mode,
+            "--metrics",
+            ",".join(postprocess.get("metrics") or []),
             "--exhaustiveness",
             str(postprocess.get("vina_exhaustiveness") or "8"),
             "--cpu",
             str(postprocess.get("vina_cpu") or "4"),
         ]
-        if mode != "none" and pdb_path:
+        if selected & VINA_METRICS and pdb_path:
             command.extend(["--protein", f"/inputs/{pdb_path.name}"])
 
         postprocess["status"] = "running"
         postprocess["applied_mode"] = mode
+        postprocess["applied_metrics"] = list(postprocess.get("metrics") or [])
         job["status"] = "running"
         job["finished_at"] = None
         job["status_note"] = (
@@ -1359,6 +1362,12 @@ class LocalJobManager:
     ) -> list[str]:
         tmp_dir = paths.root / "tmp"
         tmp_dir.mkdir(parents=True, exist_ok=True)
+        wrapper_path = self.project_root.parent / "scripts" / "container" / "conditar-sample"
+        postprocess_path = self.project_root.parent / "scripts" / "conDitar" / "postprocess_vina.py"
+        if not wrapper_path.is_file():
+            raise FileNotFoundError(f"conDitar container wrapper not found: {wrapper_path}")
+        if not postprocess_path.is_file():
+            raise FileNotFoundError(f"conDitar postprocessor not found: {postprocess_path}")
         runtime = os.environ.get("PODMAN_BIN", "podman") if gpu else self.container_runtime
         command = [
             runtime,
@@ -1376,6 +1385,10 @@ class LocalJobManager:
             f"{paths.outputs.resolve()}:/results",
             "-v",
             f"{tmp_dir.resolve()}:/tmp/conditar",
+            "-v",
+            f"{wrapper_path.resolve()}:/usr/local/bin/conditar-sample:ro",
+            "-v",
+            f"{postprocess_path.resolve()}:/opt/conditar/app/scripts/conDitar/postprocess_vina.py:ro",
         ])
         if self.source_mount:
             command.extend(["-v", f"{Path(self.source_mount).expanduser().resolve()}:/opt/conditar/app:ro"])
@@ -1418,7 +1431,9 @@ class LocalJobManager:
         if not sdf_path:
             raise ValueError("DiffSMol shape generation requires a 3D SDF reference ligand.")
         runtime = os.environ.get("PODMAN_BIN", "podman") if gpu else self.container_runtime
-        launcher_path = self.project_root / "gui" / "backend" / "diffsmol_pocket_generate.py"
+        launcher_path = self.project_root / "backend" / "diffsmol_pocket_generate.py"
+        if pdb_path and not launcher_path.is_file():
+            raise FileNotFoundError(f"DiffSMol pocket launcher not found: {launcher_path}")
         command = [
             runtime,
             "run",
@@ -1589,19 +1604,46 @@ class LocalJobManager:
         }
 
     def _postprocess_options(self, payload_options: dict) -> dict:
-        vina_enabled = bool(payload_options.get("vina"))
-        vina_mode = str(payload_options.get("vina_mode") or "vina_score").strip()
-        if vina_mode not in {"none", "vina_score", "vina_dock", "qvina", "all"}:
-            raise ValueError("Vina mode must be none, vina_score, vina_dock, qvina, or all.")
         metrics = payload_options.get("metrics") or []
         if not isinstance(metrics, list):
             raise ValueError("Selected evaluation metrics must be a list.")
+        metrics = [str(item) for item in metrics]
+        selected = set(metrics)
+        if "metrics" in payload_options:
+            wants_score = "vina_score" in selected
+            wants_dock = "vina_dock" in selected
+            wants_qvina = "qvina" in selected
+            if (wants_score or wants_dock) and wants_qvina:
+                vina_mode = "all"
+            elif wants_dock:
+                vina_mode = "vina_dock"
+            elif wants_qvina:
+                vina_mode = "qvina"
+            elif wants_score:
+                vina_mode = "vina_score"
+            else:
+                vina_mode = "none"
+            vina_enabled = vina_mode != "none"
+        else:
+            vina_enabled = bool(payload_options.get("vina"))
+            vina_mode = str(payload_options.get("vina_mode") or "vina_score").strip()
+            if vina_mode not in {"none", "vina_score", "vina_dock", "qvina", "all"}:
+                raise ValueError("Vina mode must be none, vina_score, vina_dock, qvina, or all.")
+            metrics = []
+            if vina_enabled:
+                metrics.extend(("qed", "sa", "logp", "lipinski"))
+                if vina_mode in {"vina_score", "vina_dock", "all"}:
+                    metrics.append("vina_score")
+                if vina_mode in {"vina_dock", "all"}:
+                    metrics.append("vina_dock")
+                if vina_mode in {"qvina", "all"}:
+                    metrics.append("qvina")
         return {
             "vina": vina_enabled,
             "vina_mode": vina_mode,
             "vina_exhaustiveness": str(payload_options.get("vina_exhaustiveness") or "8").strip(),
             "vina_cpu": str(payload_options.get("vina_cpu") or "4").strip(),
-            "metrics": [str(item) for item in metrics],
+            "metrics": metrics,
         }
 
     def _postprocess_for_inputs(self, engine: str, postprocess: dict, pdb_path: Path | None) -> dict:
@@ -1670,11 +1712,12 @@ class LocalJobManager:
             payload["pdb"] = None
 
         if sdf and isinstance(sdf, dict) and str(sdf.get("text") or "").strip():
-            sdf_text = self._normalize_sdf_text(str(sdf["text"]))
-            if len(sdf_text.encode("utf-8")) > 50 * 1024 * 1024:
+            raw_sdf_text = str(sdf["text"])
+            if len(raw_sdf_text.encode("utf-8")) > 50 * 1024 * 1024:
                 raise ValueError("SDF input is larger than 50 MB.")
-            if not self._looks_like_sdf(sdf_text):
+            if not self._looks_like_sdf(raw_sdf_text):
                 raise ValueError("Reference ligand input does not look like an SDF file.")
+            sdf_text = self._normalize_sdf_text(raw_sdf_text)
             if payload["engine"] == DIFFSMOL_ENGINE and self._sdf_molecule_count(sdf_text) != 1:
                 raise ValueError(
                     "DiffSMol requires one 3D reference ligand SDF. "
@@ -1768,7 +1811,7 @@ class LocalJobManager:
         return False
 
     def _looks_like_sdf(self, text: str) -> bool:
-        return "$$$$" in text or (re.search(r"\bV(2000|3000)\b", text) and re.search(r"^\s*M\s+END\s*$", text, re.MULTILINE))
+        return bool("$$$$" in text or (re.search(r"\bV(2000|3000)\b", text) and re.search(r"^\s*M\s+END\s*$", text, re.MULTILINE)))
 
     def _normalize_sdf_text(self, text: str) -> str:
         stripped = text.rstrip()
@@ -1780,12 +1823,14 @@ class LocalJobManager:
         return len([block for block in text.split("$$$$") if block.strip()])
 
     def _append_postprocess_args(self, command: list[str], postprocess: dict | None) -> None:
-        if not postprocess or not postprocess.get("vina"):
+        if not postprocess:
             return
-        if (postprocess.get("vina_mode") or "vina_score") == "none":
+        metrics = list(postprocess.get("metrics") or [])
+        if not metrics:
             return
         command.extend([
-            "--vina-score",
+            "--postprocess-metrics",
+            ",".join(metrics),
             "--vina-mode",
             postprocess.get("vina_mode") or "vina_score",
             "--vina-exhaustiveness",
@@ -1793,6 +1838,8 @@ class LocalJobManager:
             "--vina-cpu",
             str(postprocess.get("vina_cpu") or "4"),
         ])
+        if postprocess.get("vina"):
+            command.append("--vina-score")
 
     def _submit_slurm_job(self, job: dict, paths: JobPaths, pdb_path: Path | None, sdf_path: Path | None) -> dict:
         if not self.sbatch_bin:
@@ -2223,8 +2270,7 @@ class LocalJobManager:
         postprocess = job.get("postprocess") or {}
         return (
             job.get("engine") == CONDITAR_ENGINE
-            and bool(postprocess.get("vina"))
-            and (postprocess.get("vina_mode") or "vina_score") != "none"
+            and bool(postprocess.get("metrics"))
         )
 
     def _hold_for_builtin_postprocess(self, paths: JobPaths, job: dict) -> None:

@@ -18,6 +18,7 @@ Options:
   --tmp-dir DIR              Temporary directory. Default: /tmp/conditar
   --vina-score               Run Vina post-processing after sampling.
   --vina-mode MODE           none, vina_score, vina_dock, qvina, or all. Default: vina_score
+  --postprocess-metrics IDS  Exact comma-separated evaluator IDs to run.
   --vina-exhaustiveness N    Vina exhaustiveness. Default: 8
   --vina-cpu N               CPU threads for Vina. Default: 4
   --qvina-bin FILE           QuickVina2 executable for qvina/all modes.
@@ -38,6 +39,8 @@ vina_mode="vina_score"
 vina_exhaustiveness="8"
 vina_cpu="4"
 qvina_bin="${CONDITAR_QVINA_BIN:-}"
+postprocess_metrics=""
+postprocess_metrics_set="false"
 sample_args=()
 
 while [[ $# -gt 0 ]]; do
@@ -84,6 +87,11 @@ while [[ $# -gt 0 ]]; do
             ;;
         --vina-mode|--vina_mode)
             vina_mode="${2:?missing value for $1}"
+            shift 2
+            ;;
+        --postprocess-metrics|--postprocess_metrics)
+            postprocess_metrics="${2:?missing value for $1}"
+            postprocess_metrics_set="true"
             shift 2
             ;;
         --vina-exhaustiveness|--vina_exhaustiveness)
@@ -152,7 +160,7 @@ fi
 cd /opt/conditar/app
 python "${python_args[@]}" "${sample_args[@]}"
 
-if [[ "$vina_score" == "true" ]]; then
+if [[ "$vina_score" == "true" || "$postprocess_metrics_set" == "true" ]]; then
     vina_args=(
         -m scripts.conDitar.postprocess_vina
         --generated-dir "$out_dir"
@@ -162,6 +170,9 @@ if [[ "$vina_score" == "true" ]]; then
         --exhaustiveness "$vina_exhaustiveness"
         --cpu "$vina_cpu"
     )
+    if [[ "$postprocess_metrics_set" == "true" ]]; then
+        vina_args+=(--metrics "$postprocess_metrics")
+    fi
     if [[ -n "$qvina_bin" ]]; then
         vina_args+=(--qvina-bin "$qvina_bin")
     fi

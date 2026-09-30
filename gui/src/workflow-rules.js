@@ -91,6 +91,18 @@ export function filterMetricsForWorkflow(metrics, workflow) {
   return (metrics || []).filter((metric) => metricAllowedForWorkflow(metric, workflow));
 }
 
+export function vinaModeForMetrics(metrics = []) {
+  const selected = new Set(metrics);
+  const wantsScore = selected.has("vina_score");
+  const wantsDock = selected.has("vina_dock");
+  const wantsQvina = selected.has("qvina");
+  if ((wantsScore || wantsDock) && wantsQvina) return "all";
+  if (wantsDock) return "vina_dock";
+  if (wantsQvina) return "qvina";
+  if (wantsScore) return "vina_score";
+  return "none";
+}
+
 export function setupWarningsForWorkflow({
   workflow,
   sdf,

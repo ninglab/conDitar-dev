@@ -11,7 +11,12 @@ const {
   resolveGenerationWorkflow,
   setupWarningsForWorkflow,
   validateGenerationSetup,
+  vinaModeForMetrics,
 } = await import(moduleUrl);
+const viewerPath = resolve("gui/src/viewers.js");
+const viewerSource = await readFile(viewerPath, "utf8");
+const viewerUrl = `data:text/javascript;base64,${Buffer.from(viewerSource).toString("base64")}#${pathToFileURL(viewerPath)}`;
+const { prepareSdfForViewer } = await import(viewerUrl);
 
 const pdb = { name: "pocket.pdb", text: "ATOM\n" };
 const sdf = { name: "reference.sdf", text: "mol\n$$$$\n" };
@@ -76,6 +81,11 @@ assert.deepEqual(
   filterMetricsForWorkflow(["qed", "sa", "vina_score", "qvina"], ligandPocket),
   ["qed", "sa", "vina_score", "qvina"],
 );
+assert.equal(vinaModeForMetrics(["vina_score", "qed", "sa"]), "vina_score");
+assert.equal(vinaModeForMetrics(["vina_dock", "qed"]), "vina_dock");
+assert.equal(vinaModeForMetrics(["qvina", "qed"]), "qvina");
+assert.equal(vinaModeForMetrics(["vina_score", "vina_dock", "qvina"]), "all");
+assert.equal(vinaModeForMetrics(["qed", "sa"]), "none");
 
 const warnings = setupWarningsForWorkflow({
   workflow: ligandOnly,
@@ -97,5 +107,44 @@ const pocketWarnings = setupWarningsForWorkflow({
   stagedPocketWarnings: [{ code: "pocket_lt_10", title: "Pocket size", text: "Pocket contains fewer than 10 complete residues." }],
 });
 assert.deepEqual(pocketWarnings.map((item) => item.code), ["pocket_lt_10"]);
+
+const explicitHydrogenSdf = `Viewer test
+  conDitar GUI
+
+  3  2  0  0  0  0            999 V2000
+    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+   20.0000    0.0000    0.0000 H   0  0  0  0  0  0  0  0  0  0  0  0
+    1.3000    0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0
+  1  2  1  0  0  0  0
+  1  3  1  0  0  0  0
+M  END
+>  <SOURCE>
+unchanged
+
+$$$$
+`;
+const displaySdf = prepareSdfForViewer(explicitHydrogenSdf);
+const displayLines = displaySdf.split("\n");
+assert.equal(Number.parseInt(displayLines[3].slice(0, 3), 10), 2);
+assert.equal(Number.parseInt(displayLines[3].slice(3, 6), 10), 1);
+assert.equal(displayLines.slice(4, 6).some((line) => line.slice(31, 34).trim() === "H"), false);
+assert.match(displaySdf, />  <SOURCE>\nunchanged/);
+
+const corruptTopologySdf = `Viewer topology test
+  conDitar GUI
+
+  3  2  0  0  0  0            999 V2000
+    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    1.4000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    2.7000    0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0
+  1  3  1  0  0  0  0
+  1  2  1  0  0  0  0
+M  END
+$$$$
+`;
+const repairedSdf = prepareSdfForViewer(corruptTopologySdf);
+const repairedLines = repairedSdf.split("\n");
+assert.equal(Number.parseInt(repairedLines[3].slice(3, 6), 10), 2);
+assert.deepEqual(repairedLines.slice(7, 9).map((line) => line.slice(0, 6)), ["  2  3", "  1  2"]);
 
 console.log("Frontend workflow rule checks passed.");

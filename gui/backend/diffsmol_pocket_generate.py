@@ -78,6 +78,7 @@ def build_config(work: Path, raw: Path, args: argparse.Namespace) -> Path:
     )
     config = yaml.safe_load(template.read_text())
     processed = work / "processed"
+    processed.mkdir(parents=True, exist_ok=True)
     config["data"].update(
         path=str(raw),
         processed_path=str(processed),
@@ -95,6 +96,7 @@ def build_config(work: Path, raw: Path, args: argparse.Namespace) -> Path:
     )
     config["model"]["checkpoint"] = str(ROOT / "models/diffusion.pt")
     config["sample"]["num_samples"] = args.num_samples
+    config["sample"].setdefault("pocket_threshold", 0.5)
     assert config["sample"]["use_pocket"] is True
     assert config["sample"]["num_steps"] == 1000
     config_path = work / "sampling_pocket.yml"
@@ -151,8 +153,6 @@ def main() -> None:
     args = parse_args()
     validate_inputs(args)
     args.output.mkdir(parents=True, exist_ok=True)
-    (args.output / "reference.sdf").write_text(args.input.read_text(errors="replace"))
-    (args.output / "protein.pdb").write_text(args.protein.read_text(errors="replace"))
     started = time.perf_counter()
     with tempfile.TemporaryDirectory(prefix="pocket-preprocessing-", dir=args.output) as tmp:
         work = Path(tmp)
