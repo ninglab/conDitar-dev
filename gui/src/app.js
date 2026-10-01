@@ -103,7 +103,7 @@ function initialize() {
   setMode("reference", false);
   updateEngineControls();
   updateInputLabels(null);
-  updateCommand();
+  updateRunSummary();
   refreshJobs(false);
   setActiveTab("preprocess");
 }
@@ -152,7 +152,7 @@ function bindEvents() {
     $(`#param-${parameter.key}`).addEventListener("input", (event) => {
       state.parameters[parameter.key] = parameter.type === "number" ? Number(event.target.value) : parameter.type === "checkbox" ? event.target.checked : event.target.value;
       updateEngineControls();
-      updateCommand();
+      updateRunSummary();
     });
   });
   $("#reset-params").addEventListener("click", resetParameters);
@@ -192,7 +192,7 @@ function bindEvents() {
   $("#preprocess-use-vina-pocket").addEventListener("click", useSelectedVinaPocket);
   $$(".builtin-evaluation-toggle").forEach((input) => input.addEventListener("change", updateVinaControls));
   ["#vina-exhaustiveness", "#vina-cpu"].forEach((selector) => {
-    $(selector).addEventListener("input", updateCommand);
+    $(selector).addEventListener("input", updateRunSummary);
   });
   ["#vina-panel-center-x", "#vina-panel-center-y", "#vina-panel-center-z", "#vina-panel-size-x", "#vina-panel-size-y", "#vina-panel-size-z", "#vina-panel-max-ligands", "#vina-panel-exhaustiveness"].forEach((selector) => {
     $(selector).addEventListener("input", renderPreparedStructureTray);
@@ -315,8 +315,9 @@ function renderRuntimeStatus(health) {
   // Slurm tasks can load the image from the configured shared archive on the
   // compute node; it does not need to be pre-loaded in the GUI host's image
   // store.
-  const archiveReady = Boolean(health.container_archive?.exists);
-  const imageReady = Boolean(health.container_image?.exists) || (isSlurmGpu && archiveReady);
+  const image = state.engine === "diffsmol" ? health.diffsmol_image : health.container_image;
+  const archiveReady = Boolean((state.engine === "diffsmol" ? health.diffsmol_archive : health.container_archive)?.exists);
+  const imageReady = Boolean(image?.exists) || (isSlurmGpu && archiveReady);
   if (isOpenShift) {
     status.textContent = `${targetLabel({ target })} available`;
     detail.textContent = isOpenShiftJobTarget(target)
@@ -328,8 +329,8 @@ function renderRuntimeStatus(health) {
   }
   status.textContent = isSlurmGpu ? (slurmAvailable ? "Slurm GPU available" : "Slurm setup needs attention") : imageReady ? "Local CPU available" : "Local setup needs attention";
   detail.textContent = isSlurmGpu
-    ? `${slurm}; ${health.container_image?.exists ? "container image found" : archiveReady ? "shared container archive ready" : "container image not confirmed"}. Selected target: Slurm GPU.`
-    : `${imageReady ? "container image found" : "container image missing"}. Selected target: Local CPU.`;
+    ? `${slurm}; ${image?.exists ? "container image found" : archiveReady ? "shared container archive ready" : "container image not confirmed"}. Selected target: Slurm GPU.`
+    : `${state.engine === "diffsmol" ? "DiffSMol" : "conDitar"} ${imageReady ? "image found" : "image missing"}. Selected target: Local CPU.`;
 }
 
 function openShiftSubmissionEnabled(health = state.runtimeHealth) {
@@ -390,7 +391,17 @@ function renderSetupHealth(health, error = null) {
 function targetAwareHealthChecks(health) {
   const target = resolvedTarget();
   const isSlurmGpu = isSlurmGpuTarget(target);
-  const checks = (health?.checks || []).map((check) => ({ ...check }));
+  const checks = (health?.checks || []).map((check) => {
+    if (check.id !== "container_image" || state.engine !== "diffsmol") return { ...check };
+    const image = health.diffsmol_image;
+    return {
+      ...check,
+      label: "DiffSMol image",
+      status: image?.exists ? "ok" : "fail",
+      detail: image?.detail || `Image not found: ${health.diffsmol_image_name || "configured DiffSMol image"}`,
+      action: image?.exists ? "" : "Load or build the DiffSMol image, then check again.",
+    };
+  });
   if (isOpenShiftTarget(target)) {
     const ids = isOpenShiftJobTarget(target)
       ? ["python", "job_storage", "openshift_job", "tool_chest"]
@@ -401,7 +412,8 @@ function targetAwareHealthChecks(health) {
     return checks.filter((check) => !["slurm", "openshift_mock", "openshift_job"].includes(check.id));
   }
   return checks.filter((check) => !["openshift_mock", "openshift_job"].includes(check.id)).map((check) => {
-    if (check.id === "container_image" && check.status !== "ok" && health?.container_archive?.exists) {
+    const archive = state.engine === "diffsmol" ? health?.diffsmol_archive : health?.container_archive;
+    if (check.id === "container_image" && check.status !== "ok" && archive?.exists) {
       return {
         ...check,
         status: "ok",
@@ -522,7 +534,7 @@ function setMode(mode, updateSelect = true) {
     $("#mode-note").textContent = "DiffSMol uses a 3D reference ligand SDF; add a pocket PDB for pocket-conditioned generation.";
     $("#hero-input-mode").textContent = "Shape";
   }
-  updateCommand();
+  updateRunSummary();
 }
 
 function updateInputLabels(example) {
@@ -548,16 +560,18 @@ function setupStudyInput() {
 }
 
 function setupPdbInput(inputOverride = null) {
+  if (inputOverride) return inputOverride.pdb || null;
   const study = setupStudyInput();
-  return inputOverride?.pdb || state.customPdb || (study?.pdbText ? {
+  return state.customPdb || (study?.pdbText ? {
     name: study.example?.pdb?.split("/").pop() || "input.pdb",
     text: study.pdbText,
   } : null);
 }
 
 function setupSdfInput(inputOverride = null) {
+  if (inputOverride) return inputOverride.sdf || null;
   const study = setupStudyInput();
-  return inputOverride?.sdf || state.customSdf || (study?.referenceSdf ? {
+  return state.customSdf || (study?.referenceSdf ? {
     name: study.example?.sdf?.split("/").pop() || "reference.sdf",
     text: study.referenceSdf,
   } : null);
@@ -596,7 +610,7 @@ function renderStudy() {
   renderSelectedStructure();
   renderViewerSelectors();
   updateResultsSource();
-  updateCommand();
+  updateRunSummary();
 }
 
 function setEngine(engine) {
@@ -605,8 +619,12 @@ function setEngine(engine) {
     setMode("reference", false);
   }
   updateEngineControls();
+  if (state.runtimeHealth) {
+    renderRuntimeStatus(state.runtimeHealth);
+    renderSetupHealth(state.runtimeHealth);
+  }
   updateVinaControls();
-  updateCommand();
+  updateRunSummary();
 }
 
 function updateEngineControls() {
@@ -787,18 +805,17 @@ function selectedVinaMode(selected = selectedBuiltinEvaluations()) {
 function updateRunEvaluationSummary() {
   const container = $("#run-evaluations");
   if (!container) return;
-  const generationInput = currentGenerationInput();
-  const builtin = filterMetricsForWorkflow(
-    selectedBuiltinEvaluations({ includeDisabled: true }),
-    generationInput.workflow,
-  ).map((metric) => EVALUATION_LABELS[metric] || metric);
-  const tools = buildEvaluationToolsPayload().map((request) => (
-    state.tools.find((tool) => tool.id === request.id)?.name || request.id
-  ));
-  const selected = [...builtin, ...tools];
-  container.textContent = selected.length
-    ? `This job will run: ${selected.join(", ")}.`
-    : "This job will run generation only; no evaluators are selected.";
+  const jobs = state.batchInputs.length ? buildBatchPayload().jobs : [buildJobPayload()];
+  const summaries = jobs.map((job) => [
+    ...(job.postprocess.metrics || []).map((metric) => EVALUATION_LABELS[metric] || metric),
+    ...job.tools.map((request) => state.tools.find((tool) => tool.id === request.id)?.name || request.id),
+  ].join(", "));
+  const unique = [...new Set(summaries)];
+  container.textContent = unique.length > 1
+    ? "Evaluations vary by input; each job will use its eligible selections."
+    : unique[0]
+      ? `This job will run: ${unique[0]}.`
+      : "This job will run generation only; no evaluators are selected.";
 }
 
 function resetEvaluationSelections() {
@@ -1045,18 +1062,23 @@ async function rerunJob(jobId) {
 async function submitRerunFromSavedInputs(jobId) {
   const original = await service.getJob(jobId);
   const saved = await service.loadJobResults(original);
-  if (!saved.inputs?.pdb?.text) throw new Error("Original PDB input was not found for rerun.");
+  if (original.inputs?.pdb && !saved.inputs?.pdb?.text) throw new Error("Original PDB input was not found for rerun.");
+  if (original.inputs?.sdf && !saved.inputs?.sdf?.text) throw new Error("Original SDF input was not found for rerun.");
   const payload = {
     target: original.target || "local_cpu",
+    engine: original.engine || "conditar",
     mode: original.mode || (saved.inputs.sdf ? "reference" : "pocket"),
     example_id: original.example_id || "custom",
-    input_name: `rerun_${original.input_name || saved.inputs.pdb.name || jobId}`,
+    input_name: `rerun_${original.input_name || saved.inputs.pdb?.name || saved.inputs.sdf?.name || jobId}`,
     email: original.email || "",
-    pdb: { name: saved.inputs.pdb.name, text: saved.inputs.pdb.text },
+    pdb: saved.inputs.pdb?.text ? { name: saved.inputs.pdb.name, text: saved.inputs.pdb.text } : null,
     sdf: saved.inputs.sdf?.text ? { name: saved.inputs.sdf.name, text: saved.inputs.sdf.text } : null,
+    preprocess: original.preprocess || null,
     slurm: original.slurm || {},
     postprocess: original.postprocess || {},
+    tools: (original.tools || []).map(({ id, options }) => ({ id, options })),
     parameters: original.parameters || {},
+    rerun_of: jobId,
   };
   return service.submitJob(payload);
 }
@@ -1145,11 +1167,12 @@ function notifyWatchedTerminalJobs(jobs) {
 function updateRunEstimate() {
   const estimate = $("#run-estimate");
   if (!estimate) return;
-  const hasSingleInput = state.engine === "diffsmol" ? setupSdfInput() : setupPdbInput();
-  const inputs = Math.max(1, state.batchInputs.length || (hasSingleInput ? 1 : 0));
-  const samples = Math.max(1, Number(state.parameters.num_samples) || 1);
+  const job = state.batchInputs.length ? buildBatchPayload().jobs[0] : buildJobPayload();
+  const hasSingleInput = job.engine === "diffsmol" ? Boolean(job.sdf) : Boolean(job.pdb);
+  const inputs = state.batchInputs.length || (hasSingleInput ? 1 : 0);
+  const samples = Math.max(1, Number(job.parameters.num_samples) || 1);
   const totalSamples = inputs * samples;
-  const target = resolvedTarget();
+  const target = job.target;
   const isGpu = isSlurmGpuTarget(target);
   const isOpenShift = isOpenShiftTarget(target);
   if (!inputs) {
@@ -1168,7 +1191,7 @@ function updateRunEstimate() {
   const concurrencyNote = isGpu
     ? "Slurm GPU jobs can run in parallel once scheduled."
     : "Local CPU jobs run serially; keep this server window open.";
-  const engineLabel = state.engine === "diffsmol" ? "DiffSMol" : "conDitar";
+  const engineLabel = job.engine === "diffsmol" ? "DiffSMol" : "conDitar";
   estimate.textContent = `Rule-of-thumb runtime: about ${formatDuration(totalSamples * minutesPerSample)} for ${inputs} ${engineLabel} input${inputs === 1 ? "" : "s"} × ${samples} sample${samples === 1 ? "" : "s"} on ${isGpu ? "Slurm GPU" : "local CPU"}. ${concurrencyNote}`;
 }
 
@@ -1225,13 +1248,14 @@ function renderToolChest() {
   const status = $("#tool-chest-status");
   if (!list || !status) return;
   const tools = state.tools || [];
-  const job = state.selectedJob || state.currentJob;
-  const isCompletedJob = state.resultSource === "job" && job?.status === "completed";
+  const availableTools = tools.filter((tool) => tool.available).length;
+  const job = loadedResultsJob();
+  const isCompletedJob = isResultsReadyJob(job);
   const runs = state.study?.toolRuns || job?.tool_runs || [];
   status.textContent = !state.toolsLoaded
     ? "Tools unavailable"
     : isCompletedJob
-      ? `${tools.length} tool${tools.length === 1 ? "" : "s"} available`
+      ? `${availableTools} tool${availableTools === 1 ? "" : "s"} available`
       : "Load a completed job";
   if (!tools.length) {
     list.innerHTML = `<p class="tool-empty">${state.toolsLoaded ? "No tools are installed in gui/tools." : "Tool discovery failed."}</p>`;
@@ -1319,6 +1343,11 @@ function toolOptionControl(tool, input, context = "results") {
 
 function toolRunSummary(run) {
   const result = run.result || {};
+  if (run.status === "completed" && state.study?.loadedJob?.engine === "diffsmol"
+    && state.study?.referenceSdf && Number.isFinite(Number(result.molecules))
+    && !Array.isArray(result.generated_sdfs)) {
+    return "Earlier run may include the reference ligand; rerun for corrected totals.";
+  }
   if (run.tool_id === "medchem_filters" && Number.isFinite(Number(result.molecules))) {
     const molecules = Number(result.molecules);
     const allPassed = Number(result.all_passed ?? 0);
@@ -1344,7 +1373,7 @@ function collectToolOptions(toolId, context = "results") {
 }
 
 async function runTool(toolId) {
-  const job = state.selectedJob || state.currentJob;
+  const job = loadedResultsJob();
   if (!job?.id) {
     showToast("Load a completed job before running a tool.");
     return;
@@ -1703,6 +1732,7 @@ function resetExportFilters(event = null) {
 function candidatePassesExportFilter(item, metric, filter) {
   const value = exportMetricValue(item, metric);
   if (metric.type === "number") {
+    if (value == null || value === "") return false;
     const numericValue = Number(value);
     if (!Number.isFinite(numericValue)) return false;
     if (filter.operator === "range") {
@@ -1778,7 +1808,7 @@ function metricWithValues(metric, candidates) {
 }
 
 function exportMetricValue(item, metric) {
-  if (metric.field) return Number(item[metric.field]);
+  if (metric.field) return item[metric.field] == null ? null : Number(item[metric.field]);
   if (!metric.property) return null;
   if (metric.property === "VINA_DOCK" || metric.property === "QVINA" || metric.property === "VINA_SCORE_ONLY" || metric.property === "VINA_MINIMIZE") {
     return propertyMetric(item, metric.property);
@@ -2012,8 +2042,8 @@ function renderSelectedStructure() {
   referenceToggle.checked = hasReference && state.showReferenceLigand;
   $("#selected-name").textContent = molecule.id;
   const metrics = [
-    ["Formula", molecule.formula],
-    ["MW", `${molecule.molecularWeight} Da`],
+    ["Formula", molecule.formula || "-"],
+    ["MW", Number.isFinite(molecule.molecularWeight) ? `${molecule.molecularWeight} Da` : "-"],
     ["Heavy atoms", molecule.heavyAtoms],
     ["Rings", molecule.rings],
   ];
@@ -2112,9 +2142,10 @@ function resolveViewerMolecule(value) {
 }
 
 function updateResultsSource() {
-  if (state.resultSource === "job" && state.selectedJob) {
+  const job = loadedResultsJob();
+  if (job) {
     const count = state.study?.summary?.sdf_count ?? state.study?.candidates?.length ?? 0;
-    $("#results-source").textContent = `Loaded ${count} generated SDF${count === 1 ? "" : "s"} from ${engineLabel(state.selectedJob)} job ${state.selectedJob.id}.`;
+    $("#results-source").textContent = `Loaded ${count} generated SDF${count === 1 ? "" : "s"} from ${engineLabel(job)} job ${job.id}.`;
     return;
   }
   $("#results-source").textContent = "Upload input structures and submit a job to review generated outputs here.";
@@ -2131,13 +2162,29 @@ function renderJobProvenance(job) {
 function renderResultsProvenance() {
   const container = $("#results-provenance");
   if (!container) return;
-  const job = state.study?.loadedJob || state.selectedJob;
-  const rows = state.resultSource === "job" && job ? provenanceRows(job, {
+  const job = loadedResultsJob();
+  const rows = job ? provenanceRows(job, {
     includeOutput: true,
     candidateCount: state.study?.summary?.sdf_count ?? state.study?.candidates?.length ?? null,
   }) : [];
   container.hidden = !rows.length;
   container.innerHTML = rows.map(([label, value]) => provenanceItem(label, value)).join("");
+  const warning = $("#results-evaluation-warning");
+  if (warning) {
+    const failures = resultEvaluationFailures(job);
+    warning.hidden = !failures.length;
+    warning.innerHTML = failures.length
+      ? `<strong>Some evaluations failed</strong>Generated molecules are available, but ${escapeHtml(failures.join(" and "))} did not complete successfully. Check the job logs before interpreting those annotations.`
+      : "";
+  }
+}
+
+function resultEvaluationFailures(job) {
+  if (!job) return [];
+  const failures = [];
+  if (job.postprocess?.status === "failed") failures.push("built-in postprocessing");
+  if ((job.tools || []).some((tool) => tool.status === "failed")) failures.push("a selected Tool Chest evaluator");
+  return failures;
 }
 
 function provenanceItem(label, value) {
@@ -2226,7 +2273,10 @@ function isBuiltinPostprocessRunning(job) {
 }
 
 function isResultsReadyJob(job) {
-  return job?.status === "completed" && !isBuiltinPostprocessRunning(job);
+  return job?.status === "completed"
+    && job.outputs?.sdf_count !== 0
+    && !isBuiltinPostprocessRunning(job)
+    && !(job.tools || []).some((tool) => ["pending", "running"].includes(tool.status));
 }
 
 function shortJobId(jobId) {
@@ -2267,7 +2317,7 @@ function updateJobTargetControls() {
   }
   state.parameters.device = isSlurmGpu ? "auto" : "cpu";
   updateBatchLabel();
-  updateCommand();
+  updateRunSummary();
 }
 
 function updateBuiltinEvaluationAvailability() {
@@ -2298,7 +2348,7 @@ function updateVinaControls() {
   $("#vina-cpu").disabled = !enabled;
   $("#vina-mode-summary").textContent = selectedEvaluationLabel(selected);
   updateRunEvaluationSummary();
-  updateCommand();
+  updateRunSummary();
 }
 
 function setupWarnings() {
@@ -2384,7 +2434,7 @@ function bestValueLabel(values) {
 }
 
 function numericValues(items, key) {
-  return items.map((item) => Number(item[key])).filter(Number.isFinite);
+  return items.map((item) => item[key] == null ? null : Number(item[key])).filter(Number.isFinite);
 }
 
 function propertyValues(items, key) {
@@ -2407,47 +2457,8 @@ function compareMetric(a, b) {
   return left - right;
 }
 
-function updateCommand() {
+function updateRunSummary() {
   updateRunEvaluationSummary();
-  const generationInput = currentGenerationInput();
-  const pdbName = state.batchInputs.length
-    ? `${state.batchInputs.length} folders`
-    : (generationInput.pdb?.name || "<choose structure>");
-  const sdfName = generationInput.sdf?.name || null;
-  if (generationInput.engine === "diffsmol") {
-    const hasPocketContext = generationInput.workflow.id === "diffsmol_pocket";
-    const args = [
-      hasPocketContext ? "python /launcher/diffsmol_pocket_generate.py" : "python /opt/DiffSMol/docker/generate.py",
-      `--device ${isSlurmGpuTarget(resolvedTarget()) || isOpenShiftJobTarget(resolvedTarget()) ? "cuda:0" : "cpu"}`,
-      `--num-samples ${state.parameters.num_samples}`,
-      `--input ${sdfName || "<choose ligand.sdf>"}`,
-      ...(hasPocketContext ? [`--protein ${pdbName}`] : []),
-      "--output <job outputs>",
-    ];
-    if (state.parameters.diffsmol_guidance) args.push("--guidance");
-    const postprocess = buildPostprocessPayload();
-    if (postprocess.metrics?.length) {
-      args.push(`&& postprocess ${postprocess.vina ? postprocess.vina_mode : "chemistry-only"}`);
-    }
-    $("#command-preview").textContent = args.join(" ");
-    updateRunEstimate();
-    updateSetupWarningBanner();
-    return;
-  }
-  const args = [
-    "conditar-sample",
-    `--device ${isSlurmGpuTarget(resolvedTarget()) || isOpenShiftJobTarget(resolvedTarget()) ? "cuda:0" : "cpu"}`,
-    `--num_samples ${state.parameters.num_samples}`,
-    `--batch_size ${state.parameters.batch_size}`,
-    `--pdb_filename ${pdbName}`,
-  ];
-  if (generationInput.mode !== "pocket") args.splice(4, 0, `--pocket_radius ${state.parameters.pocket_radius}`);
-  if (generationInput.mode === "reference" && sdfName) args.push(`--sdf_filename ${sdfName}`);
-  const selected = selectedBuiltinEvaluations();
-  if (selected.length) {
-    args.push(`--vina_score --vina_mode ${selectedVinaMode(selected)} --vina_exhaustiveness ${$("#vina-exhaustiveness").value}`);
-  }
-  $("#command-preview").textContent = args.join(" ");
   updateRunEstimate();
   updateSetupWarningBanner();
 }
@@ -2457,7 +2468,7 @@ function resetParameters() {
     state.parameters[parameter.key] = parameter.value;
     $(`#param-${parameter.key}`).value = parameter.value;
   });
-  updateCommand();
+  updateRunSummary();
   showToast("Sampling defaults restored.");
 }
 
@@ -2467,7 +2478,7 @@ async function handlePdbUpload(event) {
   const text = await readValidatedTextFile(file, "pdb");
   if (!text) {
     event.target.value = "";
-    updateCommand();
+    updateRunSummary();
     return;
   }
   clearLoadedStudyForCustomInput();
@@ -2488,7 +2499,7 @@ async function handlePdbUpload(event) {
   state.exampleId = "custom";
   updateCustomOptionLabel(file.name);
   updateVinaControls();
-  updateCommand();
+  updateRunSummary();
 }
 
 async function handleSdfUpload(event) {
@@ -2497,7 +2508,7 @@ async function handleSdfUpload(event) {
   const text = await readValidatedTextFile(file, "sdf");
   if (!text) {
     event.target.value = "";
-    updateCommand();
+    updateRunSummary();
     return;
   }
   const moleculeCount = countSdfMolecules(text);
@@ -2531,7 +2542,7 @@ async function handleSdfUpload(event) {
   state.exampleId = "custom";
   updateCustomOptionLabel(state.customPdb?.name || file.name);
   updateVinaControls();
-  updateCommand();
+  updateRunSummary();
   const message = useSdfOnlyDiffSmol ? `${file.name} loaded for DiffSMol shape generation.` : `${file.name} loaded as reference ligand.`;
   showToast(message);
 }
@@ -3099,7 +3110,7 @@ function clearStagedPreparedInputs() {
   renderSetupPreprocessSummary();
   updateBatchLabel();
   updateVinaControls();
-  updateCommand();
+  updateRunSummary();
 }
 
 async function resolvePreparedStructure(entry) {
@@ -3818,7 +3829,7 @@ function stagePreparedInputs({ mode, pdb, sdf, label, detail, preprocessManifest
   updateCustomOptionLabel(label || pdb?.name || sdf?.name);
   updateBatchLabel();
   renderSetupPreprocessSummary();
-  updateCommand();
+  updateRunSummary();
   renderPreparedStructureTray();
   setActiveTab("setup");
   renderPreprocessStagingStatus();
@@ -3839,7 +3850,7 @@ async function handleFolderUpload(event) {
     state.exampleId = "custom";
     updateCustomOptionLabel(grouped.length === 1 ? grouped[0].name : `${grouped.length} folders`);
     updateBatchLabel();
-    updateCommand();
+    updateRunSummary();
     showToast(`${grouped.length} folder${grouped.length === 1 ? "" : "s"} ready for batch submission.`);
   } catch (error) {
     showToast(error.message);
@@ -3852,7 +3863,7 @@ function clearBatchSelection() {
   state.batchInputs = [];
   $("#folder-input").value = "";
   updateBatchLabel();
-  updateCommand();
+  updateRunSummary();
   showToast("Batch selection cleared. You can choose another folder or upload one input.");
 }
 
@@ -4160,9 +4171,10 @@ async function downloadAll() {
   button.textContent = "Packaging...";
   const exportMetadata = buildExportMetadata(candidates);
   let archiveNotice = "The archive will be saved by your browser to its Downloads folder.";
-  if (state.resultSource === "job" && state.selectedJob?.id) {
+  const job = loadedResultsJob();
+  if (job?.id) {
     try {
-      const saved = await service.exportJob(state.selectedJob.id, {
+      const saved = await service.exportJob(job.id, {
         selected_paths: candidates.map((item) => item.path).filter(Boolean),
         filters: exportMetadata.filters,
         tool_runs: exportMetadata.tool_runs,
@@ -4176,7 +4188,10 @@ async function downloadAll() {
   }
   const zip = new window.JSZip();
   const structures = zip.folder("generated_structures");
-  candidates.forEach((item) => structures.file(item.name, item.text));
+  candidates.forEach((item) => {
+    const path = job && item.path?.startsWith("outputs/") ? item.path.slice("outputs/".length) : item.name;
+    structures.file(path, item.text);
+  });
   zip.file("metrics.csv", csvText(candidates));
   zip.file("run_config.json", JSON.stringify(exportMetadata.run_config, null, 2));
   zip.file("export_metadata.json", JSON.stringify(exportMetadata, null, 2));
@@ -4195,8 +4210,12 @@ async function downloadAll() {
   updateExportScope();
 }
 
+function loadedResultsJob() {
+  return state.resultSource === "job" ? state.study?.loadedJob || null : null;
+}
+
 function buildConfiguration() {
-  const job = state.resultSource === "job" ? state.selectedJob || state.currentJob : null;
+  const job = loadedResultsJob();
   const mode = job?.mode || state.mode;
   const pdbInput = setupPdbInput();
   const sdfInput = setupSdfInput();
@@ -4223,18 +4242,18 @@ function buildConfiguration() {
 function buildExportMetadata(candidates = exportCandidates()) {
   return {
     created_at: new Date().toISOString(),
-    job_id: state.selectedJob?.id || null,
+    job_id: loadedResultsJob()?.id || null,
     selected_count: candidates.length,
     total_count: state.study?.candidates?.length || 0,
     selected_candidates: candidates.map((item) => ({ id: item.id, name: item.name, path: item.path || item.name })),
     filters: activeExportFilters(),
-    tool_runs: state.study?.toolRuns || state.selectedJob?.tool_runs || [],
+    tool_runs: state.study?.toolRuns || loadedResultsJob()?.tool_runs || [],
     run_config: buildConfiguration(),
   };
 }
 
 function buildRunManifest(candidates = exportCandidates(), exportMetadata = buildExportMetadata(candidates)) {
-  const job = state.study?.loadedJob || state.selectedJob || state.currentJob || null;
+  const job = loadedResultsJob();
   const inputPdb = job?.inputs?.pdb ? filenameOnly(job.inputs.pdb) : state.study?.example?.pdb || null;
   const inputSdf = job?.inputs?.sdf ? filenameOnly(job.inputs.sdf) : state.study?.example?.sdf || null;
   return {
@@ -4332,7 +4351,7 @@ function updateExportScope() {
 function renderExportManifestSummary(selectedCount = exportCandidates().length, total = state.study?.candidates?.length || 0) {
   const container = $("#export-manifest-summary");
   if (!container) return;
-  const job = state.study?.loadedJob || state.selectedJob || null;
+  const job = loadedResultsJob();
   const rows = state.study ? [
     ["Manifest", "run_manifest.json"],
     ["Engine", job ? engineLabel(job) : state.engine === "diffsmol" ? "DiffSMol" : "conDitar"],

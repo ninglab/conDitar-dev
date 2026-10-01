@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from rdkit import Chem
@@ -192,6 +193,7 @@ def main() -> int:
     parser.add_argument("--exhaustiveness", type=int, default=8)
     parser.add_argument("--cpu", type=int, default=4)
     parser.add_argument("--qvina-bin", default=None, help="QuickVina2 executable for qvina/all modes.")
+    parser.add_argument("--status-file", type=Path, default=None, help="Write evaluation completion metadata as JSON.")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -203,6 +205,8 @@ def main() -> int:
     unknown_metrics = selected_metrics - VINA_METRICS - CHEMISTRY_METRICS
     if unknown_metrics:
         raise ValueError(f"Unsupported evaluator metrics: {', '.join(sorted(unknown_metrics))}")
+    if not selected_metrics:
+        raise ValueError("Select at least one evaluator metric.")
     if selected_metrics & VINA_METRICS and args.protein is None:
         raise ValueError("Protein PDB is required for selected Vina/QVina evaluators.")
     if args.protein is not None and not args.protein.exists():
@@ -215,6 +219,8 @@ def main() -> int:
     total = 0
     ok = 0
     for sdf_path in sorted(args.generated_dir.rglob("*.sdf")):
+        if sdf_path.name.lower() == "reference.sdf":
+            continue
         count, ok_count = annotate_sdf_file(
             sdf_path,
             args.protein,
@@ -229,7 +235,19 @@ def main() -> int:
         ok += ok_count
 
     print(f"Annotated selected evaluations in generated SDFs for {ok}/{total} molecules")
-    return 0 if total and ok else 1
+    exit_code = 0 if total and ok else 1
+    if args.status_file is not None:
+        payload = {
+            "status": "completed" if exit_code == 0 else "failed",
+            "metrics": [metric for metric in METRIC_ORDER if metric in selected_metrics],
+            "exit_code": exit_code,
+            "molecules_total": total,
+            "molecules_annotated": ok,
+        }
+        temporary = args.status_file.with_suffix(args.status_file.suffix + ".tmp")
+        temporary.write_text(json.dumps(payload, indent=2) + "\n")
+        temporary.replace(args.status_file)
+    return exit_code
 
 
 if __name__ == "__main__":

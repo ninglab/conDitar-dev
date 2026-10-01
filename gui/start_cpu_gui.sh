@@ -12,20 +12,9 @@ fi
 
 export CONDITAR_RUNTIME="${CONDITAR_RUNTIME:-docker}"
 DOCKER_COMMAND="${DOCKER_BIN:-docker}"
-PUBLIC_IMAGE="osuninglab/conditar-dev:2026-07-10"
-LEGACY_IMAGE="localhost/conditar-dev:container-dev"
+DEFAULT_IMAGE="conditar-dev:standalone-20261001"
 if [[ -z "${CONDITAR_DOCKER_IMAGE:-}" ]]; then
-  export CONDITAR_DOCKER_IMAGE="$PUBLIC_IMAGE"
-  if command -v "$DOCKER_COMMAND" >/dev/null 2>&1 \
-    && "$DOCKER_COMMAND" image inspect "$LEGACY_IMAGE" >/dev/null 2>&1 \
-    && ! "$DOCKER_COMMAND" image inspect "$PUBLIC_IMAGE" >/dev/null 2>&1; then
-    export CONDITAR_DOCKER_IMAGE="$LEGACY_IMAGE"
-  fi
-fi
-if [[ -z "${CONDITAR_SOURCE_MOUNT:-}" && -d ../conDitar-dev ]]; then
-  export CONDITAR_SOURCE_MOUNT="$(cd ../conDitar-dev && pwd)"
-elif [[ -z "${CONDITAR_SOURCE_MOUNT:-}" && -d ../docker && -d ../scripts ]]; then
-  export CONDITAR_SOURCE_MOUNT="$(cd .. && pwd)"
+  export CONDITAR_DOCKER_IMAGE="$DEFAULT_IMAGE"
 fi
 
 PYTHON_COMMAND=(python3)
@@ -58,9 +47,9 @@ fi
 
 if ! "$DOCKER_COMMAND" image inspect "$CONDITAR_DOCKER_IMAGE" >/dev/null 2>&1; then
   echo "ERROR: conDitar container image not found: $CONDITAR_DOCKER_IMAGE" >&2
-  echo "Pull or build the image first, or set CONDITAR_DOCKER_IMAGE to an available image." >&2
+  echo "Build the refreshed image, or set CONDITAR_DOCKER_IMAGE to an available image." >&2
   echo "Example:" >&2
-  echo "  docker pull $PUBLIC_IMAGE" >&2
+  echo "  docker build --platform linux/amd64 -f ../docker/Refresh.Dockerfile -t $DEFAULT_IMAGE ../scripts" >&2
   echo "Then retry:" >&2
   echo "  ./start_cpu_gui.sh" >&2
   exit 2
@@ -68,6 +57,10 @@ fi
 
 echo "Starting conDitar GUI"
 echo "Container image: $CONDITAR_DOCKER_IMAGE"
+echo "DiffSMol image: ${DIFFSMOL_DOCKER_IMAGE:-diffsmol:cpu-20261001}"
+if ! "$DOCKER_COMMAND" image inspect "${DIFFSMOL_DOCKER_IMAGE:-diffsmol:cpu-20261001}" >/dev/null 2>&1; then
+  echo "WARNING: DiffSMol image is unavailable; conDitar runs can still work." >&2
+fi
 echo "Source mount: ${CONDITAR_SOURCE_MOUNT:-none}"
 echo "Runtime: $CONDITAR_RUNTIME"
 echo "GUI Python: ${PYTHON_COMMAND[*]}"

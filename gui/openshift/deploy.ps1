@@ -5,6 +5,7 @@ param(
   [string]$Runtime = $(if ($env:CONDITAR_RUNTIME) { $env:CONDITAR_RUNTIME } else { "openshift_mock" }),
   [string]$GuiImage = $(if ($env:CONDITAR_GUI_IMAGE) { $env:CONDITAR_GUI_IMAGE } else { "" }),
   [string]$RuntimeImage = $(if ($env:CONDITAR_DOCKER_IMAGE) { $env:CONDITAR_DOCKER_IMAGE } else { "osuninglab/conditar-dev:2026-07-10" }),
+  [string]$DiffsmolImage = $(if ($env:DIFFSMOL_DOCKER_IMAGE) { $env:DIFFSMOL_DOCKER_IMAGE } else { "ninglab/diffsmol:latest" }),
   [switch]$Submit,
   [switch]$Cpu,
   [string]$Storage = $(if ($env:CONDITAR_OPENSHIFT_STORAGE) { $env:CONDITAR_OPENSHIFT_STORAGE } else { "10Gi" }),
@@ -51,6 +52,12 @@ $projectName = Get-OcText project -q
 Write-Host "Using OpenShift project: $projectName"
 
 $openshiftSubmit = if ($Submit -or ($env:CONDITAR_OPENSHIFT_SUBMIT -match "^(1|true|yes|on)$")) { "true" } else { "false" }
+if ($openshiftSubmit -eq "true" -and -not $PSBoundParameters.ContainsKey("Runtime")) {
+  $Runtime = "openshift_job"
+}
+if ($openshiftSubmit -eq "true" -and $Runtime -eq "openshift_mock") {
+  throw "Submission is enabled but the default runtime is diagnostics. Use -Runtime openshift_job."
+}
 $openshiftDevice = if ($env:CONDITAR_OPENSHIFT_DEVICE) { $env:CONDITAR_OPENSHIFT_DEVICE } else { "cuda:0" }
 $openshiftGpuCount = if ($env:CONDITAR_OPENSHIFT_GPU_COUNT) { $env:CONDITAR_OPENSHIFT_GPU_COUNT } else { "1" }
 $openshiftCpuRequest = if ($env:CONDITAR_OPENSHIFT_CPU_REQUEST) { $env:CONDITAR_OPENSHIFT_CPU_REQUEST } else { "2" }
@@ -81,6 +88,7 @@ try {
   $replacements = @{
     "CONDITAR_RUNTIME" = $Runtime
     "CONDITAR_DOCKER_IMAGE" = $RuntimeImage
+    "DIFFSMOL_DOCKER_IMAGE" = $DiffsmolImage
     "CONDITAR_OPENSHIFT_SUBMIT" = $openshiftSubmit
     "CONDITAR_OPENSHIFT_DEVICE" = $openshiftDevice
     "CONDITAR_OPENSHIFT_GPU_COUNT" = $openshiftGpuCount
@@ -143,6 +151,14 @@ try {
   }
 
   Run-Oc rollout status deployment/conditar-gui
+
+  if ($Runtime -eq "openshift_mock") {
+    Write-Host "Runtime: DIAGNOSTICS ONLY (mock outputs; no generator Jobs)."
+  } elseif ($openshiftSubmit -eq "true") {
+    Write-Host "Runtime: OpenShift Jobs (real generator submissions)."
+  } else {
+    Write-Host "Runtime: manifest-only (no generator Jobs submitted)."
+  }
 
   $routeUrl = Get-OcText get route conditar-gui -o "jsonpath={.spec.host}"
   if ($routeUrl) {

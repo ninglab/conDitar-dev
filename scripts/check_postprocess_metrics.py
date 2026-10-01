@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -70,6 +71,31 @@ def main() -> None:
         assert mol.HasProp("QED")
         assert not mol.HasProp("SA")
         assert mol.GetProp("EVALUATION_METRICS") == "vina_score,qvina,qed"
+
+        outputs = Path(tmp) / "outputs"
+        outputs.mkdir()
+        (outputs / "generated.sdf").write_text("generated\n")
+        (outputs / "reference.sdf").write_text("reference\n")
+        visited = []
+
+        def annotate(path, *_args, **_kwargs):
+            visited.append(path.name)
+            return 1, 1
+
+        with (
+            patch.object(sys, "argv", [
+                "postprocess_vina", "--generated-dir", str(outputs), "--tmp-dir", str(Path(tmp) / "work"),
+                "--mode", "none", "--metrics", "qed",
+                "--status-file", str(outputs / "evaluation_status.json"),
+            ]),
+            patch.object(postprocess_vina, "annotate_sdf_file", side_effect=annotate),
+        ):
+            assert postprocess_vina.main() == 0
+        assert visited == ["generated.sdf"]
+        assert json.loads((outputs / "evaluation_status.json").read_text()) == {
+            "status": "completed", "metrics": ["qed"], "exit_code": 0,
+            "molecules_total": 1, "molecules_annotated": 1,
+        }
 
     print("Postprocess metric selection checks passed.")
 

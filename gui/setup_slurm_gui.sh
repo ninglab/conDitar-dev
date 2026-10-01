@@ -13,9 +13,8 @@ fi
 ARCHIVE="${CONDITAR_DOCKER_TAR:-}"
 PODMAN_COMMAND="${PODMAN_BIN:-podman}"
 SBATCH_COMMAND="${SBATCH_BIN:-sbatch}"
-PUBLIC_IMAGE="docker.io/osuninglab/conditar-dev:2026-07-10"
-LEGACY_IMAGE="localhost/conditar-dev:container-dev"
-IMAGE="${CONDITAR_DOCKER_IMAGE:-$PUBLIC_IMAGE}"
+DEFAULT_IMAGE="conditar-dev:standalone-20261001"
+IMAGE="${CONDITAR_DOCKER_IMAGE:-$DEFAULT_IMAGE}"
 
 # Match the launcher convenience path search.
 if [[ -z "$ARCHIVE" ]]; then
@@ -116,12 +115,9 @@ if [[ -n "$ARCHIVE" ]]; then
   fi
 elif command -v "$PODMAN_COMMAND" >/dev/null 2>&1 && "$PODMAN_COMMAND" image exists "$IMAGE" >/dev/null 2>&1; then
   echo "OK    preloaded container image found: $IMAGE"
-elif [[ -z "${CONDITAR_DOCKER_IMAGE:-}" ]] && command -v "$PODMAN_COMMAND" >/dev/null 2>&1 \
-  && "$PODMAN_COMMAND" image exists "$LEGACY_IMAGE" >/dev/null 2>&1; then
-  echo "OK    preloaded container image found with legacy local tag: $LEGACY_IMAGE"
 else
   echo "MISS  no container archive or preloaded image found: $IMAGE"
-  echo "      Pull it with: podman pull $PUBLIC_IMAGE"
+  echo "      Set CONDITAR_DOCKER_IMAGE to a pullable refreshed image, or load its archive."
   echo "      Or set CONDITAR_DOCKER_TAR to a shared archive."
   missing=1
 fi

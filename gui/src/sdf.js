@@ -1,7 +1,9 @@
-const ATOMIC_WEIGHTS = {
-  H: 1.008, B: 10.81, C: 12.011, N: 14.007, O: 15.999, F: 18.998,
-  P: 30.974, S: 32.06, Cl: 35.45, Br: 79.904, I: 126.904,
-};
+export function splitSdfRecords(text) {
+  return String(text).split(/^\$\$\$\$[ \t]*\r?$/m)
+    .map((block) => block.replace(/^\r?\n/, "").trimEnd())
+    .filter(Boolean)
+    .map((block) => `${block}\n$$$$\n`);
+}
 
 export function parseSdf(text, name = "molecule.sdf") {
   const block = text.split("$$$$")[0];
@@ -30,13 +32,8 @@ export function parseSdf(text, name = "molecule.sdf") {
     });
   }
 
-  const elementCounts = atoms.reduce((counts, atom) => {
-    counts[atom.element] = (counts[atom.element] || 0) + 1;
-    return counts;
-  }, {});
   const heavyAtoms = atoms.filter((atom) => atom.element !== "H").length;
   const heteroAtoms = atoms.filter((atom) => !["C", "H"].includes(atom.element)).length;
-  const molecularWeight = atoms.reduce((sum, atom) => sum + (ATOMIC_WEIGHTS[atom.element] || 0), 0);
   const components = connectedComponents(atoms.length, bonds);
   const rings = Math.max(0, bonds.length - atoms.length + components);
   const properties = parseProperties(lines);
@@ -56,9 +53,9 @@ export function parseSdf(text, name = "molecule.sdf") {
     atomCount: atoms.length,
     heavyAtoms,
     heteroAtoms,
-    molecularWeight: Number(molecularWeight.toFixed(1)),
+    molecularWeight: null,
     rings,
-    formula: formulaFromCounts(elementCounts),
+    formula: null,
   };
 }
 
@@ -124,11 +121,6 @@ function connectedComponents(atomCount, bonds) {
     }
   }
   return components;
-}
-
-function formulaFromCounts(counts) {
-  const ordered = ["C", "H", ...Object.keys(counts).filter((key) => !["C", "H"].includes(key)).sort()];
-  return ordered.filter((key) => counts[key]).map((key) => `${key}${counts[key] > 1 ? counts[key] : ""}`).join("");
 }
 
 export function candidateId(index) {

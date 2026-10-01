@@ -3,10 +3,17 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
+if [[ -f .conditar-cpu.env ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .conditar-cpu.env
+  set +a
+fi
+
 DOCKER_COMMAND="${DOCKER_BIN:-docker}"
-PUBLIC_IMAGE="osuninglab/conditar-dev:2026-07-10"
-LEGACY_IMAGE="localhost/conditar-dev:container-dev"
-IMAGE="${CONDITAR_DOCKER_IMAGE:-$PUBLIC_IMAGE}"
+DEFAULT_IMAGE="conditar-dev:standalone-20261001"
+IMAGE="${CONDITAR_DOCKER_IMAGE:-$DEFAULT_IMAGE}"
+DIFFSMOL_IMAGE="${DIFFSMOL_DOCKER_IMAGE:-diffsmol:cpu-20261001}"
 
 echo "conDitar GUI setup check"
 echo
@@ -48,14 +55,19 @@ if command -v "$DOCKER_COMMAND" >/dev/null 2>&1; then
 
   if "$DOCKER_COMMAND" image inspect "$IMAGE" >/dev/null 2>&1; then
     echo "OK    conDitar image found: $IMAGE"
-  elif [[ -z "${CONDITAR_DOCKER_IMAGE:-}" ]] && "$DOCKER_COMMAND" image inspect "$LEGACY_IMAGE" >/dev/null 2>&1; then
-    echo "OK    conDitar image found with legacy local tag: $LEGACY_IMAGE"
   else
     echo "MISS  conDitar image not found: $IMAGE"
-    echo "      Pull it with:"
-    echo "        docker pull $PUBLIC_IMAGE"
-    echo "      Or build it from the repository Docker instructions."
+    echo "      Build the refreshed standalone image:"
+    echo "        docker build --platform linux/amd64 -f ../docker/Refresh.Dockerfile -t $DEFAULT_IMAGE ../scripts"
     missing=1
+  fi
+
+  if "$DOCKER_COMMAND" image inspect "$DIFFSMOL_IMAGE" >/dev/null 2>&1; then
+    echo "OK    DiffSMol image found: $DIFFSMOL_IMAGE"
+  else
+    echo "WARN  DiffSMol image not found: $DIFFSMOL_IMAGE"
+    echo "      Set DIFFSMOL_DOCKER_IMAGE in .conditar-cpu.env after loading or building the image."
+    echo "      conDitar-only runs can still work."
   fi
 fi
 

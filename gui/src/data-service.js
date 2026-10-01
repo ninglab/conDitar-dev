@@ -1,5 +1,5 @@
 import { EXAMPLES } from "./config.js?v=20260723-theme-1";
-import { candidateId, parseSdf } from "./sdf.js?v=20260723-theme-1";
+import { candidateId, parseSdf, splitSdfRecords } from "./sdf.js?v=20260723-theme-1";
 
 export class ExampleDataService {
   async loadStudy(exampleId, onProgress = () => {}) {
@@ -29,11 +29,22 @@ export class ExampleDataService {
         }
         loaded += 1;
         onProgress(loaded, example.count);
-        if (!text) return null;
-        const molecule = parseSdf(text, path.split("/").pop());
-        return { ...molecule, index, id: candidateId(index), path };
+        if (!text) return [];
+        const records = splitSdfRecords(text);
+        return records.map((record, recordIndex) => {
+          const name = records.length === 1
+            ? path.split("/").pop()
+            : `${path.split("/").pop().replace(/\.sdf$/i, "")}_record_${recordIndex}.sdf`;
+          return { ...parseSdf(record, name), path };
+        });
       }));
-      candidates.push(...batchCandidates.filter(Boolean));
+      const available = batchCandidates.flat();
+      const profiles = await this.chemistryProfiles(available.map((item) => item.text));
+      candidates.push(...available.map((item, index) => ({
+        ...withChemistry(item, profiles[index]),
+        index: candidates.length + index,
+        id: candidateId(candidates.length + index),
+      })));
       await yieldToBrowser();
     }
     candidates.sort((a, b) => a.index - b.index);
@@ -42,10 +53,34 @@ export class ExampleDataService {
   }
 
   async loadUploadedOutputs(files) {
-    return Promise.all([...files].map(async (file, index) => {
+    const fileCandidates = await Promise.all([...files].map(async (file) => {
       const text = await file.text();
-      return { ...parseSdf(text, file.name), index, id: candidateId(index), path: file.name };
+      const records = splitSdfRecords(text);
+      return records.map((record, recordIndex) => {
+        const name = records.length === 1 ? file.name : `${file.name.replace(/\.sdf$/i, "")}_record_${recordIndex}.sdf`;
+        return { ...parseSdf(record, name), path: file.name };
+      });
     }));
+    const candidates = fileCandidates.flat();
+    const profiles = await this.chemistryProfiles(candidates.map((item) => item.text));
+    return candidates.map((item, index) => ({
+      ...withChemistry(item, profiles[index]),
+      index,
+      id: candidateId(index),
+    }));
+  }
+
+  async chemistryProfiles(sdfs) {
+    const profiles = [];
+    for (let offset = 0; offset < sdfs.length; offset += 20) {
+      const response = await fetchJson("/api/molecules/chemistry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sdfs: sdfs.slice(offset, offset + 20) }),
+      });
+      profiles.push(...response.profiles);
+    }
+    return profiles;
   }
 
   async submitJob(payload) {
@@ -97,7 +132,7 @@ export class ExampleDataService {
       summary: response.summary || {},
       toolRuns: response.tool_runs || [],
       candidates: (response.files || []).map((file, index) => ({
-        ...parseSdf(file.text, file.name),
+        ...withChemistry(parseSdf(file.text, file.name), file.chemistry),
         index,
         id: candidateId(index),
         path: file.relative_path,
@@ -174,6 +209,14 @@ export class ExampleDataService {
       body: JSON.stringify(payload),
     });
   }
+}
+
+function withChemistry(candidate, chemistry) {
+  return {
+    ...candidate,
+    molecularWeight: Number.isFinite(chemistry?.molecular_weight) ? chemistry.molecular_weight : null,
+    formula: chemistry?.formula || null,
+  };
 }
 
 async function fetchText(path, required = true) {

@@ -23,7 +23,11 @@ conDitar-dev/gui
 
 conDitar-dev container/source
   Docker/Podman image with conDitar code, dependencies, model files, and runtime entry point
-  Default image name: osuninglab/conditar-dev:2026-07-10
+  Default image name: conditar-dev:standalone-20261001
+
+DiffSMol container
+  Standalone shape generation and selected chemistry/docking evaluations
+  Build instructions: ../diffsmol/README.md
 ```
 
 Typical local CPU flow:
@@ -42,6 +46,20 @@ Set `CONDITAR_JOB_ROOT=/path/to/jobs` to store job folders outside the GUI
 source tree. This is useful for container deployments where job data should live
 on a mounted persistent volume.
 
+DiffSMol additionally needs its own container image. After loading or building
+that image, set `DIFFSMOL_DOCKER_IMAGE` in the ignored `.conditar-cpu.env` file.
+`./setup_gui.sh` reports its availability without blocking conDitar-only use.
+The Setup checklist checks the image for the currently selected engine.
+DiffSMol generation and selected post-processing run in one invocation of that
+image on local CPU, Slurm GPU, or OpenShift. The GUI waits for both stages to
+finish before exposing results. Slurm can load a separate DiffSMol archive with
+`DIFFSMOL_DOCKER_TAR`; otherwise preload/pull the image on compute nodes.
+The refreshed standalone conDitar image is `conditar-dev:standalone-20261001`
+locally. Build it with the command in `../docker/README.md`, or set
+`CONDITAR_DOCKER_IMAGE` to a registry copy. The GUI no longer injects conDitar
+scripts from its checkout; generation and selected evaluations finish in the
+same conDitar container on local CPU, Slurm GPU, or OpenShift.
+
 ## Quick start
 
 For first-time local CPU setup with Docker or Docker Desktop:
@@ -49,7 +67,10 @@ For first-time local CPU setup with Docker or Docker Desktop:
 ```bash
 docker pull osuninglab/conditar-dev:2026-07-10
 git clone https://github.com/ninglab/conDitar-dev.git
-cd conDitar-dev/gui
+cd conDitar-dev
+docker build --platform linux/amd64 -f docker/Refresh.Dockerfile \
+  -t conditar-dev:standalone-20261001 scripts
+cd gui
 ./setup_gui.sh
 ./start_cpu_gui.sh
 ```
@@ -74,7 +95,7 @@ Requirements:
 - Git
 - Python 3.9 or newer
 - Docker Desktop
-- The pulled conDitar image `osuninglab/conditar-dev:2026-07-10`
+- The refreshed conDitar image `conditar-dev:standalone-20261001`
 
 Linux, macOS, and Windows through WSL2 are supported for local GUI use. On
 Windows, run the shell scripts from WSL2, not native PowerShell. Install Docker
@@ -95,7 +116,10 @@ from Finder after Docker Desktop is installed and running.
    ```bash
    docker pull osuninglab/conditar-dev:2026-07-10
    git clone https://github.com/ninglab/conDitar-dev.git
-   cd conDitar-dev/gui
+   cd conDitar-dev
+   docker build --platform linux/amd64 -f docker/Refresh.Dockerfile \
+     -t conditar-dev:standalone-20261001 scripts
+   cd gui
    ./setup_gui.sh
    ./start_cpu_gui.sh
    ```
@@ -122,15 +146,16 @@ close the old terminal, or rerun the launcher and follow the newly printed URL.
 Fresh Slurm/GPU setup:
 
 1. Copy or clone this repository onto the cluster and enter the GUI folder.
-2. Make the Docker/OCI image available to compute nodes. If your cluster allows
-   registry pulls, preload the image with Podman:
+2. Make the refreshed image available to compute nodes. Pull a pushed copy
+   with Podman and set `CONDITAR_DOCKER_IMAGE` to that registry tag, or export
+   the local image on the build machine and load the archive:
 
    ```bash
-   podman pull docker.io/osuninglab/conditar-dev:2026-07-10
+   docker save conditar-dev:standalone-20261001 -o /shared/path/conditar-standalone-image.tar
+   podman load -i /shared/path/conditar-standalone-image.tar
    ```
 
-   If compute nodes cannot pull from Docker Hub, place the exported
-   `.tar`/`.tar.gz` archive on a filesystem visible from compute nodes.
+   The archive must be on a filesystem visible from compute nodes.
 3. Configure the scheduler account in a local `.conditar-slurm.env` file when
    your cluster requires one (this file is ignored and should not be committed):
 
@@ -212,6 +237,14 @@ podman run --rm -p 8080:8080 -v conditar-gui-jobs:/data conditar-gui:latest
 Then open `http://127.0.0.1:8080`. The container binds to `0.0.0.0`
 internally, but your browser should use localhost.
 
+For a trusted local CPU GUI container that launches Docker jobs, build with
+`--build-arg GUI_INSTALL_DOCKER_CLI=1` and set `CONDITAR_RUNTIME=docker` plus
+`DIFFSMOL_DOCKER_IMAGE` when running it. Mount the Docker socket and bind-mount
+the job directory at the same absolute path on the host and inside the GUI
+container; nested Docker runs need host-resolvable input/output paths. Do not
+expose this socket-enabled GUI image to untrusted users. The default image build
+does not install the Docker client and keeps the OpenShift behavior.
+
 The container image installs the same Tool Chest environment used by
 `setup_tool_chest.sh`, including `medchem` and `lilly-medchem-rules`. The setup
 script is still useful for local non-container GUI sessions.
@@ -254,16 +287,17 @@ Requirements:
 
 - A cluster session with Slurm available
 - Podman available on the login or compute environment
-- The conDitar image available as `docker.io/osuninglab/conditar-dev:2026-07-10`, or a
-  shared image archive that can be loaded by the Slurm job
+- The refreshed conDitar image available on compute nodes, or a shared image
+  archive that can be loaded by the Slurm job
 - Any site-specific setup required for remote desktop or web access
 
 The Slurm launcher defaults to:
 
 ```bash
 CONDITAR_RUNTIME=podman
-CONDITAR_DOCKER_IMAGE=docker.io/osuninglab/conditar-dev:2026-07-10
+CONDITAR_DOCKER_IMAGE=conditar-dev:standalone-20261001
 CONDITAR_DOCKER_TAR=                  # optional archive to load inside the job
+DIFFSMOL_DOCKER_TAR=                  # optional separate DiffSMol archive
 CONDITAR_SLURM_ACCOUNT=               # required by many Slurm sites
 CONDITAR_SLURM_TIME=04:00:00
 CONDITAR_SLURM_MEM=32G
@@ -314,8 +348,8 @@ CONDITAR_RUNTIME=docker \
 
 This is useful for source-only conDitar edits. Rebuild the container when
 dependencies, model/checkpoint files, or container setup changes. The launchers
-automatically use the parent `conDitar-dev` checkout as `CONDITAR_SOURCE_MOUNT`
-when the GUI is stored at `conDitar-dev/gui`.
+do not mount source by default; this override is only for intentional
+development runs.
 
 If Docker or Podman is installed in a nonstandard location:
 
@@ -347,6 +381,13 @@ Filtered exports are saved both by the browser and, for completed backend jobs,
 under the job folder at `job_data/jobs/<job-id>/filtered_exports/`. Each
 filtered export includes copied SDFs, `metrics.csv`, and `export_metadata.json`
 with the active thresholds and tool runs used for that subset.
+
+A job becomes completed after generation and its selected evaluators finish.
+Results treat each generated molecule as one candidate. Multi-record SDF outputs
+are split into individual files under `outputs/`; the unmodified source is kept
+under `raw_outputs/` and listed as an artifact. The input reference SDF is not
+counted or evaluated as a generated candidate. Formula and molecular weight are
+calculated with RDKit by the GUI backend.
 
 If a Slurm job is `PENDING`, the scheduler has accepted it but is waiting for account,
 partition, or GPU capacity. If it fails before producing container output,

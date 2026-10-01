@@ -11,15 +11,9 @@ if [[ -f .conditar-slurm.env ]]; then
 fi
 
 export CONDITAR_RUNTIME="${CONDITAR_RUNTIME:-podman}"
-PUBLIC_IMAGE="docker.io/osuninglab/conditar-dev:2026-07-10"
-LEGACY_IMAGE="localhost/conditar-dev:container-dev"
+DEFAULT_IMAGE="conditar-dev:standalone-20261001"
 if [[ -z "${CONDITAR_DOCKER_IMAGE:-}" ]]; then
-  export CONDITAR_DOCKER_IMAGE="$PUBLIC_IMAGE"
-  if command -v podman >/dev/null 2>&1 \
-    && podman image exists "$LEGACY_IMAGE" >/dev/null 2>&1 \
-    && ! podman image exists "$PUBLIC_IMAGE" >/dev/null 2>&1; then
-    export CONDITAR_DOCKER_IMAGE="$LEGACY_IMAGE"
-  fi
+  export CONDITAR_DOCKER_IMAGE="$DEFAULT_IMAGE"
 fi
 export CONDITAR_DOCKER_TAR="${CONDITAR_DOCKER_TAR:-}"
 configured_tar="$CONDITAR_DOCKER_TAR"
@@ -60,11 +54,6 @@ fi
 if [[ -z "$CONDITAR_DOCKER_TAR" && -n "$configured_tar" ]]; then
   export CONDITAR_DOCKER_TAR="$configured_tar"
 fi
-if [[ -z "${CONDITAR_SOURCE_MOUNT:-}" && -d ../conDitar-dev ]]; then
-  export CONDITAR_SOURCE_MOUNT="$(cd ../conDitar-dev && pwd)"
-elif [[ -z "${CONDITAR_SOURCE_MOUNT:-}" && -d ../docker && -d ../scripts ]]; then
-  export CONDITAR_SOURCE_MOUNT="$(cd .. && pwd)"
-fi
 export CONDITAR_SLURM_ACCOUNT="${CONDITAR_SLURM_ACCOUNT:-}"
 export CONDITAR_SLURM_TIME="${CONDITAR_SLURM_TIME:-04:00:00}"
 export CONDITAR_SLURM_MEM="${CONDITAR_SLURM_MEM:-32G}"
@@ -81,7 +70,7 @@ if [[ -z "$CONDITAR_DOCKER_TAR" ]] && command -v podman >/dev/null 2>&1 \
   && ! podman image exists "$CONDITAR_DOCKER_IMAGE" >/dev/null 2>&1; then
   echo "ERROR: Slurm GPU image is unavailable: $CONDITAR_DOCKER_IMAGE" >&2
   echo "Pull it with podman, set CONDITAR_DOCKER_TAR to a readable archive, or load the image with podman load." >&2
-  echo "Example: podman pull $PUBLIC_IMAGE" >&2
+  echo "Set CONDITAR_DOCKER_IMAGE to a pullable refreshed image or load its archive with podman." >&2
   exit 2
 fi
 PYTHON_COMMAND=(python3)

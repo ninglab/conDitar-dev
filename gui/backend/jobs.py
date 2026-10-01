@@ -33,6 +33,8 @@ from .input_processing import (
     pocket_pdb_from_residues,
     preprocess_complex_payload,
 )
+from .chemistry import sdf_chemistry
+from .output_sdfs import generated_sdf_paths, sdf_records
 from .tool_chest import ToolChest
 from .workflow_rules import filter_postprocess_for_workflow, validate_generation_inputs
 
@@ -48,8 +50,18 @@ LOCAL_QUEUE_TARGETS = {LOCAL_CPU_TARGET, OPENSHIFT_JOB_TARGET, OPENSHIFT_MOCK_TA
 CONDITAR_ENGINE = "conditar"
 DIFFSMOL_ENGINE = "diffsmol"
 GENERATION_ENGINES = {CONDITAR_ENGINE, DIFFSMOL_ENGINE}
+DEFAULT_CONDITAR_IMAGE = "conditar-dev:standalone-20261001"
+LEGACY_CONDITAR_IMAGES = {
+    "osuninglab/conditar-dev:2026-07-10",
+    "docker.io/osuninglab/conditar-dev:2026-07-10",
+    "localhost/conditar-dev:container-dev",
+}
 VINA_METRICS = {"vina_score", "vina_dock", "qvina"}
 CHEMISTRY_METRICS = {"qed", "sa", "logp", "lipinski"}
+CONDITAR_IMAGE_METRICS_ERROR = (
+    "Selected conDitar evaluations require the refreshed standalone conDitar image. "
+    "Build conditar-dev:standalone-20261001 or configure a registry copy with CONDITAR_DOCKER_IMAGE."
+)
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 TRUE_VALUES = {"1", "true", "yes", "on"}
 SLURM_PENDING_STATES = {"CONFIGURING", "PENDING", "REQUEUED", "RESIZING", "SUSPENDED"}
@@ -97,8 +109,8 @@ class LocalJobManager:
     def __init__(self, project_root: Path):
         self.project_root = project_root
         self.job_root = Path(os.environ.get("CONDITAR_JOB_ROOT", project_root / "job_data" / "jobs")).expanduser()
-        self.docker_image = os.environ.get("CONDITAR_DOCKER_IMAGE", "osuninglab/conditar-dev:2026-07-10")
-        self.diffsmol_image = os.environ.get("DIFFSMOL_DOCKER_IMAGE", "ninglab/diffsmol:latest")
+        self.docker_image = os.environ.get("CONDITAR_DOCKER_IMAGE", DEFAULT_CONDITAR_IMAGE)
+        self.diffsmol_image = os.environ.get("DIFFSMOL_DOCKER_IMAGE", "diffsmol:cpu-20261001")
         self.diffsmol_container_command = os.environ.get("DIFFSMOL_CONTAINER_COMMAND", "").strip()
         self.source_mount = os.environ.get("CONDITAR_SOURCE_MOUNT", "").strip()
         self.container_runtime_kind, self.container_runtime = self._resolve_container_runtime()
@@ -115,9 +127,12 @@ class LocalJobManager:
             "gpus": os.environ.get("CONDITAR_SLURM_GPUS", "1"),
         }
         self.docker_tar = os.environ.get("CONDITAR_DOCKER_TAR", "")
+        self.diffsmol_docker_tar = os.environ.get("DIFFSMOL_DOCKER_TAR", "")
         self.tool_chest = ToolChest(project_root)
         self._queue: queue.Queue[str] = queue.Queue()
         self._processes: dict[str, subprocess.Popen] = {}
+        self._finalizing_jobs: set[str] = set()
+        self._active_jobs: set[str] = set()
         self._lock = threading.Lock()
         self.job_root.mkdir(parents=True, exist_ok=True)
         self._recover_incomplete_jobs()
@@ -129,6 +144,8 @@ class LocalJobManager:
         diffsmol_image = self._container_image_status(self.diffsmol_image)
         archive_path = Path(self.docker_tar).expanduser() if self.docker_tar else None
         archive_exists = bool(archive_path and archive_path.is_file())
+        diffsmol_archive_path = Path(self.diffsmol_docker_tar).expanduser() if self.diffsmol_docker_tar else None
+        diffsmol_archive_exists = bool(diffsmol_archive_path and diffsmol_archive_path.is_file())
         storage = self._job_storage_status()
         tools = self.tool_chest.list_tools()
         available_tools = [tool for tool in tools if tool.get("available")]
@@ -226,6 +243,11 @@ class LocalJobManager:
                 "path": str(archive_path) if archive_path else "",
                 "exists": archive_exists,
                 "detail": f"Archive available: {archive_path}" if archive_exists else (f"Archive not found: {archive_path}" if archive_path else "No container archive configured"),
+            },
+            "diffsmol_archive": {
+                "path": str(diffsmol_archive_path) if diffsmol_archive_path else "",
+                "exists": diffsmol_archive_exists,
+                "detail": f"Archive available: {diffsmol_archive_path}" if diffsmol_archive_exists else (f"Archive not found: {diffsmol_archive_path}" if diffsmol_archive_path else "No DiffSMol archive configured"),
             },
             "gpu_available": bool(Path("/dev/nvidia0").exists()),
             "docker_image": self.docker_image,
@@ -557,6 +579,9 @@ class LocalJobManager:
         if target not in {LOCAL_CPU_TARGET, SLURM_GPU_TARGET, OPENSHIFT_JOB_TARGET, OPENSHIFT_MOCK_TARGET}:
             raise ValueError("Only local CPU, Slurm GPU, and OpenShift jobs are supported.")
         engine = payload.get("engine") or CONDITAR_ENGINE
+        if engine == CONDITAR_ENGINE and self.docker_image in LEGACY_CONDITAR_IMAGES \
+                and self._postprocess_options(payload.get("postprocess") or {}).get("metrics"):
+            raise ValueError(CONDITAR_IMAGE_METRICS_ERROR)
         pdb = payload.get("pdb") or {}
         if engine == CONDITAR_ENGINE and not pdb.get("text"):
             raise ValueError("A PDB input is required.")
@@ -585,6 +610,7 @@ class LocalJobManager:
             payload.get("preprocess"),
             pdb_path,
             sdf_path,
+            engine,
             payload.get("structure_conversion"),
             payload.get("structure_cleaning"),
         )
@@ -598,6 +624,13 @@ class LocalJobManager:
         postprocess = self._postprocess_options(payload.get("postprocess") or {})
         postprocess = self._postprocess_for_inputs(engine, postprocess, pdb_path)
         tool_requests = payload.get("tools") or []
+        if engine == DIFFSMOL_ENGINE and target == OPENSHIFT_JOB_TARGET and self.diffsmol_image in {
+            "ninglab/diffsmol:latest", "averyemeyer/diffsmol:latest", "diffsmol:cpu-20261001",
+        }:
+            raise ValueError(
+                "OpenShift DiffSMol requires a registry-accessible copy of the updated standalone image. "
+                "Set DIFFSMOL_DOCKER_IMAGE or use --diffsmol-image when deploying the GUI."
+            )
         if target == LOCAL_CPU_TARGET:
             image_status = self._container_image_status(self._engine_image(engine))
             if image_status.get("checked") and not image_status.get("exists"):
@@ -622,6 +655,7 @@ class LocalJobManager:
             "mode": payload.get("mode") or "pocket",
             "example_id": payload.get("example_id") or None,
             "input_name": payload.get("input_name") or pdb_name or (sdf_path.name if sdf_path else None) or "input",
+            "rerun_of": payload.get("rerun_of") or None,
             "inputs": {
                 "pdb": str(pdb_path.relative_to(paths.root)) if pdb_path else None,
                 "sdf": str(sdf_path.relative_to(paths.root)) if sdf_path else None,
@@ -747,6 +781,8 @@ class LocalJobManager:
     def results(self, job_id: str) -> dict:
         paths = self._paths(job_id)
         job = self._refresh_job(self._read_job(job_id)) or {}
+        if job.get("status") == "completed":
+            self._normalize_generated_outputs(paths, job)
         inputs = {}
         for key in ("pdb", "sdf", "preprocess_metadata"):
             relative = (job.get("inputs") or {}).get(key)
@@ -770,10 +806,18 @@ class LocalJobManager:
                     "relative_path": str(path.relative_to(paths.root)),
                     "sha256": self._sha256_file(path),
                     "text": path.read_text(errors="replace"),
+                    "chemistry": self._sdf_chemistry(path),
                 })
             for path in sorted(paths.outputs.rglob("*")):
                 if not path.is_file() or path in output_sdf_set:
                     continue
+                artifacts.append({
+                    "name": path.name,
+                    "relative_path": str(path.relative_to(paths.root)),
+                    "size": path.stat().st_size,
+                })
+        for path in sorted((paths.root / "raw_outputs").rglob("*")):
+            if path.is_file():
                 artifacts.append({
                     "name": path.name,
                     "relative_path": str(path.relative_to(paths.root)),
@@ -804,6 +848,7 @@ class LocalJobManager:
             raise ValueError("Unknown job.")
         if job.get("status") != "completed":
             raise ValueError("Tools can only be run on completed jobs.")
+        self._normalize_generated_outputs(paths, job)
         if not self._output_sdfs(paths, job):
             raise ValueError("This job has no generated SDF outputs to annotate.")
         run = self.tool_chest.run_tool(tool_id, paths.root, options or {})
@@ -835,10 +880,14 @@ class LocalJobManager:
         for request in requests:
             if request.get("status") in {"completed", "failed"}:
                 continue
+            if (self._read_job(job["id"]) or {}).get("status") == "canceled":
+                return
             tool_id = request.get("id")
             request["status"] = "running"
             self._write_job(paths, job)
             run = self.tool_chest.run_tool(tool_id, paths.root, request.get("options") or {})
+            if (self._read_job(job["id"]) or {}).get("status") == "canceled":
+                return
             request["status"] = run.get("status")
             request["run_id"] = run.get("id")
             request["finished_at"] = run.get("finished_at")
@@ -856,7 +905,8 @@ class LocalJobManager:
             self._write_job(paths, job)
 
     def _run_builtin_postprocess(self, paths: JobPaths, job: dict) -> None:
-        if job.get("engine") != DIFFSMOL_ENGINE:
+        engine = job.get("engine")
+        if engine not in {CONDITAR_ENGINE, DIFFSMOL_ENGINE}:
             return
         postprocess = job.get("postprocess") or {}
         if postprocess.get("status") in {"completed", "failed", "skipped"}:
@@ -866,6 +916,27 @@ class LocalJobManager:
         wants_chemistry = bool(selected & CHEMISTRY_METRICS)
         if not wants_vina and not wants_chemistry:
             return
+        status_file = paths.outputs / "evaluation_status.json"
+        if status_file.is_file():
+            evaluation = json.loads(status_file.read_text())
+            if set(evaluation.get("metrics") or []) != selected:
+                raise ValueError("Container evaluation status does not match the selected metrics.")
+            if evaluation.get("status") != "completed" or evaluation.get("exit_code") != 0:
+                raise ValueError(
+                    f"Container evaluations did not complete: {evaluation.get('status') or 'unknown'}."
+                )
+            postprocess["status"] = "completed"
+            postprocess["exit_code"] = 0
+            postprocess["applied_mode"] = postprocess.get("vina_mode") or "none"
+            postprocess["applied_metrics"] = list(postprocess.get("metrics") or [])
+            job["postprocess"] = postprocess
+            job["status_note"] = f"{self._engine_label(engine)} outputs annotated with selected evaluations."
+            self._write_job(paths, job)
+            return
+        if engine == CONDITAR_ENGINE:
+            raise ValueError("conDitar job exited without an evaluation status file.")
+        if "/opt/DiffSMol/docker/run.py" in (job.get("command") or []):
+            raise ValueError("DiffSMol job exited without an evaluation status file.")
         output_sdfs = self._output_sdfs(paths, job)
         if not output_sdfs:
             return
@@ -889,10 +960,10 @@ class LocalJobManager:
             job["status_note"] = postprocess["error"]
             self._write_job(paths, job)
             return
-        image_status = self._container_image_status(self.docker_image)
+        image_status = self._container_image_status(self.diffsmol_image)
         if image_status.get("checked") and not image_status.get("exists"):
             postprocess["status"] = "failed"
-            postprocess["error"] = f"conDitar image is required for DiffSMol post-processing: {self.docker_image}"
+            postprocess["error"] = f"DiffSMol image is required for post-processing: {self.diffsmol_image}"
             job["postprocess"] = postprocess
             job["status_note"] = postprocess["error"]
             self._write_job(paths, job)
@@ -909,22 +980,14 @@ class LocalJobManager:
             "-v",
             f"{paths.inputs.resolve()}:/inputs:ro",
             "-v",
-            f"{tmp_dir.resolve()}:/tmp/conditar/vina",
-            "-v",
-            f"{self.project_root.parent.resolve()}:/workspace:ro",
-            "-w",
-            "/workspace",
-            "--entrypoint",
+            f"{tmp_dir.resolve()}:/tmp/diffsmol/postprocess",
+            self.diffsmol_image,
             "python",
-            self.docker_image,
-            "-m",
-            "scripts.conDitar.postprocess_vina",
+            "/opt/DiffSMol/docker/postprocess.py",
             "--generated-dir",
             "/outputs",
             "--tmp-dir",
-            "/tmp/conditar/vina",
-            "--mode",
-            mode,
+            "/tmp/diffsmol/postprocess",
             "--metrics",
             ",".join(postprocess.get("metrics") or []),
             "--exhaustiveness",
@@ -938,8 +1001,6 @@ class LocalJobManager:
         postprocess["status"] = "running"
         postprocess["applied_mode"] = mode
         postprocess["applied_metrics"] = list(postprocess.get("metrics") or [])
-        job["status"] = "running"
-        job["finished_at"] = None
         job["status_note"] = (
             "Running DiffSMol docking/properties post-processing."
             if mode != "none"
@@ -951,14 +1012,24 @@ class LocalJobManager:
         with paths.stdout.open("a") as stdout, paths.stderr.open("a") as stderr:
             stdout.write("\n$ " + " ".join(shlex.quote(part) for part in command) + "\n\n")
             stdout.flush()
-            result = subprocess.run(command, cwd=str(self.project_root), text=True, stdout=stdout, stderr=stderr, check=False)
+            process = subprocess.Popen(
+                command, cwd=str(self.project_root), text=True, stdout=stdout, stderr=stderr,
+                start_new_session=True,
+            )
+            with self._lock:
+                self._processes[job["id"]] = process
+            try:
+                exit_code = process.wait()
+            finally:
+                with self._lock:
+                    self._processes.pop(job["id"], None)
 
-        postprocess["status"] = "completed" if result.returncode == 0 else "failed"
-        postprocess["exit_code"] = result.returncode
-        job["status"] = "completed"
-        job["finished_at"] = utc_now()
-        job["exit_code"] = 0
-        if result.returncode == 0:
+        if (self._read_job(job["id"]) or {}).get("status") == "canceled":
+            return
+
+        postprocess["status"] = "completed" if exit_code == 0 else "failed"
+        postprocess["exit_code"] = exit_code
+        if exit_code == 0:
             job["status_note"] = (
                 "DiffSMol outputs annotated with docking/properties."
                 if mode != "none"
@@ -967,7 +1038,7 @@ class LocalJobManager:
             postprocess.pop("error", None)
         else:
             postprocess["error"] = (
-                f"Built-in post-processing exited with status {result.returncode}. "
+                f"Built-in post-processing exited with status {exit_code}. "
                 f"See logs: {paths.stderr} and {paths.stdout}."
             )
             job["status_note"] = postprocess["error"]
@@ -981,13 +1052,13 @@ class LocalJobManager:
             raise ValueError("Unknown job.")
         if job.get("status") != "completed":
             raise ValueError("Only completed jobs can be exported.")
+        self._normalize_generated_outputs(paths, job)
         payload = payload or {}
         selected_paths = payload.get("selected_paths") or []
         if selected_paths:
             return self._export_filtered_job(paths, job_id, selected_paths, payload)
         archive = paths.outputs / f"{job_id}_study.zip"
-        manifest_path = paths.outputs / "run_manifest.json"
-        manifest_path.write_text(json.dumps(self._run_manifest(paths, job), indent=2))
+        self._write_run_manifest(paths, job)
         with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
             for path in sorted(paths.root.rglob("*")):
                 if not path.is_file() or path == archive:
@@ -1009,7 +1080,9 @@ class LocalJobManager:
         structures_root = export_root / "generated_structures"
         structures_root.mkdir(parents=True, exist_ok=True)
         for path in selected:
-            shutil.copy2(path, structures_root / path.name)
+            destination = structures_root / path.relative_to(paths.outputs)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, destination)
         metadata = {
             "job_id": job_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -1059,8 +1132,16 @@ class LocalJobManager:
         artifacts = []
         if paths.outputs.exists():
             for path in sorted(paths.outputs.rglob("*")):
-                if not path.is_file() or str(path.relative_to(paths.root)) in generated_rel:
+                if not path.is_file() or path.name == "run_manifest.json" or str(path.relative_to(paths.root)) in generated_rel:
                     continue
+                artifacts.append({
+                    "name": path.name,
+                    "relative_path": str(path.relative_to(paths.root)),
+                    "size": path.stat().st_size,
+                    "sha256": self._sha256_file(path),
+                })
+        for path in sorted((paths.root / "raw_outputs").rglob("*")):
+            if path.is_file():
                 artifacts.append({
                     "name": path.name,
                     "relative_path": str(path.relative_to(paths.root)),
@@ -1090,6 +1171,7 @@ class LocalJobManager:
                 "created_at": job.get("created_at"),
                 "started_at": job.get("started_at"),
                 "finished_at": job.get("finished_at"),
+                "rerun_of": job.get("rerun_of"),
             },
             "inputs": input_files,
             "preprocess": job.get("preprocess"),
@@ -1116,6 +1198,9 @@ class LocalJobManager:
             },
         }
 
+    def _write_run_manifest(self, paths: JobPaths, job: dict) -> None:
+        (paths.outputs / "run_manifest.json").write_text(json.dumps(self._run_manifest(paths, job), indent=2))
+
     def archive_job(self, job_id: str) -> dict:
         paths = self._paths(job_id)
         job = self.get_job(job_id)
@@ -1140,10 +1225,11 @@ class LocalJobManager:
         if job.get("status") not in {"failed", "canceled"}:
             raise ValueError("Only failed or canceled jobs can be rerun.")
         inputs = job.get("inputs") or {}
-        pdb_path = paths.root / inputs.get("pdb", "")
-        if inputs.get("pdb") and not pdb_path.exists():
+        pdb_path = paths.root / inputs["pdb"] if inputs.get("pdb") else None
+        if pdb_path and not pdb_path.exists():
             raise ValueError(f"Original PDB input was not found: {pdb_path}")
         sdf_payload = None
+        sdf_path = None
         if inputs.get("sdf"):
             sdf_path = paths.root / inputs["sdf"]
             if not sdf_path.exists():
@@ -1154,14 +1240,18 @@ class LocalJobManager:
             "engine": job.get("engine") or CONDITAR_ENGINE,
             "mode": job.get("mode") or ("reference" if sdf_payload else "pocket"),
             "example_id": job.get("example_id"),
-            "input_name": f"rerun_{job.get('input_name') or pdb_path.stem}",
+            "input_name": f"rerun_{job.get('input_name') or (pdb_path.stem if pdb_path else sdf_path.stem if sdf_path else job_id)}",
             "email": job.get("email") or "",
-            "pdb": {"name": pdb_path.name, "text": pdb_path.read_text(errors="replace")} if inputs.get("pdb") else None,
+            "pdb": {"name": pdb_path.name, "text": pdb_path.read_text(errors="replace")} if pdb_path else None,
             "sdf": sdf_payload,
+            "preprocess": job.get("preprocess"),
+            "structure_conversion": job.get("structure_conversion"),
+            "structure_cleaning": job.get("structure_cleaning"),
             "slurm": job.get("slurm") or {},
             "postprocess": job.get("postprocess") or {},
-            "tools": job.get("tools") or [],
+            "tools": [{"id": item["id"], "options": item.get("options") or {}} for item in (job.get("tools") or [])],
             "parameters": job.get("parameters") or {},
+            "rerun_of": job_id,
         }
         return self.submit(payload)
 
@@ -1207,14 +1297,14 @@ class LocalJobManager:
     ) -> list[str]:
         if engine == DIFFSMOL_ENGINE:
             if is_slurm_gpu_target(target):
-                return self._build_diffsmol_docker_command(paths, sdf_path, parameters, device="cuda:0", gpu=True, pdb_path=pdb_path)
+                return self._build_diffsmol_docker_command(paths, sdf_path, parameters, device="cuda:0", gpu=True, pdb_path=pdb_path, postprocess=postprocess)
             if target == OPENSHIFT_JOB_TARGET:
-                return self._build_diffsmol_openshift_job_args(paths, sdf_path, parameters, pdb_path=pdb_path)
+                return self._build_diffsmol_openshift_job_args(paths, sdf_path, parameters, pdb_path=pdb_path, postprocess=postprocess)
             if target == OPENSHIFT_MOCK_TARGET:
                 return self._build_diffsmol_mock_command(paths, sdf_path, parameters)
             if not self.container_runtime:
                 raise ValueError("Docker/Podman runtime not found for DiffSMol.")
-            return self._build_diffsmol_docker_command(paths, sdf_path, parameters, device="cpu", gpu=False, pdb_path=pdb_path)
+            return self._build_diffsmol_docker_command(paths, sdf_path, parameters, device="cpu", gpu=False, pdb_path=pdb_path, postprocess=postprocess)
         if is_slurm_gpu_target(target):
             if not pdb_path:
                 raise ValueError("conDitar requires a PDB input.")
@@ -1362,12 +1452,8 @@ class LocalJobManager:
     ) -> list[str]:
         tmp_dir = paths.root / "tmp"
         tmp_dir.mkdir(parents=True, exist_ok=True)
-        wrapper_path = self.project_root.parent / "scripts" / "container" / "conditar-sample"
-        postprocess_path = self.project_root.parent / "scripts" / "conDitar" / "postprocess_vina.py"
-        if not wrapper_path.is_file():
-            raise FileNotFoundError(f"conDitar container wrapper not found: {wrapper_path}")
-        if not postprocess_path.is_file():
-            raise FileNotFoundError(f"conDitar postprocessor not found: {postprocess_path}")
+        if self.docker_image in LEGACY_CONDITAR_IMAGES and (postprocess or {}).get("metrics"):
+            raise ValueError(CONDITAR_IMAGE_METRICS_ERROR)
         runtime = os.environ.get("PODMAN_BIN", "podman") if gpu else self.container_runtime
         command = [
             runtime,
@@ -1385,10 +1471,6 @@ class LocalJobManager:
             f"{paths.outputs.resolve()}:/results",
             "-v",
             f"{tmp_dir.resolve()}:/tmp/conditar",
-            "-v",
-            f"{wrapper_path.resolve()}:/usr/local/bin/conditar-sample:ro",
-            "-v",
-            f"{postprocess_path.resolve()}:/opt/conditar/app/scripts/conDitar/postprocess_vina.py:ro",
         ])
         if self.source_mount:
             command.extend(["-v", f"{Path(self.source_mount).expanduser().resolve()}:/opt/conditar/app:ro"])
@@ -1427,13 +1509,11 @@ class LocalJobManager:
         device: str = "cpu",
         gpu: bool = False,
         pdb_path: Path | None = None,
+        postprocess: dict | None = None,
     ) -> list[str]:
         if not sdf_path:
             raise ValueError("DiffSMol shape generation requires a 3D SDF reference ligand.")
         runtime = os.environ.get("PODMAN_BIN", "podman") if gpu else self.container_runtime
-        launcher_path = self.project_root / "backend" / "diffsmol_pocket_generate.py"
-        if pdb_path and not launcher_path.is_file():
-            raise FileNotFoundError(f"DiffSMol pocket launcher not found: {launcher_path}")
         command = [
             runtime,
             "run",
@@ -1453,20 +1533,13 @@ class LocalJobManager:
             "-v",
             f"{paths.outputs.resolve()}:/results",
         ])
-        if pdb_path:
-            command.extend([
-                "-v",
-                f"{launcher_path.resolve()}:/launcher/diffsmol_pocket_generate.py:ro",
-            ])
         command.extend([
             self.diffsmol_image,
         ])
         if self.diffsmol_container_command:
             command.extend(shlex.split(self.diffsmol_container_command))
-        elif pdb_path:
-            command.extend(["python", "/launcher/diffsmol_pocket_generate.py"])
         else:
-            command.extend(["python", "/opt/DiffSMol/docker/generate.py"])
+            command.extend(["python", "/opt/DiffSMol/docker/run.py"])
         command.extend([
             "--input",
             f"/inputs/{sdf_path.name}",
@@ -1487,6 +1560,7 @@ class LocalJobManager:
             command.extend(["--num-samples", str(value)])
         if parameters.get("diffsmol_guidance"):
             command.append("--guidance")
+        self._append_diffsmol_evaluation_args(command, postprocess)
         return command
 
     def _build_diffsmol_openshift_job_args(
@@ -1495,16 +1569,15 @@ class LocalJobManager:
         sdf_path: Path | None,
         parameters: dict,
         pdb_path: Path | None = None,
+        postprocess: dict | None = None,
     ) -> list[str]:
         if not sdf_path:
             raise ValueError("DiffSMol shape generation requires a 3D SDF reference ligand.")
-        if pdb_path:
-            raise ValueError("DiffSMol pocket-conditioned generation is not available for OpenShift until the pocket launcher is included in the DiffSMol image.")
         args = []
         if self.diffsmol_container_command:
             args.extend(shlex.split(self.diffsmol_container_command))
         else:
-            args.extend(["python", "/opt/DiffSMol/docker/generate.py"])
+            args.extend(["python", "/opt/DiffSMol/docker/run.py"])
         args.extend([
             "--input",
             f"{self._openshift_job_mount_path(paths)}/inputs/{sdf_path.name}",
@@ -1513,11 +1586,14 @@ class LocalJobManager:
             "--device",
             self._target_device(OPENSHIFT_JOB_TARGET),
         ])
+        if pdb_path:
+            args.extend(["--protein", f"{self._openshift_job_mount_path(paths)}/inputs/{pdb_path.name}"])
         value = parameters.get("num_samples")
         if value not in (None, ""):
             args.extend(["--num-samples", str(value)])
         if parameters.get("diffsmol_guidance"):
             args.append("--guidance")
+        self._append_diffsmol_evaluation_args(args, postprocess)
         return args
 
     def _build_diffsmol_mock_command(
@@ -1607,8 +1683,11 @@ class LocalJobManager:
         metrics = payload_options.get("metrics") or []
         if not isinstance(metrics, list):
             raise ValueError("Selected evaluation metrics must be a list.")
-        metrics = [str(item) for item in metrics]
+        metrics = list(dict.fromkeys(str(item) for item in metrics))
         selected = set(metrics)
+        unknown = selected - VINA_METRICS - CHEMISTRY_METRICS
+        if unknown:
+            raise ValueError(f"Unsupported evaluation metrics: {', '.join(sorted(unknown))}")
         if "metrics" in payload_options:
             wants_score = "vina_score" in selected
             wants_dock = "vina_dock" in selected
@@ -1737,6 +1816,7 @@ class LocalJobManager:
         manifest: dict | None,
         pdb_path: Path | None,
         sdf_path: Path | None,
+        engine: str,
         conversion: dict | None = None,
         cleaning: dict | None = None,
     ) -> dict | None:
@@ -1752,7 +1832,7 @@ class LocalJobManager:
         })
         cleaned["staged_inputs"] = staged_inputs
         cleaned["container"] = {
-            "image": self.docker_image,
+            "image": self._engine_image(engine),
             "runtime": self.container_runtime_kind,
             "source_mount": self.source_mount or None,
         }
@@ -1840,6 +1920,16 @@ class LocalJobManager:
         ])
         if postprocess.get("vina"):
             command.append("--vina-score")
+
+    def _append_diffsmol_evaluation_args(self, command: list[str], postprocess: dict | None) -> None:
+        metrics = list((postprocess or {}).get("metrics") or [])
+        if not metrics:
+            return
+        command.extend([
+            "--postprocess-metrics", ",".join(metrics),
+            "--vina-exhaustiveness", str(postprocess.get("vina_exhaustiveness") or "8"),
+            "--vina-cpu", str(postprocess.get("vina_cpu") or "4"),
+        ])
 
     def _submit_slurm_job(self, job: dict, paths: JobPaths, pdb_path: Path | None, sdf_path: Path | None) -> dict:
         if not self.sbatch_bin:
@@ -1967,6 +2057,7 @@ class LocalJobManager:
                 device="cuda:0",
                 gpu=True,
                 pdb_path=pdb_path,
+                postprocess=job.get("postprocess"),
             )
         else:
             if not pdb_path:
@@ -1990,26 +2081,28 @@ class LocalJobManager:
             f"CONDITAR_RUN_IMAGE={shlex.quote(image)}",
             f"CONDITAR_LEGACY_IMAGE={shlex.quote(legacy_image)}",
         ])
+        archive = self.diffsmol_docker_tar if job.get("engine") == DIFFSMOL_ENGINE else self.docker_tar
+        archive_setting = "DIFFSMOL_DOCKER_TAR" if job.get("engine") == DIFFSMOL_ENGINE else "CONDITAR_DOCKER_TAR"
         image_fallback = "\n".join([
             f"if [[ {str(allow_legacy_fallback).lower()} == true ]] && ! {podman_command} image exists \"$CONDITAR_RUN_IMAGE\" && {podman_command} image exists \"$CONDITAR_LEGACY_IMAGE\"; then",
             "  CONDITAR_RUN_IMAGE=\"$CONDITAR_LEGACY_IMAGE\"",
             "fi",
             f"if ! {podman_command} image exists \"$CONDITAR_RUN_IMAGE\"; then",
             "  echo \"Container image $CONDITAR_RUN_IMAGE is not available on the compute node.\" >&2",
-            "  echo \"Set CONDITAR_DOCKER_TAR to a compute-node-visible .tar/.tar.gz archive, or preload/pull the image on the compute node.\" >&2",
+            f"  echo \"Set {archive_setting} to a compute-node-visible .tar/.tar.gz archive, or preload/pull the image on the compute node.\" >&2",
             "  exit 125",
             "fi",
         ])
         command_text = command_text.replace(shlex.quote(image), '"$CONDITAR_RUN_IMAGE"', 1)
         image_check = ""
-        if self.docker_tar:
+        if archive:
             image_check = "\n".join([
                 f"if ! {podman_command} image exists \"$CONDITAR_RUN_IMAGE\"; then",
-                f"  if [[ ! -f {shlex.quote(self.docker_tar)} ]]; then",
-                f"    echo \"Container image archive not found: {shlex.quote(self.docker_tar)}\" >&2",
+                f"  if [[ ! -f {shlex.quote(archive)} ]]; then",
+                f"    echo \"Container image archive not found: {shlex.quote(archive)}\" >&2",
                 "    exit 127",
                 "  fi",
-                f"  {podman_command} load -i {shlex.quote(self.docker_tar)}",
+                f"  {podman_command} load -i {shlex.quote(archive)}",
                 "fi",
                 image_fallback,
             ])
@@ -2051,11 +2144,15 @@ class LocalJobManager:
         if not job:
             return job
         paths = self._paths(job["id"])
+        if job.get("phase") == "finalizing":
+            with self._lock:
+                active = job["id"] in self._finalizing_jobs
+            if not active and not self._local_job_process_running(job["id"]):
+                return self._finalize_generated_job(paths, job)
+            return job
         if job.get("status") in TERMINAL_STATES:
             if is_slurm_gpu_target(job.get("target")):
                 self._normalize_terminal_slurm_state(paths, job)
-            if job.get("status") == "completed" and self._output_sdfs(paths, job):
-                self._run_requested_tools(paths, job)
             if (
                 job.get("target") == LOCAL_CPU_TARGET
                 and job.get("status") == "completed"
@@ -2087,6 +2184,9 @@ class LocalJobManager:
             return self._refresh_openshift_job(job, paths)
         if not is_slurm_gpu_target(job.get("target")):
             if job.get("target") == LOCAL_CPU_TARGET and job.get("status") == "running":
+                with self._lock:
+                    if job["id"] in self._active_jobs:
+                        return job
                 output_sdfs = self._output_sdfs(paths, job)
                 if self._local_job_process_running(job["id"]):
                     job["status_note"] = "Generator process is running."
@@ -2115,27 +2215,18 @@ class LocalJobManager:
             except ValueError:
                 exit_code = 1
             job["exit_code"] = exit_code
-            job["finished_at"] = job.get("finished_at") or utc_now()
-            job["status"] = "completed" if exit_code == 0 else "failed"
+            job["status"] = "running" if exit_code == 0 and output_sdfs else "failed"
             job.setdefault("slurm", {})["state"] = "COMPLETED" if exit_code == 0 else "FAILED"
-            if exit_code != 0:
-                job["error_message"] = self._container_failure_message(paths, exit_code)
+            if job["status"] == "failed":
+                job["finished_at"] = utc_now()
+                job["error_message"] = self._container_failure_message(paths, exit_code, job.get("engine"))
             self._write_job(paths, job)
-            if job["status"] == "completed":
-                self._run_builtin_postprocess(paths, job)
-                job = self.get_job(job["id"]) or job
-                self._run_requested_tools(paths, job)
+            if job["status"] == "running":
+                return self._finalize_generated_job(paths, job)
             self._send_email(job, paths)
             return job
 
         state = self._slurm_state(job)
-        if output_sdfs and (not state or state in SLURM_SUCCESS_STATES):
-            if self._output_completion_blocked_by_postprocess(job) and state not in SLURM_SUCCESS_STATES:
-                self._hold_for_builtin_postprocess(paths, job)
-                return job
-            self._mark_completed_from_outputs(paths, job, output_sdfs)
-            return job
-
         if state:
             job["status_note"] = None
             job.setdefault("slurm", {})["state"] = state
@@ -2145,29 +2236,23 @@ class LocalJobManager:
                 if reason:
                     job["status_note"] = f"Slurm is waiting: {reason}"
             elif state in SLURM_RUNNING_STATES:
+                job["status"] = "running"
+                job["started_at"] = job.get("started_at") or utc_now()
                 if output_sdfs:
-                    if self._output_completion_blocked_by_postprocess(job):
-                        self._hold_for_builtin_postprocess(paths, job)
-                        return job
-                    self._mark_completed_from_outputs(paths, job, output_sdfs)
-                    return job
-                else:
-                    job["status"] = "running"
-                    job["started_at"] = job.get("started_at") or utc_now()
+                    job["status_note"] = "Generated SDFs are present; waiting for the Slurm job to finish."
             elif state in SLURM_SUCCESS_STATES:
-                job["status"] = "completed" if output_sdfs else "failed"
-                job["finished_at"] = job.get("finished_at") or utc_now()
-                job["exit_code"] = 0 if job["status"] == "completed" else 1
-                job.setdefault("slurm", {})["state"] = "COMPLETED" if job["status"] == "completed" else state
-                if job["status"] == "failed":
+                job.setdefault("slurm", {})["state"] = "COMPLETED"
+                if not output_sdfs:
+                    job["status"] = "failed"
+                    job["finished_at"] = utc_now()
+                    job["exit_code"] = 1
                     job["error_message"] = (
                         "Slurm completed but no SDF outputs were found. See logs: "
                         f"{paths.stderr} and {paths.stdout}."
                     )
                 else:
-                    self._run_builtin_postprocess(paths, job)
-                    job = self.get_job(job["id"]) or job
-                    self._run_requested_tools(paths, job)
+                    self._mark_completed_from_outputs(paths, job, output_sdfs)
+                    return self._read_job(job["id"]) or job
                 self._send_email(job, paths)
             elif state in SLURM_FAILURE_STATES:
                 job["status"] = "failed"
@@ -2181,10 +2266,8 @@ class LocalJobManager:
             self._write_job(paths, job)
         elif is_slurm_gpu_target(job.get("target")):
             if output_sdfs:
-                if self._output_completion_blocked_by_postprocess(job):
-                    self._hold_for_builtin_postprocess(paths, job)
-                    return job
-                self._mark_completed_from_outputs(paths, job, output_sdfs)
+                job["status"] = "running"
+                job["status_note"] = "Generated SDFs are present; waiting for Slurm completion confirmation."
             elif self._job_has_logs(paths, job):
                 if job.get("status") == "queued":
                     job["status"] = "running"
@@ -2204,11 +2287,6 @@ class LocalJobManager:
     def _refresh_openshift_job(self, job: dict, paths: JobPaths) -> dict:
         output_sdfs = self._output_sdfs(paths, job)
         openshift = job.get("openshift") or {}
-        if output_sdfs and not self._output_completion_blocked_by_postprocess(job):
-            self._mark_completed_from_outputs(paths, job, output_sdfs)
-            job.setdefault("openshift", {}).setdefault("state", "succeeded")
-            self._write_job(paths, job)
-            return job
         if not openshift.get("submitted"):
             return job
 
@@ -2229,6 +2307,9 @@ class LocalJobManager:
             job["started_at"] = job.get("started_at") or state["started_at"]
 
         if state["state"] == "succeeded":
+            if output_sdfs:
+                self._mark_completed_from_outputs(paths, job, output_sdfs)
+                return self._read_job(job["id"]) or job
             job["status"] = "failed"
             job["finished_at"] = job.get("finished_at") or utc_now()
             job["exit_code"] = 1
@@ -2259,33 +2340,102 @@ class LocalJobManager:
         return job
 
     def _output_sdfs(self, paths: JobPaths, job: dict | None = None) -> list[Path]:
-        if not paths.outputs.exists():
-            return []
-        output_sdfs = sorted(paths.outputs.rglob("*.sdf"))
-        if (job or {}).get("engine") == DIFFSMOL_ENGINE:
-            output_sdfs = [path for path in output_sdfs if path.name.lower() != "reference.sdf"]
-        return output_sdfs
+        return generated_sdf_paths(paths.outputs)
 
-    def _output_completion_blocked_by_postprocess(self, job: dict) -> bool:
-        postprocess = job.get("postprocess") or {}
-        return (
-            job.get("engine") == CONDITAR_ENGINE
-            and bool(postprocess.get("metrics"))
-        )
+    def _finalize_generated_job(self, paths: JobPaths, job: dict) -> dict:
+        job_id = job["id"]
+        with self._lock:
+            if job_id in self._finalizing_jobs:
+                return self._read_job(job_id) or job
+            self._finalizing_jobs.add(job_id)
+        try:
+            job = self._read_job(job_id) or job
+            if job.get("status") in {"canceled", "failed"}:
+                return job
+            job["status"] = "running"
+            job["phase"] = "finalizing"
+            job["finished_at"] = None
+            job["status_note"] = "Preparing generated molecules and selected evaluations."
+            self._write_job(paths, job)
+            self._normalize_generated_outputs(paths, job)
+            if not self._output_sdfs(paths, job):
+                raise ValueError("No generated SDF molecules were found.")
+            self._run_builtin_postprocess(paths, job)
+            job = self._read_job(job_id) or job
+            self._run_requested_tools(paths, job)
+            if (self._read_job(job_id) or {}).get("status") == "canceled":
+                return self._read_job(job_id) or job
+            postprocess = job.get("postprocess") or {}
+            if postprocess.get("status") == "failed":
+                job["status_note"] = f"Generation finished, but selected post-processing failed: {postprocess.get('error') or 'see logs'}."
+            elif not job.get("tools") and "outputs annotated with selected evaluations" not in job.get("status_note", ""):
+                job["status_note"] = "Generation completed."
+            job["status"] = "completed"
+            job["phase"] = "completed"
+            job["finished_at"] = utc_now()
+            job["exit_code"] = 0
+            job.setdefault("outputs", {})["sdf_count"] = len(self._output_sdfs(paths, job))
+            self._write_job(paths, job)
+            self._write_run_manifest(paths, job)
+            self._send_email(job, paths)
+            return job
+        except Exception as error:
+            job = self._read_job(job_id) or job
+            if job.get("status") != "canceled":
+                job["status"] = "failed"
+                job["phase"] = "failed"
+                job["finished_at"] = utc_now()
+                job["exit_code"] = 1
+                job["error_message"] = f"Could not finalize generated results: {error}"
+                self._write_job(paths, job)
+                self._send_email(job, paths)
+            return job
+        finally:
+            with self._lock:
+                self._finalizing_jobs.discard(job_id)
 
-    def _hold_for_builtin_postprocess(self, paths: JobPaths, job: dict) -> None:
-        job["status"] = "running"
-        job["started_at"] = job.get("started_at") or utc_now()
-        job["status_note"] = (
-            "Generated SDF output was found; waiting for built-in docking/properties post-processing "
-            "to finish before releasing Results."
-        )
-        self._write_job(paths, job)
+    def _normalize_generated_outputs(self, paths: JobPaths, job: dict) -> None:
+        changed = False
+        for path in self._output_sdfs(paths, job):
+            records = sdf_records(path.read_text(errors="replace"))
+            if len(records) <= 1:
+                continue
+            changed = True
+            source = paths.root / "raw_outputs" / path.relative_to(paths.outputs)
+            source.parent.mkdir(parents=True, exist_ok=True)
+            for index, record in enumerate(records):
+                target = path.with_name(f"{path.stem}_record_{index:04d}.sdf")
+                if target.exists():
+                    if target.read_text(errors="replace") != record:
+                        raise ValueError(f"Generated SDF split conflicts with existing output: {target}")
+                else:
+                    target.write_text(record)
+            if source.exists():
+                if source.read_bytes() != path.read_bytes():
+                    raise ValueError(f"Raw generated SDF archive already exists: {source}")
+                path.unlink()
+            else:
+                path.replace(source)
+        count = len(self._output_sdfs(paths, job))
+        if changed or job.get("outputs", {}).get("sdf_count") != count:
+            job.setdefault("outputs", {})["sdf_count"] = count
+            self._write_job(paths, job)
+
+    def _sdf_chemistry(self, path: Path) -> dict | None:
+        return sdf_chemistry(path.read_text(errors="replace"))
+
+    def chemistry_profiles(self, payload: dict) -> dict:
+        texts = payload.get("sdfs") if isinstance(payload, dict) else None
+        if not isinstance(texts, list) or len(texts) > 20:
+            raise ValueError("Provide up to 20 SDF texts for chemistry profiling.")
+        if any(not isinstance(text, str) or len(text.encode("utf-8")) > 5 * 1024 * 1024 for text in texts):
+            raise ValueError("Each chemistry input must be an SDF text under 5 MB.")
+        return {"profiles": [sdf_chemistry(text) for text in texts]}
 
     def _mark_completed_from_outputs(self, paths: JobPaths, job: dict, output_sdfs: list[Path] | None = None) -> None:
         output_sdfs = output_sdfs if output_sdfs is not None else self._output_sdfs(paths, job)
-        job["status"] = "completed"
-        job["finished_at"] = job.get("finished_at") or utc_now()
+        job["status"] = "running"
+        job["phase"] = "finalizing"
         job["exit_code"] = 0
         job["error_message"] = None
         job["output_count"] = len(output_sdfs)
@@ -2299,15 +2449,11 @@ class LocalJobManager:
                 "failed": 0,
             })
         job["status_note"] = (
-            f"Marked completed after finding {len(output_sdfs)} SDF output"
+            f"Found {len(output_sdfs)} SDF output"
             f"{'' if len(output_sdfs) == 1 else 's'} in the job output directory."
         )
         self._write_job(paths, job)
-        if job["status"] == "completed":
-            self._run_builtin_postprocess(paths, job)
-            job = self.get_job(job["id"]) or job
-            self._run_requested_tools(paths, job)
-        self._send_email(job, paths)
+        self._finalize_generated_job(paths, job)
 
     def _normalize_terminal_slurm_state(self, paths: JobPaths, job: dict) -> None:
         slurm = job.setdefault("slurm", {})
@@ -2352,7 +2498,7 @@ class LocalJobManager:
             log_path = paths.logs / f"openshift-{pod_name}.log"
             fetched = False
             try:
-                text = self._openshift_pod_log(pod_name)
+                text = self._openshift_pod_log(pod_name, job.get("engine"))
                 fetched = True
             except urllib.error.HTTPError as error:
                 fallback = log_path.read_text(errors="replace") if log_path.exists() else ""
@@ -2421,19 +2567,20 @@ class LocalJobManager:
         }
         return labels.get(reason, reason)
 
-    def _container_failure_message(self, paths: JobPaths, exit_code: int) -> str:
+    def _container_failure_message(self, paths: JobPaths, exit_code: int, engine: str | None = None) -> str:
         stderr = paths.stderr.read_text(errors="replace") if paths.stderr.exists() else ""
+        archive_setting = "DIFFSMOL_DOCKER_TAR" if engine == DIFFSMOL_ENGINE else "CONDITAR_DOCKER_TAR"
         if "Trying to pull localhost/" in stderr or "connection refused" in stderr:
             return (
                 "Container image was not available on the compute node (exit 125). "
-                "Set CONDITAR_DOCKER_TAR to the shared image archive or run podman load "
+                f"Set {archive_setting} to the shared image archive or run podman load "
                 "before retrying. See logs: "
                 f"{paths.stderr} and {paths.stdout}."
             )
         if "Container image archive not found" in stderr:
             return (
                 "The configured container archive was not found on the compute node. "
-                "Check CONDITAR_DOCKER_TAR and retry. See logs: "
+                f"Check {archive_setting} and retry. See logs: "
                 f"{paths.stderr} and {paths.stdout}."
             )
         return (
@@ -2473,16 +2620,24 @@ class LocalJobManager:
         if output_count == 0:
             return False
         job.setdefault("outputs", {})["sdf_count"] = output_count
-        job["status"] = "completed"
+        job["status"] = "running"
+        job["phase"] = "finalizing"
         job["exit_code"] = job.get("exit_code") if job.get("exit_code") is not None else 0
-        job["finished_at"] = job.get("finished_at") or utc_now()
+        job["finished_at"] = None
         job["error_message"] = None
         job["status_note"] = (
-            "Recovered after server restart: SDF outputs were found, so this local CPU job "
-            "is available for review."
+            "Recovered generated SDF output after restart; finishing evaluations."
         )
         self._write_job(paths, job)
+        threading.Thread(target=self._resume_finalization, args=(job["id"],), daemon=True).start()
         return True
+
+    def _resume_finalization(self, job_id: str) -> None:
+        while self._local_job_process_running(job_id):
+            time.sleep(2)
+        job = self._read_job(job_id)
+        if job and job.get("phase") == "finalizing" and job.get("status") != "canceled":
+            self._finalize_generated_job(self._paths(job_id), job)
 
     def _local_job_process_running(self, job_id: str) -> bool:
         with self._lock:
@@ -2504,15 +2659,29 @@ class LocalJobManager:
         return any(job_id in line and "docker run" in line for line in result.stdout.splitlines())
 
     def _recover_incomplete_jobs(self) -> None:
-        for job in self.list_jobs():
+        for metadata in self.job_root.glob("*/job.json"):
+            job = self._read_job(metadata.parent.name)
+            if not job:
+                continue
+            if job.get("phase") == "finalizing" or (
+                job.get("status") == "completed"
+                and ((job.get("postprocess") or {}).get("status") == "running"
+                     or any(item.get("status") in {"pending", "running"} for item in (job.get("tools") or [])))
+            ):
+                paths = self._paths(job["id"])
+                if not self._recover_completed_local_outputs(paths, job):
+                    job["status"] = "failed"
+                    job["phase"] = "failed"
+                    job["finished_at"] = utc_now()
+                    job["error_message"] = "Server restarted during finalization and no generated SDF output remains."
+                    self._write_job(paths, job)
+                continue
             if job["status"] not in TERMINAL_STATES:
                 if is_slurm_gpu_target(job.get("target")):
                     continue
                 if job.get("target") == OPENSHIFT_JOB_TARGET and (job.get("openshift") or {}).get("submitted"):
                     continue
                 paths = self._paths(job["id"])
-                if self._recover_completed_local_outputs(paths, job):
-                    continue
                 if job.get("target") == LOCAL_CPU_TARGET and self._local_job_process_running(job["id"]):
                     job["status"] = "running"
                     job["finished_at"] = None
@@ -2520,6 +2689,8 @@ class LocalJobManager:
                     job["status_note"] = "Generator process is still running after GUI restart."
                     job.setdefault("outputs", {})["sdf_count"] = len(self._output_sdfs(paths, job))
                     self._write_job(paths, job)
+                    continue
+                if self._recover_completed_local_outputs(paths, job):
                     continue
                 if job.get("status") == "queued" and not job.get("started_at"):
                     job["error_message"] = None
@@ -2538,6 +2709,8 @@ class LocalJobManager:
     def _work_loop(self) -> None:
         while True:
             job_id = self._queue.get()
+            with self._lock:
+                self._active_jobs.add(job_id)
             try:
                 self._run(job_id)
             except Exception as error:
@@ -2553,6 +2726,8 @@ class LocalJobManager:
                     )
                     self._write_job(paths, job)
             finally:
+                with self._lock:
+                    self._active_jobs.discard(job_id)
                 self._queue.task_done()
 
     def _run(self, job_id: str) -> None:
@@ -2603,14 +2778,13 @@ class LocalJobManager:
             self._send_email(job, paths)
             return
 
-        job = self.get_job(job_id) or job
+        job = self._read_job(job_id) or job
         if job["status"] == "canceled":
             return
         job["exit_code"] = exit_code
-        job["finished_at"] = utc_now()
         output_count = len(self._output_sdfs(paths, job))
         job["outputs"]["sdf_count"] = output_count
-        job["status"] = "completed" if exit_code == 0 and output_count > 0 else "failed"
+        job["status"] = "running" if exit_code == 0 and output_count > 0 else "failed"
         if exit_code != 0:
             job["error_message"] = (
                 f"Docker/Podman command exited with status {exit_code}. See logs: "
@@ -2622,12 +2796,13 @@ class LocalJobManager:
                 "Docker/Podman command completed but no SDF outputs were found. See logs: "
                 f"{paths.stderr} and {paths.stdout}."
             )
+        if job["status"] == "failed":
+            job["finished_at"] = utc_now()
         self._write_job(paths, job)
-        if job["status"] == "completed":
-            self._run_builtin_postprocess(paths, job)
-            job = self.get_job(job["id"]) or job
-            self._run_requested_tools(paths, job)
-        self._send_email(job, paths)
+        if job["status"] == "running":
+            self._finalize_generated_job(paths, job)
+        else:
+            self._send_email(job, paths)
 
     def _run_openshift_job_draft(self, job: dict, paths: JobPaths) -> None:
         job["status"] = "running"
@@ -2765,6 +2940,9 @@ class LocalJobManager:
                     "args": job.get("command") or [],
                     "env": [
                         {"name": "CONDITAR_DEVICE", "value": device},
+                        {"name": "HOME", "value": "/tmp"},
+                        {"name": "OMP_NUM_THREADS", "value": "2"},
+                        {"name": "MKL_NUM_THREADS", "value": "2"},
                         {"name": "MPLCONFIGDIR", "value": f"{self._openshift_job_mount_path(paths)}/tmp/matplotlib"},
                         {"name": "XDG_CACHE_HOME", "value": f"{self._openshift_job_mount_path(paths)}/tmp/cache"},
                     ],
@@ -2932,11 +3110,12 @@ class LocalJobManager:
                 names.append(name)
         return sorted(names)
 
-    def _openshift_pod_log(self, pod_name: str) -> str:
+    def _openshift_pod_log(self, pod_name: str, engine: str | None = None) -> str:
         namespace = self._openshift_namespace()
         if not namespace or not pod_name:
             return ""
-        query = urllib.parse.urlencode({"container": "conditar", "tailLines": "2000"})
+        container_name = "diffsmol" if engine == DIFFSMOL_ENGINE else "conditar"
+        query = urllib.parse.urlencode({"container": container_name, "tailLines": "2000"})
         host = os.environ.get("KUBERNETES_SERVICE_HOST")
         port = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
         if not host:
@@ -3037,8 +3216,7 @@ class LocalJobManager:
         job = self.get_job(job["id"]) or job
         if job["status"] == "canceled":
             return
-        job["status"] = "completed"
-        job["finished_at"] = utc_now()
+        job["status"] = "running"
         job["exit_code"] = 0
         job["outputs"]["sdf_count"] = 1
         job["status_note"] = (
@@ -3047,10 +3225,7 @@ class LocalJobManager:
         )
         job["error_message"] = None
         self._write_job(paths, job)
-        self._run_builtin_postprocess(paths, job)
-        job = self.get_job(job["id"]) or job
-        self._run_requested_tools(paths, job)
-        self._send_email(job, paths)
+        self._finalize_generated_job(paths, job)
 
     def _mock_sdf(self, job: dict, sample_count: int) -> str:
         records = []
@@ -3070,7 +3245,7 @@ class LocalJobManager:
                 "OpenShift diagnostics mock",
                 "",
                 "> <SMILES>",
-                "CCO",
+                "NCO",
                 "",
                 "> <job_id>",
                 job["id"],

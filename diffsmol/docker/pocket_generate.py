@@ -1,7 +1,6 @@
-"""Run DiffSMol pocket-conditioned generation from one uploaded PDB/SDF pair.
+"""Run standalone DiffSMol pocket-conditioned generation from a PDB/SDF pair.
 
-This launcher adapts GUI uploads into the one-item CrossDocked-style dataset
-expected by DiffSMol's upstream sample_diffusion_with_pocket script.
+The upstream sampler expects a one-item CrossDocked-style dataset.
 """
 from __future__ import annotations
 
@@ -59,14 +58,14 @@ def validate_inputs(args: argparse.Namespace) -> None:
 
 def prepare_raw_pair(work: Path, sdf_path: Path, protein_path: Path) -> Path:
     raw = work / "crossdocked_test_set"
-    pair_dir = raw / "gui_pair"
+    pair_dir = raw / "input_pair"
     pair_dir.mkdir(parents=True)
     ligand_name = "reference.sdf"
     protein_name = "protein.pdb"
     (pair_dir / ligand_name).write_text(sdf_path.read_text(errors="replace"))
     (pair_dir / protein_name).write_text(protein_path.read_text(errors="replace"))
     with (raw / "index.pkl").open("wb") as handle:
-        pickle.dump([(f"gui_pair/{protein_name}", f"gui_pair/{ligand_name}")], handle)
+        pickle.dump([(f"input_pair/{protein_name}", f"input_pair/{ligand_name}")], handle)
     return raw
 
 
@@ -85,7 +84,7 @@ def build_config(work: Path, raw: Path, args: argparse.Namespace) -> Path:
         datasize=1,
         chunk_size=1,
         num_workers=1,
-        version="gui_pair",
+        version="input_pair",
     )
     config["data"]["shape"].update(
         batch_size=1,
@@ -108,24 +107,23 @@ def export_sdf(result_path: Path, output: Path, args: argparse.Namespace, starte
     result_file = result_path / "result_0.pt"
     result = torch.load(result_file, map_location="cpu")
     samples = []
-    generated_path = output / "generated.sdf"
-    with Chem.SDWriter(str(generated_path)) as writer:
-        for index, (positions, types) in enumerate(zip(result["pred_ligand_pos"], result["pred_ligand_v"])):
-            entry = {"index": index}
-            try:
-                if not np.isfinite(positions).all():
-                    raise ValueError("Non-finite generated coordinates")
-                atoms = transforms.get_atomic_number_from_index(types, mode="add_aromatic")
-                aromatic = transforms.is_aromatic_from_index(types, mode="add_aromatic")
-                entry["atoms"] = len(atoms)
-                mol = reconstruct.reconstruct_from_generated(positions, atoms, aromatic)
-                Chem.SanitizeMol(mol)
-                entry.update(smiles=Chem.MolToSmiles(mol), connected=len(Chem.GetMolFrags(mol)) == 1)
-                mol.SetProp("_Name", f"pocket_sample_{index}")
+    for index, (positions, types) in enumerate(zip(result["pred_ligand_pos"], result["pred_ligand_v"])):
+        entry = {"index": index}
+        try:
+            if not np.isfinite(positions).all():
+                raise ValueError("Non-finite generated coordinates")
+            atoms = transforms.get_atomic_number_from_index(types, mode="add_aromatic")
+            aromatic = transforms.is_aromatic_from_index(types, mode="add_aromatic")
+            entry["atoms"] = len(atoms)
+            mol = reconstruct.reconstruct_from_generated(positions, atoms, aromatic)
+            Chem.SanitizeMol(mol)
+            entry.update(smiles=Chem.MolToSmiles(mol), connected=len(Chem.GetMolFrags(mol)) == 1)
+            mol.SetProp("_Name", f"pocket_sample_{index}")
+            with Chem.SDWriter(str(output / f"generated_{index:04d}.sdf")) as writer:
                 writer.write(mol)
-            except (reconstruct.MolReconsError, ValueError, RuntimeError) as error:
-                entry["error"] = str(error)
-            samples.append(entry)
+        except (reconstruct.MolReconsError, ValueError, RuntimeError) as error:
+            entry["error"] = str(error)
+        samples.append(entry)
     summary = {
         "device": args.device,
         "cuda_available": torch.cuda.is_available(),

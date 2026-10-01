@@ -8,6 +8,7 @@ data:
   CONDITAR_JOB_ROOT: "/data/jobs"
   CONDITAR_RUNTIME: "openshift_mock"
   CONDITAR_DOCKER_IMAGE: "osuninglab/conditar-dev:2026-07-10"
+  DIFFSMOL_DOCKER_IMAGE: "ninglab/diffsmol:latest"
   CONDITAR_TMP: "/tmp/conditar-gui"
   CONDITAR_OPENSHIFT_JOB_MOUNT: "/data/jobs"
   CONDITAR_OPENSHIFT_PVC: "conditar-gui-jobs"

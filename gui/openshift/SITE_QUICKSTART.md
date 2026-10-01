@@ -134,6 +134,12 @@ Start with the public runtime image if the cluster can pull from Docker Hub:
 docker.io/osuninglab/conditar-dev:2026-07-10
 ```
 
+That image supports generation-only validation. Selected QED, Vina, or other
+evaluations require a registry-accessible copy of the refreshed standalone
+image described in `../../docker/README.md`; the GUI rejects those selections
+with the older image. Build, tag, and push the refreshed image before testing
+evaluations on OpenShift, then use its registry reference for `--runtime-image`.
+
 If the cluster cannot pull external images, ask the site admin to mirror that
 image into a registry the project can access. In that case, replace
 `<site-conditar-runtime-image>` with the mirrored image reference, for example:

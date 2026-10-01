@@ -62,7 +62,7 @@ def run(job_root: str, run_root: str, options: dict) -> dict:
     evaluators = _build_evaluators(mc)
     job_path = Path(job_root)
     run_path = Path(run_root)
-    sdf_paths = sorted((job_path / "outputs").rglob("*.sdf"))
+    sdf_paths = [path for path in sorted((job_path / "outputs").rglob("*.sdf")) if path.name.lower() != "reference.sdf"]
     if not sdf_paths:
         raise RuntimeError("No generated SDF files were found for this job.")
 
@@ -116,6 +116,7 @@ def run(job_root: str, run_root: str, options: dict) -> dict:
 
     summary = {
         "molecules": len(sdf_paths),
+        "generated_sdfs": [str(path.relative_to(job_path)) for path in sdf_paths],
         "parsed": len(records),
         "filters": [{"property": name, "label": label} for name, label, _, _ in FILTERS],
         "all_passed": sum(1 for item in records if item["passed"] == len(FILTERS)),

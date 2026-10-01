@@ -9,6 +9,32 @@ The container supports:
 - Optional Vina/QVina post-processing after generation.
 - A single `conditar-sample` launcher for Docker and Podman runs.
 
+### Refreshed standalone image
+
+The published `2026-07-10` image contains the model and dependencies but does
+not include the latest exact-metric CLI. To refresh it without restaging
+checkpoints or rebuilding PyTorch, build the small derivative from the repo
+root:
+
+```bash
+docker build --platform linux/amd64 -f docker/Refresh.Dockerfile \
+  -t conditar-dev:standalone-20261001 scripts
+```
+
+This pins the published base image by digest and replaces only the conDitar
+launcher and evaluator. It is a standalone CLI image; no GUI files are copied
+and no GUI checkout is needed at runtime. The same image supports CPU and
+CUDA generation. For Slurm, load/tag it with Podman or set
+`CONDITAR_DOCKER_TAR` to a compute-node-visible archive. For OpenShift, push
+it to a registry the project can pull from and set `--runtime-image` to that
+tag. GPU drivers, device access, and PVC permissions still need site testing.
+
+Exact evaluator selection uses `--postprocess-metrics`, for example
+`qed,sa` or `vina_score,qed`. The evaluator writes
+`evaluation_status.json` next to the generated SDFs; the GUI requires that
+marker before marking selected evaluations complete. The older published tag
+remains useful for generation-only runs.
+
 The image uses CUDA-enabled PyTorch wheels, so the same image can run on CPU or GPU. You do not need a GPU to build the image or run CPU sampling. On Apple Silicon Macs, build and run the `linux/amd64` image; Docker Desktop will use emulation, which is compatible but slower.
 
 ---
@@ -17,8 +43,8 @@ The image uses CUDA-enabled PyTorch wheels, so the same image can run on CPU or 
 
 ### Pull the released runtime image
 
-For most users, start from the published Docker image rather than rebuilding
-the container:
+For generation-only use, the published image works directly. It is also the
+base for the refreshed image above:
 
 ```bash
 docker pull docker.io/osuninglab/conditar-dev:2026-07-10

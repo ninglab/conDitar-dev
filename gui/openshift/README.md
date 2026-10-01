@@ -37,6 +37,9 @@ To create or switch to a project first:
 ```
 
 When the script finishes, it prints the HTTPS Route for the GUI.
+This default deployment is a diagnostics check: it creates mock SDF output and
+does not run either generator. Use `--submit` only after the runtime images and
+cluster Job permissions are ready.
 
 For a site-facing handoff path, start with
 `openshift/SITE_QUICKSTART.md`.
@@ -53,7 +56,8 @@ pull from, deploy it directly:
   --submit \
   --cpu \
   --gui-image <site-conditar-gui-image> \
-  --runtime-image <site-conditar-runtime-image>
+  --runtime-image <site-conditar-runtime-image> \
+  --diffsmol-image <site-diffsmol-runtime-image>
 ```
 
 This skips the OpenShift binary build, so the project does not need to download
@@ -105,17 +109,34 @@ outputs/conditar-openshift-job.yaml
 If the project allows the GUI service account to create Jobs, redeploy with:
 
 ```bash
-./openshift/deploy.sh --runtime openshift_job --submit
+./openshift/deploy.sh --submit
 ```
 
 For CPU-only testing, use:
 
 ```bash
-./openshift/deploy.sh --runtime openshift_job --submit --cpu
+./openshift/deploy.sh --submit --cpu
 ```
 
 The `--cpu` option sets the generated conDitar command to `--device cpu` and
 sets `CONDITAR_OPENSHIFT_GPU_COUNT=0`, so the Job does not request a GPU.
+`--submit` selects the real OpenShift Job target. With
+`--runtime openshift_job` but without `--submit`, the GUI writes manifests only.
+The `--diffsmol-image` setting must point to the updated standalone DiffSMol
+image described in `../../diffsmol/README.md`. That image includes pocket
+generation and selected evaluations; the GUI submits one Job running both
+stages before results become available. The image must be pushed to a registry
+the project can pull from. Site validation is still required for GPU access,
+PVC permissions, and the cluster's security context. `--cpu` uses the same
+image without requesting a GPU. The old `ninglab/diffsmol:latest` default is
+not suitable for DiffSMol Jobs; the GUI rejects it until `--diffsmol-image`
+points to the updated image.
+
+For exact conDitar evaluators, `--runtime-image` must likewise point to a
+registry copy of the refreshed conDitar image described in
+`../../docker/README.md`. The older `2026-07-10` image supports basic
+generation but is rejected when exact evaluations are selected. Both engine
+images run their selected evaluations before the OpenShift Job completes.
 
 The GUI deployment uses a `Recreate` rollout strategy because the default PVC is
 `ReadWriteOnce`. This avoids briefly running two GUI pods that both try to mount
@@ -127,6 +148,7 @@ the same job-storage volume during upgrades.
 ./openshift/deploy.sh \
   --runtime openshift_mock \
   --runtime-image osuninglab/conditar-dev:2026-07-10 \
+  --diffsmol-image registry.example.edu/diffsmol:latest \
   --gui-image registry.example.edu/conditar-gui:latest \
   --storage 10Gi
 ```

@@ -36,7 +36,7 @@ def run(job_root: str, run_root: str, options: dict) -> dict:
     if not command:
         raise RuntimeError("Lilly Medchem Rules was not found. Run ./setup_tool_chest.sh to build it or set LILLY_MEDCHEM_RULES_BIN.")
 
-    sdf_paths = sorted((job_path / "outputs").rglob("*.sdf"))
+    sdf_paths = [path for path in sorted((job_path / "outputs").rglob("*.sdf")) if path.name.lower() != "reference.sdf"]
     if not sdf_paths:
         raise RuntimeError("No generated SDF files were found for this job.")
 
@@ -84,6 +84,7 @@ def run(job_root: str, run_root: str, options: dict) -> dict:
         "command": command,
         "exit_code": result.returncode,
         "molecules": len(records),
+        "generated_sdfs": [str(path.relative_to(job_path)) for path in sdf_paths],
         "passed": sum(1 for props in annotations.values() if props["LILLY_PASS"] == "true"),
         "failed": sum(1 for props in annotations.values() if props["LILLY_PASS"] == "false"),
         "options": options,

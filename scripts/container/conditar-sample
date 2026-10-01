@@ -173,6 +173,7 @@ if [[ "$vina_score" == "true" || "$postprocess_metrics_set" == "true" ]]; then
     if [[ "$postprocess_metrics_set" == "true" ]]; then
         vina_args+=(--metrics "$postprocess_metrics")
     fi
+    vina_args+=(--status-file "${out_dir%/}/evaluation_status.json")
     if [[ -n "$qvina_bin" ]]; then
         vina_args+=(--qvina-bin "$qvina_bin")
     fi

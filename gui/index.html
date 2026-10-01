@@ -375,7 +375,6 @@
             <span class="run-summary">Uploaded inputs are staged per job; outputs and logs are stored in that job's folder.</span>
             <span class="run-summary run-evaluations" id="run-evaluations">This job will run: Vina score + minimize, QED, SA, LogP, Lipinski.</span>
             <span class="run-summary run-estimate" id="run-estimate">Estimate updates after you choose inputs.</span>
-            <code id="command-preview" hidden></code>
           </div>
           <button class="primary-button" id="preview-run"><span>Generate molecules</span><b>→</b></button>
         </div>
@@ -431,6 +430,7 @@
         </div>
 
         <div class="provenance-grid results-provenance-grid" id="results-provenance"></div>
+        <div class="setup-warning-banner" id="results-evaluation-warning" hidden role="alert"></div>
 
         <div class="metric-strip" id="metric-strip"></div>
 

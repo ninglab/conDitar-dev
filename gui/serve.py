@@ -81,6 +81,8 @@ class ConDitarRequestHandler(SimpleHTTPRequestHandler):
                 self._send_json({"job": JOB_MANAGER.submit(self._read_json())}, 201)
             elif parts == ["api", "jobs", "batch"]:
                 self._send_json(JOB_MANAGER.submit_batch(self._read_json()), 201)
+            elif parts == ["api", "molecules", "chemistry"]:
+                self._send_json(JOB_MANAGER.chemistry_profiles(self._read_json()))
             elif parts == ["api", "preprocess", "complex"]:
                 self._send_json(JOB_MANAGER.preprocess_complex(self._read_json()))
             elif parts == ["api", "preprocess", "pockets", "docked"]:

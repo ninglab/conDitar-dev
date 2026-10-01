@@ -14,6 +14,7 @@ Options:
   --runtime MODE             Default GUI runtime target: openshift_mock or openshift_job.
   --gui-image IMAGE          Prebuilt GUI image to deploy instead of building in OpenShift.
   --runtime-image IMAGE      conDitar generator image used by OpenShift Jobs.
+  --diffsmol-image IMAGE     DiffSMol generator image used by OpenShift Jobs.
   --submit                   Allow the GUI pod to create and poll OpenShift Jobs.
   --cpu                      Configure generated OpenShift Jobs for CPU-only execution.
   --storage SIZE             PVC request size, such as 10Gi or 50Gi.
@@ -21,7 +22,7 @@ Options:
   --skip-build               Apply manifests without starting a new OpenShift build.
   --help                     Show this help.
 
-Default runtime is openshift_mock, which is safe for first deployment checks.
+Default runtime is diagnostics (mock outputs). --submit selects real OpenShift Jobs.
 EOF
 }
 
@@ -32,6 +33,8 @@ CREATE_PROJECT=""
 RUNTIME="${CONDITAR_RUNTIME:-openshift_mock}"
 GUI_IMAGE="${CONDITAR_GUI_IMAGE:-}"
 RUNTIME_IMAGE="${CONDITAR_DOCKER_IMAGE:-osuninglab/conditar-dev:2026-07-10}"
+DIFFSMOL_IMAGE="${DIFFSMOL_DOCKER_IMAGE:-ninglab/diffsmol:latest}"
+RUNTIME_EXPLICIT=0
 STORAGE="${CONDITAR_OPENSHIFT_STORAGE:-10Gi}"
 ROUTE_HOST="${CONDITAR_OPENSHIFT_ROUTE_HOST:-}"
 SKIP_BUILD=0
@@ -50,11 +53,13 @@ while [[ $# -gt 0 ]]; do
     --create-project)
       CREATE_PROJECT="${2:-}"; shift 2 ;;
     --runtime)
-      RUNTIME="${2:-}"; shift 2 ;;
+      RUNTIME="${2:-}"; RUNTIME_EXPLICIT=1; shift 2 ;;
     --gui-image)
       GUI_IMAGE="${2:-}"; shift 2 ;;
     --runtime-image)
       RUNTIME_IMAGE="${2:-}"; shift 2 ;;
+    --diffsmol-image)
+      DIFFSMOL_IMAGE="${2:-}"; shift 2 ;;
     --submit)
       OPENSHIFT_SUBMIT="true"; shift ;;
     --cpu)
@@ -79,8 +84,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ "$OPENSHIFT_SUBMIT" == "true" && "$RUNTIME_EXPLICIT" -eq 0 ]]; then
+  RUNTIME="openshift_job"
+fi
+
 if [[ "$RUNTIME" != "openshift_mock" && "$RUNTIME" != "openshift_job" ]]; then
   echo "ERROR: --runtime must be openshift_mock or openshift_job." >&2
+  exit 2
+fi
+
+if [[ "$OPENSHIFT_SUBMIT" == "true" && "$RUNTIME" == "openshift_mock" ]]; then
+  echo "ERROR: submission is enabled but the default runtime is diagnostics. Use --runtime openshift_job." >&2
   exit 2
 fi
 
@@ -225,6 +239,7 @@ wait_for_build() {
 
 set_config_value "$tmpdir/openshift/configmap.yaml" "CONDITAR_RUNTIME" "$RUNTIME"
 set_config_value "$tmpdir/openshift/configmap.yaml" "CONDITAR_DOCKER_IMAGE" "$RUNTIME_IMAGE"
+set_config_value "$tmpdir/openshift/configmap.yaml" "DIFFSMOL_DOCKER_IMAGE" "$DIFFSMOL_IMAGE"
 set_config_value "$tmpdir/openshift/configmap.yaml" "CONDITAR_OPENSHIFT_SUBMIT" "$OPENSHIFT_SUBMIT"
 set_config_value "$tmpdir/openshift/configmap.yaml" "CONDITAR_OPENSHIFT_DEVICE" "$OPENSHIFT_DEVICE"
 set_config_value "$tmpdir/openshift/configmap.yaml" "CONDITAR_OPENSHIFT_GPU_COUNT" "$OPENSHIFT_GPU_COUNT"
@@ -271,6 +286,14 @@ if [[ -n "$image_ref" ]]; then
 fi
 
 oc rollout status deployment/conditar-gui
+
+if [[ "$RUNTIME" == "openshift_mock" ]]; then
+  echo "Runtime: DIAGNOSTICS ONLY (mock outputs; no generator Jobs)."
+elif [[ "$OPENSHIFT_SUBMIT" == "true" ]]; then
+  echo "Runtime: OpenShift Jobs (real generator submissions)."
+else
+  echo "Runtime: manifest-only (no generator Jobs submitted)."
+fi
 
 route_url="$(oc get route conditar-gui -o jsonpath='{.spec.host}' 2>/dev/null || true)"
 if [[ -n "$route_url" ]]; then
