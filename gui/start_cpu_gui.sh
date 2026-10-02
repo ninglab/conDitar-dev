@@ -13,6 +13,13 @@ fi
 export CONDITAR_RUNTIME="${CONDITAR_RUNTIME:-docker}"
 DOCKER_COMMAND="${DOCKER_BIN:-docker}"
 DEFAULT_IMAGE="conditar-dev:standalone-20261001"
+
+image_available() {
+  local image="$1"
+  "$DOCKER_COMMAND" image inspect "$image" >/dev/null 2>&1 && return 0
+  [[ "$image" != */* ]] && "$DOCKER_COMMAND" image inspect "docker.io/library/$image" >/dev/null 2>&1
+}
+
 if [[ -z "${CONDITAR_DOCKER_IMAGE:-}" ]]; then
   export CONDITAR_DOCKER_IMAGE="$DEFAULT_IMAGE"
 fi
@@ -45,7 +52,7 @@ if ! "$DOCKER_COMMAND" info >/dev/null 2>&1; then
   exit 2
 fi
 
-if ! "$DOCKER_COMMAND" image inspect "$CONDITAR_DOCKER_IMAGE" >/dev/null 2>&1; then
+if ! image_available "$CONDITAR_DOCKER_IMAGE"; then
   echo "ERROR: conDitar container image not found: $CONDITAR_DOCKER_IMAGE" >&2
   echo "Build the refreshed image, or set CONDITAR_DOCKER_IMAGE to an available image." >&2
   echo "Example:" >&2
@@ -58,7 +65,7 @@ fi
 echo "Starting conDitar GUI"
 echo "Container image: $CONDITAR_DOCKER_IMAGE"
 echo "DiffSMol image: ${DIFFSMOL_DOCKER_IMAGE:-diffsmol:cpu-20261001}"
-if ! "$DOCKER_COMMAND" image inspect "${DIFFSMOL_DOCKER_IMAGE:-diffsmol:cpu-20261001}" >/dev/null 2>&1; then
+if ! image_available "${DIFFSMOL_DOCKER_IMAGE:-diffsmol:cpu-20261001}"; then
   echo "WARNING: DiffSMol image is unavailable; conDitar runs can still work." >&2
 fi
 echo "Source mount: ${CONDITAR_SOURCE_MOUNT:-none}"

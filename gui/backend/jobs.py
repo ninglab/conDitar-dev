@@ -1655,28 +1655,39 @@ class LocalJobManager:
                 "detail": "Docker/Podman command was not found.",
                 "error": None,
             }
-        try:
-            result = subprocess.run(
-                [self.container_runtime, "image", "inspect", image],
-                text=True,
-                capture_output=True,
-                check=False,
-                timeout=5,
-            )
-        except (OSError, subprocess.TimeoutExpired) as error:
-            return {
-                "checked": True,
-                "exists": False,
-                "detail": f"Could not inspect image with {self.container_runtime}.",
-                "error": str(error),
-            }
-        exists = result.returncode == 0
-        detail = f"Image available: {image}" if exists else (result.stderr.strip() or result.stdout.strip() or f"Image not found: {image}")
+        references = [image]
+        if self.container_runtime_kind == "docker" and "/" not in image and not image.startswith("sha256:"):
+            references.append(f"docker.io/library/{image}")
+        result = None
+        for reference in references:
+            try:
+                result = subprocess.run(
+                    [self.container_runtime, "image", "inspect", reference],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=5,
+                )
+            except (OSError, subprocess.TimeoutExpired) as error:
+                return {
+                    "checked": True,
+                    "exists": False,
+                    "detail": f"Could not inspect image with {self.container_runtime}.",
+                    "error": str(error),
+                }
+            if result.returncode == 0:
+                return {
+                    "checked": True,
+                    "exists": True,
+                    "detail": f"Image available: {image}",
+                    "error": None,
+                }
+        detail = result.stderr.strip() or result.stdout.strip() or f"Image not found: {image}"
         return {
             "checked": True,
-            "exists": exists,
+            "exists": False,
             "detail": detail,
-            "error": None if exists else detail,
+            "error": detail,
         }
 
     def _postprocess_options(self, payload_options: dict) -> dict:

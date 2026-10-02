@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 from unittest.mock import patch
@@ -64,6 +65,23 @@ def expect_value_error(label: str, func, contains: str) -> None:
 def manager(project_root: Path) -> LocalJobManager:
     os.environ["CONDITAR_JOB_ROOT"] = str(project_root / "job_data" / "jobs")
     return LocalJobManager(project_root)
+
+
+def test_docker_image_inspection_fallback() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = manager(Path(tmp))
+        mgr.container_runtime_kind = "docker"
+        mgr.container_runtime = "docker"
+        inspected = []
+
+        def inspect(command, **_kwargs):
+            inspected.append(command[-1])
+            return subprocess.CompletedProcess(command, 0 if command[-1].startswith("docker.io/library/") else 1, "", "No such image")
+
+        with patch("gui.backend.jobs.subprocess.run", side_effect=inspect):
+            status = mgr._container_image_status("diffsmol:cpu-20261001")
+        assert status["exists"] is True
+        assert inspected == ["diffsmol:cpu-20261001", "docker.io/library/diffsmol:cpu-20261001"]
 
 
 def test_diffsmol_input_validation() -> None:
@@ -833,6 +851,7 @@ def test_conditar_in_container_evaluation_status() -> None:
 
 
 def main() -> None:
+    test_docker_image_inspection_fallback()
     test_diffsmol_input_validation()
     test_diffsmol_cross_target_commands()
     test_conditar_input_validation()

@@ -15,6 +15,12 @@ DEFAULT_IMAGE="conditar-dev:standalone-20261001"
 IMAGE="${CONDITAR_DOCKER_IMAGE:-$DEFAULT_IMAGE}"
 DIFFSMOL_IMAGE="${DIFFSMOL_DOCKER_IMAGE:-diffsmol:cpu-20261001}"
 
+image_available() {
+  local image="$1"
+  "$DOCKER_COMMAND" image inspect "$image" >/dev/null 2>&1 && return 0
+  [[ "$image" != */* ]] && "$DOCKER_COMMAND" image inspect "docker.io/library/$image" >/dev/null 2>&1
+}
+
 echo "conDitar GUI setup check"
 echo
 
@@ -53,7 +59,7 @@ if command -v "$DOCKER_COMMAND" >/dev/null 2>&1; then
     missing=1
   fi
 
-  if "$DOCKER_COMMAND" image inspect "$IMAGE" >/dev/null 2>&1; then
+  if image_available "$IMAGE"; then
     echo "OK    conDitar image found: $IMAGE"
   else
     echo "MISS  conDitar image not found: $IMAGE"
@@ -62,7 +68,7 @@ if command -v "$DOCKER_COMMAND" >/dev/null 2>&1; then
     missing=1
   fi
 
-  if "$DOCKER_COMMAND" image inspect "$DIFFSMOL_IMAGE" >/dev/null 2>&1; then
+  if image_available "$DIFFSMOL_IMAGE"; then
     echo "OK    DiffSMol image found: $DIFFSMOL_IMAGE"
   else
     echo "WARN  DiffSMol image not found: $DIFFSMOL_IMAGE"
