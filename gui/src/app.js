@@ -2,7 +2,7 @@ import { ADVANCED_PARAMETERS, EXAMPLES, PARAMETERS } from "./config.js?v=2026072
 import { drawCategoryChart, drawHistogram } from "./charts.js?v=20260723-theme-1";
 import { ExampleDataService } from "./data-service.js?v=20260723-results-fix-1";
 import { vinaWasRun } from "./sdf.js?v=20260723-theme-1";
-import { render2D, render3D } from "./viewers.js?v=20261002-viewer-controls-1";
+import { closeExpandedViewer, render2D, render3D } from "./viewers.js?v=20261002-viewer-overlay-1";
 import {
   CHEMISTRY_METRICS as WORKFLOW_CHEMISTRY_METRICS,
   VINA_METRICS as WORKFLOW_VINA_METRICS,
@@ -446,6 +446,7 @@ function clearFileInputBeforeChoose(event) {
 }
 
 async function setActiveTab(tab) {
+  closeExpandedViewer();
   state.activeTab = tab;
   $$(".workflow-step").forEach((button) => button.classList.toggle("active", button.dataset.section === tab));
   $$(".workspace-section").forEach((section) => {

@@ -14,6 +14,48 @@ const MAX_DISPLAY_BOND_ANGSTROMS = 2.6;
 const molstarViewers = new WeakMap();
 const renderTokens = new WeakMap();
 const viewerControls = new WeakMap();
+let expandedViewerPanel = null;
+
+export function closeExpandedViewer() {
+  if (!expandedViewerPanel) return;
+  const panel = expandedViewerPanel;
+  expandedViewerPanel = null;
+  panel.classList.remove("viewer-expanded");
+  document.body.classList.remove("viewer-overlay-open");
+  const button = panel.querySelector('[data-viewer-action="expand"]');
+  if (button) {
+    button.textContent = "Expand";
+    button.setAttribute("aria-expanded", "false");
+    button.title = "Enlarge viewer";
+  }
+  window.dispatchEvent(new Event("resize"));
+}
+
+function toggleExpandedViewer(container) {
+  const panel = container.closest(".viewer-panel, .preprocess-main-viewer-panel");
+  if (!panel) return;
+  if (expandedViewerPanel === panel) {
+    closeExpandedViewer();
+    return;
+  }
+  closeExpandedViewer();
+  expandedViewerPanel = panel;
+  panel.classList.add("viewer-expanded");
+  document.body.classList.add("viewer-overlay-open");
+  const button = panel.querySelector('[data-viewer-action="expand"]');
+  if (button) {
+    button.textContent = "Close";
+    button.setAttribute("aria-expanded", "true");
+    button.title = "Close enlarged viewer";
+  }
+  window.dispatchEvent(new Event("resize"));
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && expandedViewerPanel) closeExpandedViewer();
+  });
+}
 
 function createViewerControls(container, options) {
   const previous = viewerControls.get(container);
@@ -52,6 +94,7 @@ function createViewerControls(container, options) {
       <button type="button" data-viewer-action="distance" aria-pressed="false" title="Click two atoms in the same structure to measure distance">Distance</button>
       <button type="button" data-viewer-action="clear" title="Clear picked residues and measurement mode">Clear</button>
       <button type="button" data-viewer-action="advanced" aria-pressed="false" title="Show Mol* advanced structure tools">Advanced</button>
+      <button type="button" data-viewer-action="expand" aria-expanded="false" title="Enlarge viewer">Expand</button>
     </div>
     <div class="viewer-control-feedback"><span data-viewer-status>Select or measure directly on the structure.</span>${options.onUseResidues ? `<button type="button" data-viewer-action="use-residues" hidden>Use residues for pocket</button>` : ""}</div>`;
   host.onchange = (event) => {
@@ -87,6 +130,7 @@ function createViewerControls(container, options) {
       state.viewer?.plugin.layout.setProps({ showControls: pressed });
       state.viewer?.plugin.layout.events.updated.next(void 0);
     }
+    if (action === "expand") toggleExpandedViewer(container);
     if (action === "use-residues" && state.residues.size) options.onUseResidues?.([...state.residues].sort().join(", "));
   };
   return state;
@@ -209,6 +253,7 @@ function handleViewerClick(state, event) {
 }
 
 export async function render3D(container, molecule, receptorText, options = {}) {
+  if (expandedViewerPanel?.contains(container)) closeExpandedViewer();
   const token = (renderTokens.get(container) || 0) + 1;
   renderTokens.set(container, token);
   container.innerHTML = "";
@@ -228,7 +273,7 @@ export async function render3D(container, molecule, receptorText, options = {}) 
       layoutShowSequence: false,
       layoutShowLog: false,
       layoutShowLeftPanel: false,
-      viewportShowExpand: true,
+      viewportShowExpand: false,
       viewportShowSelectionMode: false,
       viewportShowAnimation: false,
       extensions: [],
