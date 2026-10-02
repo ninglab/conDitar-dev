@@ -2,7 +2,7 @@ import { ADVANCED_PARAMETERS, EXAMPLES, PARAMETERS } from "./config.js?v=2026072
 import { drawCategoryChart, drawHistogram } from "./charts.js?v=20260723-theme-1";
 import { ExampleDataService } from "./data-service.js?v=20260723-results-fix-1";
 import { vinaWasRun } from "./sdf.js?v=20260723-theme-1";
-import { render2D, render3D } from "./viewers.js?v=20260930-viewer-hydrogen-1";
+import { render2D, render3D } from "./viewers.js?v=20261002-viewer-controls-1";
 import {
   CHEMISTRY_METRICS as WORKFLOW_CHEMISTRY_METRICS,
   VINA_METRICS as WORKFLOW_VINA_METRICS,
@@ -2064,9 +2064,12 @@ function renderSelectedStructure() {
   $("#viewer-loading").hidden = false;
   render3D($("#viewer-3d"), molecule, state.study.pdbText, {
     referenceText: hasReference && state.showReferenceLigand ? state.study.referenceSdf : null,
+    controlsHost: $("#results-viewer-controls"),
+    hideReferenceVisibility: true,
   }).finally(() => {
     $("#viewer-loading").hidden = true;
   });
+  setView(state.view);
 }
 
 function setView(view) {
@@ -2074,6 +2077,7 @@ function setView(view) {
   $$(".view-toggle button").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
   $("#viewer-3d").hidden = view !== "3d";
   $("#viewer-2d").hidden = view !== "2d";
+  $("#results-viewer-controls").hidden = view !== "3d";
 }
 
 function renderViewerSelectors() {
@@ -2116,7 +2120,11 @@ function renderViewerSlot(item) {
   }
   title.textContent = item.label;
   loading.hidden = false;
-  render3D(container, item.molecule, state.study.pdbText, {}).finally(() => {
+  render3D(container, item.molecule, state.study.pdbText, {
+    controlsHost: $("#workspace-viewer-controls"),
+    referenceText: state.study.referenceSdf && item.label !== "Reference ligand" ? state.study.referenceSdf : null,
+    defaultHiddenKinds: ["reference"],
+  }).finally(() => {
     loading.hidden = true;
   });
 }
@@ -3203,7 +3211,18 @@ async function renderPreprocessViewer({ title, pdb, sdf }) {
   loading.hidden = false;
   try {
     container.innerHTML = "";
-    await render3D(container, sdf || null, pdb?.text || "", {});
+    await render3D(container, sdf || null, pdb?.text || "", {
+      controlsHost: $("#preprocess-viewer-controls"),
+      ligandLabel: sdf?.id === "Pocket center" ? "Pocket center" : "Ligand",
+      onUseResidues: (spec) => {
+        state.preprocessTarget = pdb;
+        $("#preprocess-target-name").textContent = pdb.name || "Viewed protein";
+        $("#preprocess-target-detail").textContent = "Selected from the active viewer";
+        $("#manual-residue-spec").value = spec;
+        $("#manual-residue-spec").closest("details").open = true;
+        showToast("Residues added to the known-site pocket input. Preview before saving.");
+      },
+    });
   } catch (error) {
     container.innerHTML = `<div class="viewer-error">${escapeHtml(error.message)}</div>`;
   } finally {

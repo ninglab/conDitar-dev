@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -213,6 +214,9 @@ def _expand_residue_token(chain: str, token: str) -> list[tuple[str, str, str]]:
             end_number = int(end)
             step = 1 if end_number >= start_number else -1
             return [(chain, str(number), "") for number in range(start_number, end_number + step, step)]
+    insertion = re.fullmatch(r"(-?\d+)([A-Za-z])", token)
+    if insertion:
+        return [(chain, insertion.group(1), insertion.group(2))]
     return [(chain, token, "")]
 
 

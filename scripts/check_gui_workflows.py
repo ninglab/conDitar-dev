@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gui.backend.input_processing import pocket_pdb_from_residues
+from gui.backend.input_processing import parse_residue_spec, pocket_pdb_from_residues
 from gui.backend.jobs import CONDITAR_ENGINE, DIFFSMOL_ENGINE, JobPaths, LocalJobManager
 from gui.backend.chemistry import sdf_chemistry
 from gui.backend.workflow_rules import resolve_workflow, validate_generation_inputs
@@ -274,6 +274,9 @@ def test_structure_cleanup_and_pocket_warnings() -> None:
     pocket = pocket_pdb_from_residues(PDB_TEXT, "A:1")
     warnings = " ".join(pocket.get("warnings") or [])
     assert "fewer than 10 complete residues" in warnings
+    assert parse_residue_spec("A:1A, A:2-3") == [
+        ("A", "1", "A"), ("A", "2", ""), ("A", "3", ""),
+    ]
 
 
 def test_diffsmol_pocket_command_selection() -> None:

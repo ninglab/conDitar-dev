@@ -13,11 +13,208 @@ const MAX_DISPLAY_BOND_ANGSTROMS = 2.6;
 
 const molstarViewers = new WeakMap();
 const renderTokens = new WeakMap();
+const viewerControls = new WeakMap();
+
+function createViewerControls(container, options) {
+  const previous = viewerControls.get(container);
+  previous?.clickSubscription?.unsubscribe();
+  const host = options.controlsHost;
+  if (!host) return null;
+  const kinds = [
+    ...(options.receptorText ? ["protein"] : []),
+    ...(options.referenceText ? ["reference"] : []),
+    ...(options.ligandText ? ["ligand"] : []),
+  ];
+  host.hidden = kinds.length === 0;
+  if (!kinds.length) {
+    host.innerHTML = "";
+    viewerControls.delete(container);
+    return null;
+  }
+  const state = {
+    container, host, kinds, viewer: null, structures: {}, mode: "none", residues: new Set(),
+    firstDistanceLoci: null, clickSubscription: null, operation: Promise.resolve(), measurementRefs: [],
+  };
+  viewerControls.set(container, state);
+  const visibility = kinds.filter((kind) => kind !== "reference" || !options.hideReferenceVisibility)
+    .map((kind) => `<label class="viewer-check"><input type="checkbox" data-visibility="${kind}" ${options.defaultHiddenKinds?.includes(kind) ? "" : "checked"}>${kind === "protein" ? "Protein" : kind === "reference" ? "Reference" : options.ligandLabel || "Ligand"}</label>`).join("");
+  const swatches = kinds.map((kind) => `<input type="color" data-uniform-color="${kind}" value="${kind === "protein" ? "#1b8063" : kind === "reference" ? "#9a637d" : "#e07832"}" aria-label="${kind} color" title="${kind} color" hidden>`).join("");
+  host.innerHTML = `
+    <div class="viewer-control-row">
+      <div class="viewer-control-group">${visibility}</div>
+      ${kinds.includes("protein") ? `<label>Protein <select data-style="protein" title="Cartoon is Mol*'s ribbon view. Cropped pockets may appear discontinuous."><option value="cartoon">Cartoon</option><option value="ball-and-stick">Sticks</option><option value="molecular-surface">Surface</option></select></label>` : ""}
+      ${kinds.includes("ligand") ? `<label>${options.ligandLabel || "Ligand"} <select data-style="ligand"><option value="ball-and-stick">Sticks</option><option value="spacefill">Spacefill</option></select></label>` : ""}
+      ${kinds.includes("reference") ? `<label>Reference <select data-style="reference"><option value="ball-and-stick">Sticks</option><option value="spacefill">Spacefill</option></select></label>` : ""}
+      <label>Color <select data-color-scheme><option value="default">Default</option><option value="uniform">Custom</option></select></label>
+      ${swatches}
+      <button type="button" data-viewer-action="fit" title="Fit structures in view">Fit</button>
+      ${kinds.includes("protein") ? `<button type="button" data-viewer-action="select" aria-pressed="false" title="Click protein residues to collect a selection">Select residues</button>` : ""}
+      <button type="button" data-viewer-action="distance" aria-pressed="false" title="Click two atoms in the same structure to measure distance">Distance</button>
+      <button type="button" data-viewer-action="clear" title="Clear picked residues and measurement mode">Clear</button>
+      <button type="button" data-viewer-action="advanced" aria-pressed="false" title="Show Mol* advanced structure tools">Advanced</button>
+    </div>
+    <div class="viewer-control-feedback"><span data-viewer-status>Select or measure directly on the structure.</span>${options.onUseResidues ? `<button type="button" data-viewer-action="use-residues" hidden>Use residues for pocket</button>` : ""}</div>`;
+  host.onchange = (event) => {
+    const target = event.target;
+    if (target.dataset.visibility) runControl(state, () => toggleStructure(state, target.dataset.visibility));
+    if (target.dataset.style) runControl(state, () => setStructureStyle(state, target.dataset.style, target.value));
+    if ("colorScheme" in target.dataset || "uniformColor" in target.dataset) {
+      host.querySelectorAll("[data-uniform-color]").forEach((swatch) => { swatch.hidden = host.querySelector("[data-color-scheme]").value !== "uniform"; });
+      runControl(state, () => setStructureColor(state));
+    }
+  };
+  host.onclick = (event) => {
+    const action = event.target.closest("[data-viewer-action]")?.dataset.viewerAction;
+    if (!action) return;
+    if (action === "fit") state.viewer?.plugin.canvas3d?.requestCameraReset();
+    if (action === "select" || action === "distance") setPickingMode(state, state.mode === action ? "none" : action);
+    if (action === "clear") {
+      state.residues.clear();
+      setPickingMode(state, "none");
+      setViewerStatus(state, "Selection cleared.");
+      state.viewer?.plugin.managers.interactivity.lociSelects.deselectAll();
+      runControl(state, async () => {
+        const refs = state.measurementRefs.splice(0);
+        if (!refs.length) return;
+        const update = state.viewer.plugin.state.data.build();
+        refs.forEach((ref) => update.delete(ref));
+        await update.commit();
+      });
+    }
+    if (action === "advanced") {
+      const pressed = event.target.getAttribute("aria-pressed") !== "true";
+      event.target.setAttribute("aria-pressed", String(pressed));
+      state.viewer?.plugin.layout.setProps({ showControls: pressed });
+      state.viewer?.plugin.layout.events.updated.next(void 0);
+    }
+    if (action === "use-residues" && state.residues.size) options.onUseResidues?.([...state.residues].sort().join(", "));
+  };
+  return state;
+}
+
+function setViewerStatus(state, message) {
+  state.host.querySelector("[data-viewer-status]").textContent = message;
+  const useButton = state.host.querySelector('[data-viewer-action="use-residues"]');
+  if (useButton) useButton.hidden = !state.residues.size;
+}
+
+function runControl(state, callback) {
+  state.operation = state.operation.then(() => {
+    if (viewerControls.get(state.container) === state) return callback();
+  }).catch((error) => {
+    if (viewerControls.get(state.container) === state) setViewerStatus(state, `Viewer control: ${error.message || error}`);
+  });
+}
+
+function componentsFor(state, kind) {
+  const ref = state.structures[kind];
+  return state.viewer?.plugin.managers.structure.hierarchy.current.structures
+    .find((structure) => structure.cell.transform.ref === ref)?.components || [];
+}
+
+async function toggleStructure(state, kind) {
+  const components = componentsFor(state, kind);
+  if (components.length) await state.viewer.plugin.managers.structure.component.toggleVisibility(components);
+}
+
+async function setStructureStyle(state, kind, style) {
+  const components = componentsFor(state, kind);
+  if (!components.length) return;
+  const manager = state.viewer.plugin.managers.structure.component;
+  await manager.removeRepresentations(components);
+  const current = componentsFor(state, kind);
+  const preferred = kind === "protein" && style === "cartoon" ? "Polymer" : "All";
+  const target = current.find((component) => component.cell.obj?.label === preferred) || current[0];
+  if (target) await manager.addRepresentation([target], style);
+  await setStructureColor(state);
+}
+
+async function setStructureColor(state) {
+  const manager = state.viewer?.plugin.managers.structure.component;
+  if (!manager) return;
+  const uniform = state.host.querySelector("[data-color-scheme]").value === "uniform";
+  for (const kind of state.kinds) {
+    const components = componentsFor(state, kind);
+    if (!components.length) continue;
+    const value = Number.parseInt(state.host.querySelector(`[data-uniform-color="${kind}"]`).value.slice(1), 16);
+    await manager.updateRepresentationsTheme(components, uniform
+      ? { color: "uniform", colorParams: { value } }
+      : { color: kind === "protein" ? "chain-id" : "element-symbol" });
+  }
+}
+
+function setPickingMode(state, mode) {
+  state.mode = mode;
+  state.firstDistanceLoci = null;
+  for (const action of ["select", "distance"]) {
+    state.host.querySelector(`[data-viewer-action="${action}"]`)?.setAttribute("aria-pressed", String(mode === action));
+  }
+  state.viewer?.plugin.behaviors.interaction.selectionMode.next(mode !== "none");
+  setViewerStatus(state, mode === "select" ? "Click protein residues to select them." : mode === "distance" ? "Click the first atom to measure." : "Select or measure directly on the structure.");
+}
+
+function residueFromLoci(loci) {
+  const element = loci.elements?.[0];
+  if (!element?.unit?.model?.atomicHierarchy) return null;
+  const indices = element.indices;
+  let offset;
+  if (typeof indices === "number") {
+    const view = new DataView(new ArrayBuffer(8));
+    view.setFloat64(0, indices, true);
+    offset = view.getInt32(0, true);
+  } else {
+    offset = indices?.[0];
+  }
+  const atom = element.unit.elements[offset];
+  const hierarchy = element.unit.model.atomicHierarchy;
+  const residue = hierarchy.residueAtomSegments.index[atom];
+  const chain = hierarchy.chainAtomSegments.index[atom];
+  const chainId = hierarchy.chains.auth_asym_id.value(chain);
+  const residueId = hierarchy.residues.auth_seq_id.value(residue);
+  if (!chainId || !Number.isFinite(residueId)) return null;
+  const insertion = hierarchy.residues.pdbx_PDB_ins_code?.value(residue);
+  return `${chainId}:${residueId}${insertion && insertion !== "?" && insertion !== "." ? insertion : ""}`;
+}
+
+function handleViewerClick(state, event) {
+  const loci = event.current?.loci;
+  if (loci?.kind !== "element-loci" || state.mode === "none") return;
+  if (state.mode === "select") {
+    const protein = state.viewer?.plugin.managers.structure.hierarchy.current.structures
+      .find((structure) => structure.cell.transform.ref === state.structures.protein)?.cell?.obj?.data;
+    if (!protein?.models?.includes(loci.elements?.[0]?.unit?.model)) return;
+    const residue = residueFromLoci(loci);
+    if (!residue) return;
+    if (state.residues.has(residue)) state.residues.delete(residue);
+    else state.residues.add(residue);
+    setViewerStatus(state, state.residues.size ? `Residues: ${[...state.residues].sort().join(", ")}` : "Click protein residues to select them.");
+    return;
+  }
+  if (!state.firstDistanceLoci) {
+    state.firstDistanceLoci = loci;
+    setViewerStatus(state, "Click the second atom in the same structure.");
+    return;
+  }
+  const first = state.firstDistanceLoci;
+  state.firstDistanceLoci = null;
+  if (first.structure !== loci.structure) {
+    setViewerStatus(state, "Distance requires two atoms in the same structure.");
+    return;
+  }
+  runControl(state, async () => {
+    const added = await state.viewer.plugin.managers.structure.measurement.addDistance(first, loci);
+    if (added?.selection?.ref) state.measurementRefs.push(added.selection.ref);
+    setViewerStatus(state, "Distance added. Click another pair to measure again.");
+  });
+}
 
 export async function render3D(container, molecule, receptorText, options = {}) {
   const token = (renderTokens.get(container) || 0) + 1;
   renderTokens.set(container, token);
   container.innerHTML = "";
+  const controls = createViewerControls(container, {
+    ...options, receptorText, ligandText: molecule?.text,
+  });
   molstarViewers.get(container)?.dispose?.();
   molstarViewers.delete(container);
 
@@ -26,33 +223,47 @@ export async function render3D(container, molecule, receptorText, options = {}) 
     if (token !== renderTokens.get(container)) return;
     const viewer = await molstar.Viewer.create(container, {
       layoutIsExpanded: false,
-      layoutShowControls: true,
+      layoutShowControls: false,
       layoutShowRemoteState: false,
-      layoutShowSequence: true,
+      layoutShowSequence: false,
       layoutShowLog: false,
-      layoutShowLeftPanel: true,
+      layoutShowLeftPanel: false,
       viewportShowExpand: true,
-      viewportShowSelectionMode: true,
+      viewportShowSelectionMode: false,
       viewportShowAnimation: false,
       extensions: [],
       pdbProvider: "rcsb",
       emdbProvider: "rcsb",
     });
     molstarViewers.set(container, viewer);
-
-    const loads = [];
+    if (controls) {
+      controls.viewer = viewer;
+      controls.clickSubscription = viewer.plugin.behaviors.interaction.click.subscribe((event) => handleViewerClick(controls, event));
+    }
+    const loadKind = async (kind, data, format, label) => {
+      const count = viewer.plugin.managers.structure.hierarchy.current.structures.length;
+      await loadStructure(viewer, data, format, label);
+      if (controls && viewer.plugin.managers.structure.hierarchy.current.structures.length > count) {
+        controls.structures[kind] = viewer.plugin.managers.structure.hierarchy.current.structures.at(-1).cell.transform.ref;
+      }
+    };
     if (receptorText) {
-      loads.push(loadStructure(viewer, receptorText, "pdb", "Input protein"));
+      await loadKind("protein", receptorText, "pdb", "Input protein");
     }
     if (options.referenceText) {
-      loads.push(loadStructure(viewer, prepareSdfForViewer(options.referenceText), "sdf", "Reference ligand"));
+      await loadKind("reference", prepareSdfForViewer(options.referenceText), "sdf", "Reference ligand");
     }
     if (molecule?.text) {
-      loads.push(loadStructure(viewer, prepareSdfForViewer(molecule.text), "sdf", molecule.id || molecule.name || "Generated ligand"));
+      await loadKind("ligand", prepareSdfForViewer(molecule.text), "sdf", molecule.id || molecule.name || "Generated ligand");
     }
-    await Promise.all(loads);
+    if (token !== renderTokens.get(container)) return;
+    for (const kind of options.defaultHiddenKinds || []) {
+      if (controls?.structures[kind]) await toggleStructure(controls, kind);
+    }
+    viewer.plugin.canvas3d?.requestCameraReset();
   } catch (error) {
     console.warn("Mol* viewer failed", error);
+    if (controls) controls.host.hidden = true;
     container.innerHTML = `<div class="viewer-error">Mol* could not load this structure: ${escapeHtml(error.message || String(error))}</div>`;
   }
 }
