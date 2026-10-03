@@ -378,6 +378,10 @@ class LocalJobManager:
         ligand_path = input_dir / ligand_name
         protein_path.write_text(pdb_text)
         ligand_path.write_text(ligand_text)
+        shutil.copyfile(
+            self.project_root / "backend" / "input_processing" / "docking_panel_vina.py",
+            run_root / "docking_panel_vina.py",
+        )
 
         options = payload.get("options") or {}
         command = self._vina_panel_command(run_root, protein_path, ligand_path, output_dir, tmp_dir, options)
@@ -479,7 +483,6 @@ class LocalJobManager:
         tmp_dir: Path,
         options: dict,
     ) -> list[str]:
-        repo_root = self.project_root.parent.resolve()
         runtime = self.container_runtime
         assert runtime is not None
         command = [
@@ -489,13 +492,11 @@ class LocalJobManager:
             "--entrypoint",
             "python",
             "-v",
-            f"{repo_root}:/workspace/src:ro",
-            "-v",
             f"{run_root.resolve()}:/work",
             "-w",
-            "/workspace/src",
+            "/opt/conditar/app",
             self.docker_image,
-            "/workspace/src/gui/backend/input_processing/docking_panel_vina.py",
+            "/work/docking_panel_vina.py",
             "--protein",
             f"/work/inputs/{protein_path.name}",
             "--ligands",

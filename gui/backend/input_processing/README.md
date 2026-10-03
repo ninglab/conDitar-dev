@@ -50,9 +50,10 @@ decision.
 ## Vina Panel v1
 
 The first docking-panel backend uses AutoDock Vina through the conDitar
-container image. The GUI backend stages a protein PDB and ligand-panel SDF,
-runs `gui/backend/input_processing/docking_panel_vina.py` in the container,
-then clusters the returned pose centers.
+container image. The GUI backend stages a protein PDB, ligand-panel SDF, and a
+copy of `docking_panel_vina.py` in the preprocessing run directory. It runs
+that adapter using the image's own docking dependencies, then clusters the
+returned pose centers. No source-checkout mount is needed.
 
 If no search box is supplied, v1 docks against a whole-protein bounding box.
 That is intentionally conservative for unknown-pocket exploration, but it can

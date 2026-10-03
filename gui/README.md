@@ -245,6 +245,27 @@ container; nested Docker runs need host-resolvable input/output paths. Do not
 expose this socket-enabled GUI image to untrusted users. The default image build
 does not install the Docker client and keeps the OpenShift behavior.
 
+For example, from the repository root (with both engine images loaded locally):
+
+```bash
+docker build --platform linux/amd64 --build-arg GUI_INSTALL_DOCKER_CLI=1 \
+  -f gui/Containerfile -t conditar-gui:cpu-local gui
+export CONDITAR_HOST_JOBS="$PWD/gui/job_data/container_jobs"
+mkdir -p "$CONDITAR_HOST_JOBS"
+docker run --rm --platform linux/amd64 --user 0 -p 4181:8080 \
+  -e CONDITAR_RUNTIME=docker \
+  -e CONDITAR_JOB_ROOT="$CONDITAR_HOST_JOBS" \
+  -e CONDITAR_DOCKER_IMAGE=conditar-dev:standalone-20261001 \
+  -e DIFFSMOL_DOCKER_IMAGE=diffsmol:cpu-20261001 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$CONDITAR_HOST_JOBS:$CONDITAR_HOST_JOBS" \
+  conditar-gui:cpu-local
+```
+
+The socket makes this a trusted, local-only deployment. The container runs as
+root here so Docker Desktop's socket is accessible; the host job directory
+must be writable by that user. Open `http://127.0.0.1:4181` after launch.
+
 The container image installs the same Tool Chest environment used by
 `setup_tool_chest.sh`, including `medchem` and `lilly-medchem-rules`. The setup
 script is still useful for local non-container GUI sessions.
