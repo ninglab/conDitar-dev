@@ -51,7 +51,7 @@ are listed in `site.env.example` and `./openshift/deploy.sh --help`.
 `--submit` is the default. The launcher rejects known outdated engine images
 in real-submission mode. The GUI image is built from `gui/Containerfile`; the
 conDitar and DiffSMol images are built independently using the instructions in
-`../../docker/README.md` and `../../diffsmol/README.md`.
+`../../docker/conditar_dev/README.md` and `../../docker/diffsmol/README.md`.
 
 ## Storage And Permissions
 

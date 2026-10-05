@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 image_tag="${CONDITAR_DOCKER_TAG:-conditar-dev:2026-07-10}"
 output_dir="${CONDITAR_IMAGE_OUTPUT_DIR:-$repo_root/container_images}"
 stamp="${CONDITAR_IMAGE_STAMP:-$(date +%Y%m%d-%H%M%S)}"
@@ -13,7 +13,7 @@ for ((index = 1; index <= $#; index++)); do
             image_tag="${!next:?missing value for --tag}"
             ;;
         -h|--help)
-            "$repo_root/docker/build-image.sh" --help
+            "$repo_root/docker/conditar_dev/build-image.sh" --help
             exit 0
             ;;
     esac
@@ -22,7 +22,7 @@ done
 mkdir -p "$output_dir"
 
 echo "[$(date)] Building image: $image_tag"
-"$repo_root/docker/build-image.sh" "$@"
+"$repo_root/docker/conditar_dev/build-image.sh" "$@"
 
 safe_tag="$(echo "$image_tag" | tr '/:' '__')"
 tar_path="$output_dir/${safe_tag}-${stamp}.tar"

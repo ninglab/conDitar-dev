@@ -10,7 +10,7 @@ import tempfile
 from unittest.mock import patch
 
 
-RUNNER = Path(__file__).resolve().parents[1] / "docker" / "run.py"
+RUNNER = Path(__file__).resolve().parents[1] / "runtime" / "run.py"
 spec = importlib.util.spec_from_file_location("diffsmol_runner", RUNNER)
 runner = importlib.util.module_from_spec(spec)
 assert spec.loader is not None

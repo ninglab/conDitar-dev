@@ -64,7 +64,7 @@ if command -v "$DOCKER_COMMAND" >/dev/null 2>&1; then
   else
     echo "MISS  conDitar image not found: $IMAGE"
     echo "      Build the refreshed standalone image:"
-    echo "        docker build --platform linux/amd64 -f ../docker/Refresh.Dockerfile -t $DEFAULT_IMAGE ../scripts"
+    echo "        docker build --platform linux/amd64 -f ../docker/conditar_dev/Refresh.Dockerfile -t $DEFAULT_IMAGE ../scripts"
     missing=1
   fi
 

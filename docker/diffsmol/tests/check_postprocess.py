@@ -6,7 +6,7 @@ import tempfile
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-sys.path.insert(0, "/opt/DiffSMol/docker")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "runtime"))
 import postprocess  # noqa: E402
 
 

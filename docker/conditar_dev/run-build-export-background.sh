@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 output_dir="${CONDITAR_IMAGE_OUTPUT_DIR:-$repo_root/container_images}"
 stamp="${CONDITAR_IMAGE_STAMP:-$(date +%Y%m%d-%H%M%S)}"
 log_path="$output_dir/conditar-build-export-$stamp.log"
@@ -13,7 +13,7 @@ nohup env \
     CONDITAR_IMAGE_STAMP="$stamp" \
     CONDITAR_CONTAINER_ENGINE="${CONDITAR_CONTAINER_ENGINE:-buildah}" \
     CONDITAR_SAVE_ENGINE="${CONDITAR_SAVE_ENGINE:-podman}" \
-    "$repo_root/docker/build-export-image.sh" --engine "${CONDITAR_CONTAINER_ENGINE:-buildah}" \
+    "$repo_root/docker/conditar_dev/build-export-image.sh" --engine "${CONDITAR_CONTAINER_ENGINE:-buildah}" \
     > "$log_path" 2>&1 &
 
 pid="$!"

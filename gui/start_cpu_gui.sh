@@ -56,7 +56,7 @@ if ! image_available "$CONDITAR_DOCKER_IMAGE"; then
   echo "ERROR: conDitar container image not found: $CONDITAR_DOCKER_IMAGE" >&2
   echo "Build the refreshed image, or set CONDITAR_DOCKER_IMAGE to an available image." >&2
   echo "Example:" >&2
-  echo "  docker build --platform linux/amd64 -f ../docker/Refresh.Dockerfile -t $DEFAULT_IMAGE ../scripts" >&2
+  echo "  docker build --platform linux/amd64 -f ../docker/conditar_dev/Refresh.Dockerfile -t $DEFAULT_IMAGE ../scripts" >&2
   echo "Then retry:" >&2
   echo "  ./start_cpu_gui.sh" >&2
   exit 2

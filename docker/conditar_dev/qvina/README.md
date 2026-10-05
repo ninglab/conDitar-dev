@@ -1,4 +1,4 @@
 Place the QuickVina2 executable here as `qvina2.1` before building the image.
 
-The `docker/build-image.sh` helper will copy it from `CONDITAR_QVINA_BIN` or
+The `docker/conditar_dev/build-image.sh` helper will copy it from `CONDITAR_QVINA_BIN` or
 `--qvina-bin` when provided.

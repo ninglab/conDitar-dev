@@ -10,7 +10,7 @@ these commands depends on the GUI at run time.
 Build the image from the repository root (the pinned base image is amd64):
 
 ```bash
-docker build --platform linux/amd64 -f diffsmol/Containerfile -t diffsmol:cpu-20261001 diffsmol
+docker build --platform linux/amd64 -f docker/diffsmol/Containerfile -t diffsmol:cpu-20261001 docker/diffsmol
 ```
 
 The base DiffSMol image is pinned by digest. The QuickVina2 binary is copied

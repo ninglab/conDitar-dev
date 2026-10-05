@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 from pathlib import Path
-import sys
 import tempfile
 from unittest.mock import patch
 
@@ -11,10 +11,11 @@ import yaml
 import numpy as np
 from rdkit import Chem
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from diffsmol.docker import pocket_generate as adapter
-from diffsmol.docker.pocket_generate import build_config, prepare_raw_pair
+adapter_path = Path(__file__).resolve().parents[1] / "runtime" / "pocket_generate.py"
+spec = importlib.util.spec_from_file_location("diffsmol_pocket_adapter", adapter_path)
+assert spec is not None and spec.loader is not None
+adapter = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(adapter)
 
 
 def main() -> None:
@@ -26,8 +27,8 @@ def main() -> None:
         pdb_path.write_text("adapter test\n")
         args = argparse.Namespace(guidance=True, device="cpu", num_samples=1)
 
-        raw_path = prepare_raw_pair(work, sdf_path, pdb_path)
-        config_path = build_config(work, raw_path, args)
+        raw_path = adapter.prepare_raw_pair(work, sdf_path, pdb_path)
+        config_path = adapter.build_config(work, raw_path, args)
         config = yaml.safe_load(config_path.read_text())
 
         assert (work / "processed").is_dir()

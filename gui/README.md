@@ -9,7 +9,7 @@ inputs, launches conDitar jobs through the container image built from
 The generator, container, and GUI are documented separately:
 
 - [`../README.md`](../README.md) — model, sampling, and repository overview.
-- [`../docker/README.md`](../docker/README.md) — image build, Docker/Podman
+- [`../docker/conditar_dev/README.md`](../docker/conditar_dev/README.md) — image build, Docker/Podman
   usage, and container-only runs.
 
 ![conDitar GUI overview](media/screenshots/gui-overview.png)
@@ -27,7 +27,7 @@ conDitar-dev container/source
 
 DiffSMol container
   Standalone shape generation and selected chemistry/docking evaluations
-  Build instructions: ../diffsmol/README.md
+  Build instructions: ../docker/diffsmol/README.md
 ```
 
 Typical local CPU flow:
@@ -55,7 +55,7 @@ image on local CPU, Slurm GPU, or OpenShift. The GUI waits for both stages to
 finish before exposing results. Slurm can load a separate DiffSMol archive with
 `DIFFSMOL_DOCKER_TAR`; otherwise preload/pull the image on compute nodes.
 The refreshed standalone conDitar image is `conditar-dev:standalone-20261001`
-locally. Build it with the command in `../docker/README.md`, or set
+locally. Build it with the command in `../docker/conditar_dev/README.md`, or set
 `CONDITAR_DOCKER_IMAGE` to a registry copy. The GUI no longer injects conDitar
 scripts from its checkout; generation and selected evaluations finish in the
 same conDitar container on local CPU, Slurm GPU, or OpenShift.
@@ -68,7 +68,7 @@ For first-time local CPU setup with Docker or Docker Desktop:
 docker pull osuninglab/conditar-dev:2026-07-10
 git clone https://github.com/ninglab/conDitar-dev.git
 cd conDitar-dev
-docker build --platform linux/amd64 -f docker/Refresh.Dockerfile \
+docker build --platform linux/amd64 -f docker/conditar_dev/Refresh.Dockerfile \
   -t conditar-dev:standalone-20261001 scripts
 cd gui
 ./setup_gui.sh
@@ -117,7 +117,7 @@ from Finder after Docker Desktop is installed and running.
    docker pull osuninglab/conditar-dev:2026-07-10
    git clone https://github.com/ninglab/conDitar-dev.git
    cd conDitar-dev
-   docker build --platform linux/amd64 -f docker/Refresh.Dockerfile \
+   docker build --platform linux/amd64 -f docker/conditar_dev/Refresh.Dockerfile \
      -t conditar-dev:standalone-20261001 scripts
    cd gui
    ./setup_gui.sh

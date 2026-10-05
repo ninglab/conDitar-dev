@@ -23,9 +23,9 @@ baselines_results/
 *.tar
 *.tar.gz
 *.tar.zst
-docker/checkpoints/
-docker/qvina/qvina2.1
-docker/build-context/
+docker/conditar_dev/checkpoints/
+docker/conditar_dev/qvina/qvina2.1
+docker/conditar_dev/build-context/
 *.lmdb
 *.lmdb-lock
 

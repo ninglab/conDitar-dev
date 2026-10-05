@@ -27,7 +27,7 @@ RUN apt-get update \
         libxrender1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY docker/environment.yml /opt/conditar/environment.yml
+COPY docker/conditar_dev/environment.yml /opt/conditar/environment.yml
 
 RUN curl -L https://micro.mamba.pm/api/micromamba/linux-64/latest -o /tmp/micromamba.tar.bz2 \
     && mkdir -p /opt/micromamba/bin /tmp/micromamba \
@@ -54,8 +54,8 @@ COPY models /opt/conditar/app/models
 COPY scripts /opt/conditar/app/scripts
 COPY utils /opt/conditar/app/utils
 COPY README.md NOTICE.txt /opt/conditar/app/
-COPY docker/checkpoints /opt/conditar/checkpoints
-COPY docker/qvina /opt/conditar/qvina
+COPY docker/conditar_dev/checkpoints /opt/conditar/checkpoints
+COPY docker/conditar_dev/qvina /opt/conditar/qvina
 
 RUN install -m 0755 /opt/conditar/app/scripts/container/conditar-sample /usr/local/bin/conditar-sample \
     && if [ -f "$CONDITAR_QVINA_BIN" ]; then chmod 0755 "$CONDITAR_QVINA_BIN"; fi

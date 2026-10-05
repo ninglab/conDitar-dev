@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 image_tag="${CONDITAR_DOCKER_TAG:-conditar-dev:2026-07-10}"
 platform="${CONDITAR_DOCKER_PLATFORM:-linux/amd64}"
 checkpoint_src="${CONDITAR_CHECKPOINT_DIR:-$repo_root/checkpoints}"
-checkpoint_dest="$repo_root/docker/checkpoints"
+checkpoint_dest="$repo_root/docker/conditar_dev/checkpoints"
 qvina_src="${CONDITAR_QVINA_BIN:-}"
-qvina_dest="$repo_root/docker/qvina/qvina2.1"
+qvina_dest="$repo_root/docker/conditar_dev/qvina/qvina2.1"
 container_engine="${CONDITAR_CONTAINER_ENGINE:-auto}"
 buildah_isolation="${CONDITAR_BUILDAH_ISOLATION:-chroot}"
 buildah_userns="${CONDITAR_BUILDAH_USERNS:-host}"
@@ -15,7 +15,7 @@ buildah_userns="${CONDITAR_BUILDAH_USERNS:-host}"
 usage() {
     cat <<EOF
 Usage:
-  docker/build-image.sh [--tag IMAGE_TAG] [--platform PLATFORM] [--checkpoint-dir DIR] [--qvina-bin FILE] [--engine ENGINE]
+  docker/conditar_dev/build-image.sh [--tag IMAGE_TAG] [--platform PLATFORM] [--checkpoint-dir DIR] [--qvina-bin FILE] [--engine ENGINE]
 
 Defaults:
   IMAGE_TAG       $image_tag
@@ -116,14 +116,14 @@ case "$container_engine" in
             --isolation "$buildah_isolation" \
             --userns "$buildah_userns" \
             --platform "$platform" \
-            -f "$repo_root/docker/Dockerfile" \
+            -f "$repo_root/docker/conditar_dev/Dockerfile" \
             -t "$image_tag" \
             "$repo_root"
         ;;
     docker)
         docker build \
             --platform "$platform" \
-            -f "$repo_root/docker/Dockerfile" \
+            -f "$repo_root/docker/conditar_dev/Dockerfile" \
             -t "$image_tag" \
             "$repo_root"
         ;;

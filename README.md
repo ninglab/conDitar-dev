@@ -65,7 +65,7 @@ cd conDitar-dev/gui
 ./start_cpu_gui.sh
 ```
 
-See [`docker/README.md`](docker/README.md) for container-only runs, rebuilding the image from checkpoints, and Docker/Podman details.
+See [`docker/conditar_dev/README.md`](docker/conditar_dev/README.md) for container-only runs, rebuilding the image from checkpoints, and Docker/Podman details.
 
 ---
 

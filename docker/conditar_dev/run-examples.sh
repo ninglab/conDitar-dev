@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 image_tag="${CONDITAR_DOCKER_TAG:-docker.io/osuninglab/conditar-dev:2026-07-10}"
 input_dir="${INPUT_DIR:-$repo_root/data/test_data}"
 output_dir="${OUTPUT_DIR:-$PWD/results}"
@@ -17,7 +17,7 @@ vina_cpu="${VINA_CPU:-4}"
 usage() {
     cat <<EOF
 Usage:
-  docker/run-examples.sh COMMAND
+  docker/conditar_dev/run-examples.sh COMMAND
 
 Commands:
   cpu-pocket      Docker CPU run with a prepared pocket PDB.
@@ -53,7 +53,7 @@ require_input_dir() {
 require_pocket_pdb() {
     if [[ -z "$pocket_pdb" ]]; then
         echo "Set POCKET_PDB to a prepared pocket PDB path under INPUT_DIR for pocket-only runs." >&2
-        echo "For the included 4aua protein/ligand example, use: docker/run-examples.sh cpu-ligand" >&2
+        echo "For the included 4aua protein/ligand example, use: docker/conditar_dev/run-examples.sh cpu-ligand" >&2
         exit 2
     fi
 }

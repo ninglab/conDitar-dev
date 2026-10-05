@@ -6,6 +6,6 @@ FROM ${DIFFSMOL_BASE_IMAGE}
 
 USER root
 COPY --from=qvina_source /opt/conditar/qvina/qvina2.1 /usr/local/bin/qvina2.1
-COPY docker/pocket_generate.py docker/postprocess.py docker/run.py /opt/DiffSMol/docker/
+COPY runtime/pocket_generate.py runtime/postprocess.py runtime/run.py /opt/DiffSMol/docker/
 RUN chmod 0755 /usr/local/bin/qvina2.1
 USER mambauser
