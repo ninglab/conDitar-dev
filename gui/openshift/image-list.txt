@@ -1,5 +1,5 @@
-# Pinned images used by the no-argument CPU OpenShift launcher.
-# They were built and tested in avery91-dev on 2026-10-05.
+# Pinned images used by the no-argument OpenShift launcher.
+# This file is sourced by deploy.sh. Keep it to shell assignments and comments.
 # These internal-registry references work only on the same OpenShift cluster.
 # A different project needs image-pull access to avery91-dev or mirrored images.
 

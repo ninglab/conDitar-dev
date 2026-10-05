@@ -192,111 +192,19 @@ account/GPU limits are reported in the Jobs panel with the scheduler reason.
 
 ## OpenShift deployment
 
-The GUI includes a plug-and-play OpenShift scaffold under `openshift/` and a
-`Containerfile`. It keeps the existing local CPU and Slurm GPU paths unchanged,
-and adds OpenShift-facing run targets:
+From an OpenShift Web Terminal in the intended project, clone this branch,
+enter `gui/`, and run `./openshift/deploy.sh`. The default uses three pinned
+prebuilt images and submits real CPU OpenShift Jobs; no local Python, Docker,
+or image build is required. The script prints the GUI Route.
 
-- **OpenShift Job** launches generator pods inside the selected OpenShift
-  project, polls Job/pod status, captures pod logs, and loads SDF outputs from
-  shared job storage.
-- **OpenShift diagnostics** checks routing, persistent storage, logs, and result
-  loading without launching the conDitar runtime.
-- **OpenShift Job manifest** appears when cluster submission is disabled and
-  writes a Kubernetes `Job` manifest for admin review.
+OpenShift Job is the run target; CPU or GPU is the resource requested by that
+Job. GPU settings require quota and validation in the destination project.
+See [`openshift/SITE_QUICKSTART.md`](openshift/SITE_QUICKSTART.md) for the
+partner procedure, [`openshift/README.md`](openshift/README.md) for deployment
+options, and [`openshift/VALIDATION_PROTOCOL.md`](openshift/VALIDATION_PROTOCOL.md)
+for acceptance checks.
 
-The recommended site deployment path is:
-
-```bash
-cd conDitar-dev/gui
-./openshift/deploy.sh \
-  --project <site-project> \
-  --runtime openshift_job \
-  --submit \
-  --cpu \
-  --gui-image <site-conditar-gui-image> \
-  --runtime-image <site-conditar-runtime-image>
-```
-
-That script creates the OpenShift deployment resources, deploys the GUI, waits
-for rollout, and prints the Route URL. When `--gui-image` is omitted, the same
-script starts a binary build from the local `gui/` folder. The GUI image builds
-Lilly Medchem Rules from the vendored source under `vendor/`, so it does not
-clone that external repository during the OpenShift build.
-
-Start with `openshift/SITE_QUICKSTART.md` for the site handoff flow and
-`openshift/README.md` for deployment options and admin-facing assumptions.
-
-Local container smoke test:
-
-```bash
-cd conDitar-dev/gui
-podman build -f Containerfile -t conditar-gui:latest .
-podman run --rm -p 8080:8080 -v conditar-gui-jobs:/data conditar-gui:latest
-```
-
-Then open `http://127.0.0.1:8080`. The container binds to `0.0.0.0`
-internally, but your browser should use localhost.
-
-For a trusted local CPU GUI container that launches Docker jobs, build with
-`--build-arg GUI_INSTALL_DOCKER_CLI=1` and set `CONDITAR_RUNTIME=docker` plus
-`DIFFSMOL_DOCKER_IMAGE` when running it. Mount the Docker socket and bind-mount
-the job directory at the same absolute path on the host and inside the GUI
-container; nested Docker runs need host-resolvable input/output paths. Do not
-expose this socket-enabled GUI image to untrusted users. The default image build
-does not install the Docker client and keeps the OpenShift behavior.
-
-For example, from the repository root (with both engine images loaded locally):
-
-```bash
-docker build --platform linux/amd64 --build-arg GUI_INSTALL_DOCKER_CLI=1 \
-  -f gui/Containerfile -t conditar-gui:cpu-local gui
-export CONDITAR_HOST_JOBS="$PWD/gui/job_data/container_jobs"
-mkdir -p "$CONDITAR_HOST_JOBS"
-docker run --rm --platform linux/amd64 --user 0 -p 4181:8080 \
-  -e CONDITAR_RUNTIME=docker \
-  -e CONDITAR_JOB_ROOT="$CONDITAR_HOST_JOBS" \
-  -e CONDITAR_DOCKER_IMAGE=conditar-dev:standalone-20261001 \
-  -e DIFFSMOL_DOCKER_IMAGE=diffsmol:cpu-20261001 \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v "$CONDITAR_HOST_JOBS:$CONDITAR_HOST_JOBS" \
-  conditar-gui:cpu-local
-```
-
-The socket makes this a trusted, local-only deployment. The container runs as
-root here so Docker Desktop's socket is accessible; the host job directory
-must be writable by that user. Open `http://127.0.0.1:4181` after launch.
-
-The container image installs the same Tool Chest environment used by
-`setup_tool_chest.sh`, including `medchem` and `lilly-medchem-rules`. The setup
-script is still useful for local non-container GUI sessions.
-
-OpenShift options:
-
-```bash
-./openshift/deploy.sh --create-project conditar-gui-demo
-./openshift/deploy.sh --runtime openshift_job --storage 50Gi
-./openshift/deploy.sh --gui-image registry.example.edu/conditar-gui:latest
-./openshift/deploy.sh --runtime-image registry.example.edu/conditar-dev:latest
-```
-
-The included manifests create an `ImageStream`, `BuildConfig`, `Deployment`,
-`Service`, `Route`, `ConfigMap`, and `PersistentVolumeClaim`. They set
-`CONDITAR_JOB_ROOT=/data/jobs` and `CONDITAR_RUNTIME=openshift_mock`.
-
-The Job draft target can be tuned with these environment variables:
-
-```bash
-CONDITAR_OPENSHIFT_PVC=conditar-gui-jobs
-CONDITAR_OPENSHIFT_JOB_MOUNT=/data/jobs
-CONDITAR_OPENSHIFT_NAMESPACE=
-CONDITAR_OPENSHIFT_SERVICE_ACCOUNT=
-CONDITAR_OPENSHIFT_GPU_RESOURCE=nvidia.com/gpu
-CONDITAR_OPENSHIFT_GPU_COUNT=1
-CONDITAR_OPENSHIFT_CPU_REQUEST=2
-CONDITAR_OPENSHIFT_MEMORY_REQUEST=16Gi
-CONDITAR_OPENSHIFT_MEMORY_LIMIT=32Gi
-CONDITAR_OPENSHIFT_IMAGE_PULL_POLICY=IfNotPresent
-```
+## Slurm GPU operation
 
 After Slurm/GPU setup is configured, future GPU sessions usually only need:
 

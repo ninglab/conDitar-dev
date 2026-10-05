@@ -30,13 +30,14 @@ EOF
 }
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+. openshift/image-list.txt
 
 PROJECT=""
 CREATE_PROJECT=""
 RUNTIME="${CONDITAR_RUNTIME:-openshift_job}"
-GUI_IMAGE="${CONDITAR_GUI_IMAGE:-image-registry.openshift-image-registry.svc:5000/avery91-dev/conditar-gui@sha256:47716583382876a501141f3748db37f2a9b1ed3e892e8e956cb8ee4ce7c00e36}"
-RUNTIME_IMAGE="${CONDITAR_DOCKER_IMAGE:-image-registry.openshift-image-registry.svc:5000/avery91-dev/conditar-dev@sha256:c09c251a6e4c751b79eb0b455d9f89d9509224ddb66d734a99b220d896ff8033}"
-DIFFSMOL_IMAGE="${DIFFSMOL_DOCKER_IMAGE:-image-registry.openshift-image-registry.svc:5000/avery91-dev/diffsmol@sha256:6e66d686944a0a963d8d11da3d3008423cfc5ac1098059eea9bd592e0f3fed01}"
+GUI_IMAGE="${CONDITAR_GUI_IMAGE:-$GUI}"
+RUNTIME_IMAGE="${CONDITAR_DOCKER_IMAGE:-$CONDITAR}"
+DIFFSMOL_IMAGE="${DIFFSMOL_DOCKER_IMAGE:-$DIFFSMOL}"
 RUNTIME_EXPLICIT=0
 SUBMIT_EXPLICIT=0
 STORAGE="${CONDITAR_OPENSHIFT_STORAGE:-10Gi}"
@@ -325,7 +326,7 @@ fi
 
 if ! oc rollout status deployment/conditar-gui --timeout=15m; then
   echo "ERROR: GUI rollout failed. Inspect pods with: oc get pods -l app=conditar-gui" >&2
-  echo "If using the pinned avery91-dev images from another project, its GUI and default service accounts need image-pull permission in avery91-dev." >&2
+  echo "If the images are in another OpenShift project, grant image-pull permission to this project's GUI and default service accounts." >&2
   exit 1
 fi
 
