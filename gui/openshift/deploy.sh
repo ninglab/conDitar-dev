@@ -324,6 +324,11 @@ if [[ -n "$image_ref" ]]; then
   oc set image deployment/conditar-gui "gui=$image_ref" >/dev/null
 fi
 
+if [[ -n "$previous_image_ref" ]]; then
+  echo "Restarting the GUI pod to apply the current ConfigMap values."
+  oc rollout restart deployment/conditar-gui >/dev/null
+fi
+
 if ! oc rollout status deployment/conditar-gui --timeout=15m; then
   echo "ERROR: GUI rollout failed. Inspect pods with: oc get pods -l app=conditar-gui" >&2
   echo "If the images are in another OpenShift project, grant image-pull permission to this project's GUI and default service accounts." >&2
