@@ -71,11 +71,9 @@ See [`docker/README.md`](docker/README.md) for container-only runs, rebuilding t
 
 ## Browser GUI
 
-A browser GUI is available in [`gui/`](gui/) for preprocessing inputs, running
-conDitar or DiffSMol through local containers, Slurm, or OpenShift Jobs,
-reviewing molecules, and exporting results. See [`gui/README.md`](gui/README.md)
-for setup and usage. The OpenShift clone-and-deploy path is in
-[`gui/openshift/SITE_QUICKSTART.md`](gui/openshift/SITE_QUICKSTART.md).
+A lightweight browser GUI is available in [`gui/`](gui/) for launching local CPU
+or Slurm GPU generation jobs, tracking job status, viewing generated molecules,
+and exporting results. See [`gui/README.md`](gui/README.md) for setup and usage.
 
 ---
 
