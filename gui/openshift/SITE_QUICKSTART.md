@@ -16,19 +16,13 @@ as OpenShift Jobs on CPU by default. The three prebuilt images are pinned in
 
 ## Image Access
 
-The current images are stored in `avery91-dev` on the same cluster. Before
-deploying into another project, an owner of `avery91-dev` must grant pull
-access to both pod service accounts:
-
-```bash
-oc policy add-role-to-user system:image-puller system:serviceaccount:<partner-project>:conditar-gui -n avery91-dev
-oc policy add-role-to-user system:image-puller system:serviceaccount:<partner-project>:default -n avery91-dev
-```
-
-Alternatively, mirror all three images to a registry the project can pull
-from and set `CONDITAR_GUI_IMAGE`, `CONDITAR_DOCKER_IMAGE`, and
-`DIFFSMOL_DOCKER_IMAGE` before running the script. Do not put registry
-credentials in the repository.
+The pinned images are public on Docker Hub, so the partner project does not
+need pull permission from `avery91-dev`. The cluster must be able to pull from
+Docker Hub. If that registry is blocked, mirror all three images to a registry
+the project can reach and set `CONDITAR_GUI_IMAGE`, `CONDITAR_DOCKER_IMAGE`,
+and `DIFFSMOL_DOCKER_IMAGE` before running the script. Do not put registry
+credentials in the repository. The first conDitar image pull is large and may
+take several minutes.
 
 ## Verify
 
@@ -48,6 +42,13 @@ deployment options.
 
 OpenShift Job is the run target; CPU or GPU is the resource requested by that
 Job. The default is CPU. To use a GPU, first confirm the project has GPU quota
-and the correct resource key, then set the device, GPU count, and memory values
-documented in `site.env.example` before redeploying. GPU execution has not yet
-been validated in this project.
+and the correct resource key, then redeploy with:
+
+```bash
+./openshift/deploy.sh --gpu
+```
+
+This requests one `nvidia.com/gpu` for each generator Job and sets `cuda:0`.
+For a different resource key, GPU count, or memory allocation, set the
+variables in `site.env.example` before deploying. Use `--cpu` to switch back.
+GPU execution has not yet been validated in this project.

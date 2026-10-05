@@ -17,10 +17,10 @@ OpenShift Jobs; generation and selected evaluations finish before Results are
 shown. The Vina preprocessing panel also runs in a Job using the conDitar
 image.
 
-The tested image references are in `image-list.txt`. They currently point to
-`avery91-dev` on this cluster. For a different project, grant pull access as
-shown in `SITE_QUICKSTART.md` or mirror all three images. For a different
-cluster, use a registry reachable from that cluster.
+The tested image references are in `image-list.txt`. They point to public
+Docker Hub images pinned by digest. No cross-project OpenShift image-pull role
+is needed. The cluster must be able to reach Docker Hub; otherwise, mirror all
+three images into a reachable registry and pass image overrides.
 
 ## Overrides
 
@@ -40,6 +40,8 @@ are listed in `site.env.example` and `./openshift/deploy.sh --help`.
 - `--no-submit` writes Job manifests without submitting them.
 - `--runtime openshift_mock` runs synthetic infrastructure diagnostics.
 - `--cpu` forces CPU settings when overriding GPU environment variables.
+- `--gpu` configures one GPU per generator Job, subject to project quota and
+  the site's GPU resource key. The GUI pod itself remains CPU-only.
 - `--storage 50Gi` changes the PVC request at first creation. Resizing an
   existing PVC depends on the storage class.
 - `--route-host HOST` requests a fixed hostname, if permitted by the cluster.

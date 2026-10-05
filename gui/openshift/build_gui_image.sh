@@ -16,8 +16,8 @@ Options:
   --help              Show this help.
 
 Examples:
-  ./gui/openshift/build_gui_image.sh --image docker.io/osuninglab/conditar-gui:<site-version>
-  ./gui/openshift/build_gui_image.sh --image docker.io/osuninglab/conditar-gui:<site-version> --push
+  ./gui/openshift/build_gui_image.sh --image docker.io/osuninglab/conditar-dev-gui:<site-version>
+  ./gui/openshift/build_gui_image.sh --image docker.io/osuninglab/conditar-dev-gui:<site-version> --push
 EOF
 }
 

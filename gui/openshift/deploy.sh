@@ -18,6 +18,7 @@ Options:
   --submit                   Allow the GUI pod to create and poll OpenShift Jobs (default).
   --no-submit                Write Job manifests without submitting them.
   --cpu                      Configure generated OpenShift Jobs for CPU-only execution (default).
+  --gpu                      Configure generated OpenShift Jobs for one GPU (requires quota).
   --storage SIZE             PVC request size, such as 10Gi or 50Gi.
   --route-host HOST          Optional fixed Route hostname.
   --build-gui                Build the GUI image inside OpenShift instead of pulling the prebuilt image.
@@ -45,6 +46,7 @@ ROUTE_HOST="${CONDITAR_OPENSHIFT_ROUTE_HOST:-}"
 SKIP_BUILD=0
 OPENSHIFT_SUBMIT="${CONDITAR_OPENSHIFT_SUBMIT:-true}"
 OPENSHIFT_DEVICE="${CONDITAR_OPENSHIFT_DEVICE:-cpu}"
+OPENSHIFT_GPU_RESOURCE="${CONDITAR_OPENSHIFT_GPU_RESOURCE:-nvidia.com/gpu}"
 OPENSHIFT_GPU_COUNT="${CONDITAR_OPENSHIFT_GPU_COUNT:-0}"
 OPENSHIFT_CPU_REQUEST="${CONDITAR_OPENSHIFT_CPU_REQUEST:-500m}"
 OPENSHIFT_MEMORY_REQUEST="${CONDITAR_OPENSHIFT_MEMORY_REQUEST:-4Gi}"
@@ -75,6 +77,16 @@ while [[ $# -gt 0 ]]; do
       OPENSHIFT_CPU_REQUEST="${CONDITAR_OPENSHIFT_CPU_REQUEST:-500m}"
       OPENSHIFT_MEMORY_REQUEST="${CONDITAR_OPENSHIFT_MEMORY_REQUEST:-4Gi}"
       OPENSHIFT_MEMORY_LIMIT="${CONDITAR_OPENSHIFT_MEMORY_LIMIT:-8Gi}"
+      shift ;;
+    --gpu)
+      OPENSHIFT_DEVICE="cuda:0"
+      OPENSHIFT_GPU_COUNT="${CONDITAR_OPENSHIFT_GPU_COUNT:-1}"
+      if [[ "$OPENSHIFT_GPU_COUNT" == "0" ]]; then
+        OPENSHIFT_GPU_COUNT="1"
+      fi
+      OPENSHIFT_CPU_REQUEST="${CONDITAR_OPENSHIFT_CPU_REQUEST:-2}"
+      OPENSHIFT_MEMORY_REQUEST="${CONDITAR_OPENSHIFT_MEMORY_REQUEST:-16Gi}"
+      OPENSHIFT_MEMORY_LIMIT="${CONDITAR_OPENSHIFT_MEMORY_LIMIT:-32Gi}"
       shift ;;
     --storage)
       STORAGE="${2:-}"; shift 2 ;;
@@ -108,6 +120,21 @@ fi
 
 if [[ "$OPENSHIFT_SUBMIT" == "true" && "$RUNTIME" == "openshift_mock" ]]; then
   echo "ERROR: --submit cannot be combined with --runtime openshift_mock. Use --runtime openshift_job for real Jobs." >&2
+  exit 2
+fi
+
+if [[ "$OPENSHIFT_DEVICE" == "cpu" ]]; then
+  if [[ "$OPENSHIFT_GPU_COUNT" != "0" ]]; then
+    echo "ERROR: CPU Jobs require CONDITAR_OPENSHIFT_GPU_COUNT=0." >&2
+    exit 2
+  fi
+elif [[ "$OPENSHIFT_DEVICE" =~ ^cuda:[0-9]+$ ]]; then
+  if [[ ! "$OPENSHIFT_GPU_COUNT" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ERROR: CUDA Jobs require a positive integer CONDITAR_OPENSHIFT_GPU_COUNT." >&2
+    exit 2
+  fi
+else
+  echo "ERROR: CONDITAR_OPENSHIFT_DEVICE must be cpu or cuda:N." >&2
   exit 2
 fi
 
@@ -281,6 +308,7 @@ set_config_value "$tmpdir/openshift/configmap.yaml" "CONDITAR_DOCKER_IMAGE" "$RU
 set_config_value "$tmpdir/openshift/configmap.yaml" "DIFFSMOL_DOCKER_IMAGE" "$DIFFSMOL_IMAGE"
 set_config_value "$tmpdir/openshift/configmap.yaml" "CONDITAR_OPENSHIFT_SUBMIT" "$OPENSHIFT_SUBMIT"
 set_config_value "$tmpdir/openshift/configmap.yaml" "CONDITAR_OPENSHIFT_DEVICE" "$OPENSHIFT_DEVICE"
+set_config_value "$tmpdir/openshift/configmap.yaml" "CONDITAR_OPENSHIFT_GPU_RESOURCE" "$OPENSHIFT_GPU_RESOURCE"
 set_config_value "$tmpdir/openshift/configmap.yaml" "CONDITAR_OPENSHIFT_GPU_COUNT" "$OPENSHIFT_GPU_COUNT"
 set_config_value "$tmpdir/openshift/configmap.yaml" "CONDITAR_OPENSHIFT_CPU_REQUEST" "$OPENSHIFT_CPU_REQUEST"
 set_config_value "$tmpdir/openshift/configmap.yaml" "CONDITAR_OPENSHIFT_MEMORY_REQUEST" "$OPENSHIFT_MEMORY_REQUEST"
