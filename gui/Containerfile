@@ -35,6 +35,8 @@ RUN micromamba create -y -f /tmp/environment.yml \
 ENV CONDA_DEFAULT_ENV=conditar-gui-dev \
     PATH=/opt/conda/envs/conditar-gui-dev/bin:$PATH
 
+RUN medchem install-lilly
+
 USER root
 COPY vendor/Lilly-Medchem-Rules /opt/conditar-gui/.tool_chest/Lilly-Medchem-Rules
 RUN make -C /opt/conditar-gui/.tool_chest/Lilly-Medchem-Rules \
@@ -44,6 +46,8 @@ RUN make -C /opt/conditar-gui/.tool_chest/Lilly-Medchem-Rules \
 
 USER $MAMBA_USER
 COPY --chown=$MAMBA_USER:0 . /opt/conditar-gui
+
+RUN python -c 'from medchem.structural.lilly_demerits._lilly import find_lilly_binaries; find_lilly_binaries()'
 
 USER root
 RUN chmod -R g=u /opt/conditar-gui

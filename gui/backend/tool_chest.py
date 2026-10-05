@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
+import sys
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -58,7 +60,23 @@ class ToolChest:
         run_root = job_root / "tool_runs" / run["id"]
         run_root.mkdir(parents=True, exist_ok=True)
         try:
-            result = module.run(str(job_root), str(run_root), options or {})
+            options_path = run_root / "options.json"
+            result_path = run_root / "run_result.json"
+            stderr_path = run_root / "stderr.log"
+            options_path.write_text(json.dumps(options or {}))
+            with (run_root / "stdout.log").open("w") as stdout, stderr_path.open("w") as stderr:
+                process = subprocess.run(
+                    [sys.executable, str(Path(__file__).resolve()), "--run-tool", str(path),
+                     str(job_root), str(run_root), str(options_path)],
+                    stdout=stdout,
+                    stderr=stderr,
+                    check=False,
+                )
+            if process.returncode != 0:
+                details = stderr_path.read_text(errors="replace").strip().splitlines()
+                reason = details[-1] if details else "No error details were written."
+                raise RuntimeError(f"Tool process exited with status {process.returncode}: {reason}")
+            result = json.loads(result_path.read_text())
             run["status"] = "completed"
             run["result"] = result or {}
         except Exception as error:
@@ -107,3 +125,16 @@ class ToolChest:
         metadata.setdefault("outputs", [])
         metadata.setdefault("available", True)
         return metadata
+
+
+def _run_tool_worker(args: list[str]) -> None:
+    tool_path, job_root, run_root, options_path = map(Path, args)
+    tool = ToolChest(tool_path.parent.parent)._load_module(tool_path)
+    result = tool.run(str(job_root), str(run_root), json.loads(options_path.read_text()))
+    (run_root / "run_result.json").write_text(json.dumps(result or {}))
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 6 or sys.argv[1] != "--run-tool":
+        raise SystemExit("Expected --run-tool PATH JOB_ROOT RUN_ROOT OPTIONS_PATH")
+    _run_tool_worker(sys.argv[2:])

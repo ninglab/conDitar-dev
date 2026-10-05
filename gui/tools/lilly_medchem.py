@@ -44,12 +44,12 @@ def run(job_root: str, run_root: str, options: dict) -> dict:
     input_smi = run_path / "lilly_input.smi"
     for index, sdf_path in enumerate(sdf_paths):
         text = sdf_path.read_text(errors="replace")
-        smiles = _property(text, "SMILES")
+        smiles = _property(text, "SMILES") or _smiles_from_sdf(text)
         molecule_id = _safe_id(sdf_path, index)
         if smiles:
             records.append({"id": molecule_id, "smiles": smiles, "path": str(sdf_path)})
     if not records:
-        raise RuntimeError("No SMILES properties were found in generated SDF files.")
+        raise RuntimeError("No valid molecules or SMILES properties were found in generated SDF files.")
 
     input_smi.write_text("".join(f"{item['smiles']} {item['id']}\n" for item in records))
     with (run_path / "lilly_stdout.smi").open("w") as stdout, (run_path / "lilly_stderr.log").open("w") as stderr:
@@ -142,6 +142,13 @@ def _wrapper_kind(path: Path) -> str:
 def _property(sdf_text: str, name: str) -> str:
     match = re.search(rf"^>\s*<{re.escape(name)}>[^\n]*\n(.*?)(?:\n\n|\Z)", sdf_text, flags=re.MULTILINE | re.DOTALL)
     return match.group(1).strip().splitlines()[0] if match else ""
+
+
+def _smiles_from_sdf(sdf_text: str) -> str:
+    from rdkit import Chem
+
+    mol = Chem.MolFromMolBlock(sdf_text.split("$$$$", 1)[0], sanitize=True, removeHs=True)
+    return Chem.MolToSmiles(mol) if mol is not None else ""
 
 
 def _safe_id(path: Path, index: int) -> str:

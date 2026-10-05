@@ -6,12 +6,13 @@ The simplest path is:
 
 1. Open the OpenShift Web Terminal.
 2. Clone the approved Git repository.
-3. Put your OpenShift project name into one deploy command and run it.
+3. Enter `gui/` and run `./openshift/deploy.sh` in the current `oc` project.
 4. Open the GUI Route/URL printed by the script.
 
-No Docker Desktop install is required.
-No local Git, Helm, Kustomize, or Docker Desktop install is required if the
-OpenShift Web Terminal is available.
+No local Helm, Kustomize, Docker Desktop, or Python install is required when
+using the OpenShift Web Terminal; it provides `git` and `oc`.
+The default path pulls three pinned images from `avery91-dev` and runs real CPU
+Jobs. It does not build images or install Python packages in the terminal.
 
 ## What This Deploys
 
@@ -45,16 +46,19 @@ The validated path is:
   - `RoleBinding`
   - `Job`
   - `Pod/log` reads
-- A conDitar runtime image available to the project.
+- Permission for the project's `conditar-gui` and `default` service accounts to
+  pull the three pinned images from `avery91-dev` on this same cluster. An
+  owner of `avery91-dev` must grant this once for another project; see
+  `README.md`. On a different cluster, mirror the images and override the refs.
 
-If the site cannot run OpenShift binary builds, build and push the GUI image to
-an approved registry first, then deploy with `--gui-image`.
+If the site cannot pull from `avery91-dev`, mirror the prebuilt images to an
+approved registry and pass their references to the launcher.
 
 The GUI image can be built from a workstation or CI runner with Docker or
 Podman:
 
 ```bash
-./openshift/build_gui_image.sh \
+./gui/openshift/build_gui_image.sh \
   --image docker.io/osuninglab/conditar-gui:<site-version> \
   --push
 ```
@@ -81,11 +85,12 @@ oc version --client
 oc project
 ```
 
-5. Clone the approved repository branch:
+5. Clone the approved repository branch and deploy:
 
 ```bash
 git clone --branch <branch-name> <repo-url>
-cd <repo-folder>
+cd <repo-folder>/gui
+./openshift/deploy.sh
 ```
 
 Use the repository URL and branch name approved for the site environment.
@@ -123,72 +128,71 @@ oc login --token=... --server=...
 
 Do not email or share the token. It is personal to your OpenShift account.
 
-## Runtime Image
+## Engine Images
 
-The runtime image is the conDitar generator container launched by each
-OpenShift Job. It is separate from the GUI image.
+The conDitar and DiffSMol runtime images are separate from the GUI image.
+The no-argument launcher uses the pinned images listed in `image-list.txt`.
+For a different OpenShift cluster, publish or mirror all three images to a
+registry the project can pull from. The older
+`osuninglab/conditar-dev:2026-07-10` image lacks the selected evaluation
+support, and `ninglab/diffsmol:latest` is not the refreshed standalone image.
+The deploy script rejects those older images in `--submit` mode. Building the
+GUI inside OpenShift does not automatically publish either engine image.
 
-Start with the public runtime image if the cluster can pull from Docker Hub:
-
-```text
-docker.io/osuninglab/conditar-dev:2026-07-10
-```
-
-That image supports generation-only validation. Selected QED, Vina, or other
-evaluations require a registry-accessible copy of the refreshed standalone
-image described in `../../docker/README.md`; the GUI rejects those selections
-with the older image. Build, tag, and push the refreshed image before testing
-evaluations on OpenShift, then use its registry reference for `--runtime-image`.
-
-If the cluster cannot pull external images, ask the site admin to mirror that
-image into a registry the project can access. In that case, replace
-`<site-conditar-runtime-image>` with the mirrored image reference, for example:
+If overriding the defaults, get approved references from the site
+administrator, for example:
 
 ```text
-image-registry.openshift-image-registry.svc:5000/<site-project>/conditar-runtime:2026-07-10
+<registry>/<site-project>/conditar-runtime:<version>
+<registry>/<site-project>/diffsmol-runtime:<version>
 ```
 
-## Fast CPU Validation With A Prebuilt GUI Image
+Private registries may also require an image pull secret on the project's
+default service account. Do not put registry credentials in this repository.
 
-Use this path when a GUI image is already available from a registry your
-OpenShift project can pull from. It skips the OpenShift build step.
+## Optional: Infrastructure Diagnostics
 
-From the cloned repository folder:
+To check the Route and PVC with synthetic results and no engine Job:
 
 ```bash
-oc project <site-project>
-
-./openshift/deploy.sh \
-  --project <site-project> \
-  --runtime openshift_job \
-  --submit \
-  --cpu \
-  --gui-image <site-conditar-gui-image> \
-  --runtime-image docker.io/osuninglab/conditar-dev:2026-07-10
+./openshift/deploy.sh --runtime openshift_mock
 ```
 
-Replace `<site-project>` with your OpenShift project name. Replace
-`<site-conditar-gui-image>` with the GUI image approved for your environment.
-Keep the runtime image unchanged unless your site admin gives you an internal
-mirror for the runtime image.
+A diagnostics job does not run a generator and its SDFs are synthetic.
+
+## Default CPU Deployment
+
+This is the partner path after image-pull access has been granted. It skips
+the OpenShift build step.
+
+From the cloned repository root:
+
+```bash
+cd gui
+./openshift/deploy.sh
+```
+
+The script uses the current `oc` project. To use mirrored images instead, set
+`CONDITAR_GUI_IMAGE`, `CONDITAR_DOCKER_IMAGE`, and `DIFFSMOL_DOCKER_IMAGE` or
+pass `--gui-image`, `--runtime-image`, and `--diffsmol-image`.
 
 The script prints the Route when the deployment is ready.
 
-## Fast CPU Validation With OpenShift Build
+## Optional: OpenShift GUI Build
 
-From the cloned repository folder:
+Only use this if the site explicitly permits building and downloading conda
+dependencies inside an OpenShift builder. It is not part of the partner path.
 
-In OpenShift Web Terminal:
+From the cloned repository root in OpenShift Web Terminal:
 
 ```bash
-oc project <site-project>
-
-./openshift/deploy.sh \
+./gui/openshift/deploy.sh \
   --project <site-project> \
-  --runtime openshift_job \
   --submit \
   --cpu \
-  --runtime-image docker.io/osuninglab/conditar-dev:2026-07-10
+  --build-gui \
+  --runtime-image <site-conditar-runtime-image> \
+  --diffsmol-image <site-diffsmol-runtime-image>
 ```
 
 On Windows PowerShell:
@@ -196,14 +200,12 @@ On Windows PowerShell:
 ```powershell
 # Paste the full oc login command from OpenShift first:
 # oc login --token=... --server=...
-oc project <site-project>
-
-.\openshift\deploy.ps1 `
+.\gui\openshift\deploy.ps1 `
   -Project <site-project> `
-  -Runtime openshift_job `
   -Submit `
   -Cpu `
-  -RuntimeImage docker.io/osuninglab/conditar-dev:2026-07-10
+  -RuntimeImage <site-conditar-runtime-image> `
+  -DiffsmolImage <site-diffsmol-runtime-image>
 ```
 
 On macOS/Linux/Git Bash:
@@ -211,19 +213,17 @@ On macOS/Linux/Git Bash:
 ```bash
 # Paste the full oc login command from OpenShift first:
 # oc login --token=... --server=...
-oc project <site-project>
-
-./openshift/deploy.sh \
+./gui/openshift/deploy.sh \
   --project <site-project> \
-  --runtime openshift_job \
   --submit \
   --cpu \
-  --runtime-image docker.io/osuninglab/conditar-dev:2026-07-10
+  --build-gui \
+  --runtime-image <site-conditar-runtime-image> \
+  --diffsmol-image <site-diffsmol-runtime-image>
 ```
 
-Replace only `<site-project>` with your OpenShift project name for the first
-test. Keep the runtime image value unchanged unless your site admin tells you
-Docker Hub pulls are blocked.
+Replace the three placeholders with the project name and two registry image
+references. These examples opt into building the GUI image.
 
 The script prints the Route when the deployment is ready.
 
@@ -232,14 +232,15 @@ the Web Terminal, return to the repository folder, and finish from the latest
 completed image:
 
 ```bash
-cd ~/conDitar-dev/gui
+cd ~/conDitar-dev
 
-./openshift/deploy.sh \
+./gui/openshift/deploy.sh \
   --project <site-project> \
-  --runtime openshift_job \
   --submit \
   --cpu \
-  --runtime-image docker.io/osuninglab/conditar-dev:2026-07-10 \
+  --build-gui \
+  --runtime-image <site-conditar-runtime-image> \
+  --diffsmol-image <site-diffsmol-runtime-image> \
   --skip-build
 ```
 
@@ -272,11 +273,11 @@ export CONDITAR_OPENSHIFT_CPU_REQUEST=2
 export CONDITAR_OPENSHIFT_MEMORY_REQUEST=16Gi
 export CONDITAR_OPENSHIFT_MEMORY_LIMIT=32Gi
 
-./openshift/deploy.sh \
+./gui/openshift/deploy.sh \
   --project <site-project> \
-  --runtime openshift_job \
   --submit \
-  --runtime-image <site-conditar-runtime-image>
+  --runtime-image <site-conditar-runtime-image> \
+  --diffsmol-image <site-diffsmol-runtime-image>
 ```
 
 ## Storage Notes

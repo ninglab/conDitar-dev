@@ -4,6 +4,8 @@ metadata:
   name: conditar-gui
   labels:
     app: conditar-gui
+  annotations:
+    haproxy.router.openshift.io/timeout: 35m
 spec:
   to:
     kind: Service

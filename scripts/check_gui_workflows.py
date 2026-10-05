@@ -14,8 +14,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gui.backend.input_processing import parse_residue_spec, pocket_pdb_from_residues
 from gui.backend.jobs import CONDITAR_ENGINE, DIFFSMOL_ENGINE, JobPaths, LocalJobManager
 from gui.backend.chemistry import sdf_chemistry
+from gui.backend.tool_chest import ToolChest
 from gui.backend.workflow_rules import resolve_workflow, validate_generation_inputs
 from gui.tools.medchem_filters import run as run_medchem_filters
+from gui.tools.lilly_medchem import _smiles_from_sdf
 
 
 PDB_TEXT = """\
@@ -82,6 +84,52 @@ def test_docker_image_inspection_fallback() -> None:
             status = mgr._container_image_status("diffsmol:cpu-20261001")
         assert status["exists"] is True
         assert inspected == ["diffsmol:cpu-20261001", "docker.io/library/diffsmol:cpu-20261001"]
+
+
+def test_openshift_vina_panel_preprocessing() -> None:
+    with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {
+        "CONDITAR_RUNTIME": "openshift_job",
+        "CONDITAR_OPENSHIFT_SUBMIT": "true",
+        "CONDITAR_OPENSHIFT_JOB_MOUNT": "/data/jobs",
+    }):
+        root = Path(tmp)
+        adapter = root / "backend" / "input_processing" / "docking_panel_vina.py"
+        adapter.parent.mkdir(parents=True)
+        adapter.write_text("print('panel adapter')\n")
+        mgr = manager(root)
+        pose = {"id": "ligand:1", "name": "ligand", "score": -5.0,
+                "center": {"x": 1.0, "y": 2.0, "z": 3.0}, "sdf": sdf_block("ligand")}
+        submitted = []
+
+        def submit(manifest):
+            submitted.append(manifest)
+            run_root = next((mgr.job_root / "preprocess_runs").iterdir())
+            (run_root / "outputs" / "vina_panel_poses.json").write_text(json.dumps({
+                "status": "ready", "poses": [pose], "warnings": [],
+            }))
+            return {"metadata": {"uid": "test-uid"}}
+
+        with patch.object(mgr, "_openshift_namespace", return_value="test-project"), \
+                patch.object(mgr, "_submit_openshift_job", side_effect=submit), \
+                patch.object(mgr, "_openshift_job_state", return_value={"state": "succeeded"}), \
+                patch.object(mgr, "_openshift_job_pod_names", return_value=[]):
+            result = mgr.preprocess_vina_panel_pockets({
+                "pdb": {"name": "protein.pdb", "text": PDB_TEXT},
+                "ligands": {"name": "panel.sdf", "text": sdf_block("ligand")},
+                "options": {"cpu": 1},
+            })
+        assert len(result["candidates"]) == 1
+        assert result["vina_panel"]["pose_count"] == 1
+        manifest = submitted[0]
+        container = manifest["spec"]["template"]["spec"]["containers"][0]
+        assert manifest["metadata"]["namespace"] == "test-project"
+        assert container["command"][0] == "python"
+        assert container["command"][1].startswith("/data/jobs/preprocess_runs/")
+        assert container["image"] == mgr.docker_image
+        assert manifest["spec"]["template"]["spec"]["volumes"][0]["persistentVolumeClaim"]["claimName"] == "conditar-gui-jobs"
+        run_root = Path(result["vina_panel"]["run_root"])
+        assert (run_root / "vina-panel-job.yaml").exists()
+        assert (run_root / "docking_panel_vina.py").exists()
 
 
 def test_diffsmol_input_validation() -> None:
@@ -721,10 +769,17 @@ def test_evaluator_excludes_reference_ligand() -> None:
         (root / "tool_run").mkdir()
         (root / "outputs" / "generated.sdf").write_text(sdf_block("generated"))
         (root / "outputs" / "reference.sdf").write_text(sdf_block("reference"))
-        result = run_medchem_filters(str(root), str(root / "tool_run"), {})
+        with patch("gui.tools.medchem_filters._dependency_status", return_value=(True, None)), \
+                patch("medchem.functional.lilly_demerit_filter", return_value=[True]):
+            result = run_medchem_filters(str(root), str(root / "tool_run"), {})
         assert result["molecules"] == 1
         assert result["generated_sdfs"] == ["outputs/generated.sdf"]
         assert "MEDCHEM_STATUS" not in (root / "outputs" / "reference.sdf").read_text()
+
+
+def test_lilly_smiles_from_sdf_without_property() -> None:
+    sdf_without_smiles = sdf_block("generated").replace(">  <SMILES>\nC\n\n", "")
+    assert _smiles_from_sdf(sdf_without_smiles) == "C"
 
 
 def test_recovery_keeps_partial_generator_outputs_running() -> None:
@@ -850,8 +905,44 @@ def test_conditar_in_container_evaluation_status() -> None:
         assert completed["postprocess"]["applied_metrics"] == ["qed"]
 
 
+def test_tool_chest_worker_isolation() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        tools = root / "tools"
+        tools.mkdir()
+        job_root = root / "job"
+        job_root.mkdir()
+        tools.joinpath("success.py").write_text(
+            'def describe(): return {"id": "success", "available": True}\n'
+            'def run(job_root, run_root, options):\n'
+            '    print("worker output")\n'
+            '    return {"value": options["value"]}\n'
+        )
+        tools.joinpath("failure.py").write_text(
+            'def describe(): return {"id": "failure", "available": True}\n'
+            'def run(job_root, run_root, options): raise RuntimeError("worker failed")\n'
+        )
+        tools.joinpath("abrupt.py").write_text(
+            'def describe(): return {"id": "abrupt", "available": True}\n'
+            'def run(job_root, run_root, options):\n'
+            '    import os\n'
+            '    os._exit(139)\n'
+        )
+        chest = ToolChest(root)
+        success = chest.run_tool("success", job_root, {"value": 7})
+        assert success["status"] == "completed" and success["result"] == {"value": 7}
+        assert "worker output" in (job_root / "tool_runs" / success["id"] / "stdout.log").read_text()
+        failure = chest.run_tool("failure", job_root)
+        assert failure["status"] == "failed" and "worker failed" in failure["error"]
+        abrupt = chest.run_tool("abrupt", job_root)
+        assert abrupt["status"] == "failed" and "139" in abrupt["error"]
+        assert (job_root / "tool_runs" / abrupt["id"] / "tool_run.json").exists()
+
+
 def main() -> None:
+    test_tool_chest_worker_isolation()
     test_docker_image_inspection_fallback()
+    test_openshift_vina_panel_preprocessing()
     test_diffsmol_input_validation()
     test_diffsmol_cross_target_commands()
     test_conditar_input_validation()

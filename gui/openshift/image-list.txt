@@ -1,15 +1,8 @@
-# Container images used by this release.
+# Pinned images used by the no-argument CPU OpenShift launcher.
+# They were built and tested in avery91-dev on 2026-10-05.
+# These internal-registry references work only on the same OpenShift cluster.
+# A different project needs image-pull access to avery91-dev or mirrored images.
 
-# GUI image
-# Preferred: prebuilt from gui/Containerfile and hosted in an approved registry.
-# Example public image:
-docker.io/osuninglab/conditar-gui:<site-version>
-
-# Example mirrored GUI image reference:
-image-registry.openshift-image-registry.svc:5000/<site-project>/conditar-gui:<site-version>
-
-# conDitar runtime image
-docker.io/osuninglab/conditar-dev:2026-07-10
-
-# Example mirrored runtime image reference
-image-registry.openshift-image-registry.svc:5000/<site-project>/conditar-runtime:2026-07-10
+GUI=image-registry.openshift-image-registry.svc:5000/avery91-dev/conditar-gui@sha256:47716583382876a501141f3748db37f2a9b1ed3e892e8e956cb8ee4ce7c00e36
+CONDITAR=image-registry.openshift-image-registry.svc:5000/avery91-dev/conditar-dev@sha256:c09c251a6e4c751b79eb0b455d9f89d9509224ddb66d734a99b220d896ff8033
+DIFFSMOL=image-registry.openshift-image-registry.svc:5000/avery91-dev/diffsmol@sha256:6e66d686944a0a963d8d11da3d3008423cfc5ac1098059eea9bd592e0f3fed01

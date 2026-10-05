@@ -58,6 +58,14 @@ if ($openshiftSubmit -eq "true" -and -not $PSBoundParameters.ContainsKey("Runtim
 if ($openshiftSubmit -eq "true" -and $Runtime -eq "openshift_mock") {
   throw "Submission is enabled but the default runtime is diagnostics. Use -Runtime openshift_job."
 }
+if ($openshiftSubmit -eq "true") {
+  if ($RuntimeImage -like "*osuninglab/conditar-dev:2026-07-10" -or $RuntimeImage -notmatch "/") {
+    throw "Real submission requires a registry-pullable refreshed conDitar image. Set -RuntimeImage or CONDITAR_DOCKER_IMAGE."
+  }
+  if ($DiffsmolImage -like "*ninglab/diffsmol:latest" -or $DiffsmolImage -notmatch "/") {
+    throw "Real submission requires a registry-pullable refreshed DiffSMol image. Set -DiffsmolImage or DIFFSMOL_DOCKER_IMAGE."
+  }
+}
 $openshiftDevice = if ($env:CONDITAR_OPENSHIFT_DEVICE) { $env:CONDITAR_OPENSHIFT_DEVICE } else { "cuda:0" }
 $openshiftGpuCount = if ($env:CONDITAR_OPENSHIFT_GPU_COUNT) { $env:CONDITAR_OPENSHIFT_GPU_COUNT } else { "1" }
 $openshiftCpuRequest = if ($env:CONDITAR_OPENSHIFT_CPU_REQUEST) { $env:CONDITAR_OPENSHIFT_CPU_REQUEST } else { "2" }

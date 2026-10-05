@@ -344,14 +344,18 @@ class LocalJobManager:
     def preprocess_vina_panel_pockets(self, payload: dict) -> dict:
         if not isinstance(payload, dict):
             raise ValueError("Vina panel preprocessing payload must be a JSON object.")
-        if not self.container_runtime:
+        openshift = self.container_runtime_kind == OPENSHIFT_JOB_TARGET
+        if openshift and not self._openshift_submit_enabled():
+            raise ValueError("Vina panel docking requires OpenShift Job submission to be enabled.")
+        if not openshift and not self.container_runtime:
             raise ValueError("Vina panel docking requires Docker or Podman.")
-        image_status = self._container_image_status()
-        if image_status.get("checked") and not image_status.get("exists"):
-            raise ValueError(
-                f"conDitar container image not found: {self.docker_image}. "
-                "The Vina panel runner uses the conDitar container dependencies."
-            )
+        if not openshift:
+            image_status = self._container_image_status()
+            if image_status.get("checked") and not image_status.get("exists"):
+                raise ValueError(
+                    f"conDitar container image not found: {self.docker_image}. "
+                    "The Vina panel runner uses the conDitar container dependencies."
+                )
 
         pdb = payload.get("pdb") or {}
         pdb, conversion = normalize_structure_payload(pdb, "protein.pdb")
@@ -384,13 +388,16 @@ class LocalJobManager:
         )
 
         options = payload.get("options") or {}
-        command = self._vina_panel_command(run_root, protein_path, ligand_path, output_dir, tmp_dir, options)
         timeout = int(os.environ.get("CONDITAR_VINA_PANEL_TIMEOUT", "1800"))
-        result = subprocess.run(command, cwd=str(self.project_root.parent), text=True, capture_output=True, check=False, timeout=timeout)
-        raw = self._parse_vina_panel_output(result)
-        if result.returncode != 0 and not raw.get("poses"):
-            detail = raw.get("error") or result.stderr.strip() or result.stdout.strip() or "Vina panel docking failed."
-            raise ValueError(detail)
+        if openshift:
+            raw = self._run_vina_panel_openshift(run_root, protein_path, ligand_path, output_dir, tmp_dir, options, timeout)
+        else:
+            command = self._vina_panel_command(run_root, protein_path, ligand_path, output_dir, tmp_dir, options)
+            result = subprocess.run(command, cwd=str(self.project_root.parent), text=True, capture_output=True, check=False, timeout=timeout)
+            raw = self._parse_vina_panel_output(result)
+            if result.returncode != 0 and not raw.get("poses"):
+                detail = raw.get("error") or result.stderr.strip() or result.stdout.strip() or "Vina panel docking failed."
+                raise ValueError(detail)
 
         clustered = pocket_candidates_from_pose_centers(
             raw.get("poses") or [],
@@ -497,14 +504,33 @@ class LocalJobManager:
             "/opt/conditar/app",
             self.docker_image,
             "/work/docking_panel_vina.py",
+            *self._vina_panel_args(
+                Path("/work/inputs") / protein_path.name,
+                Path("/work/inputs") / ligand_path.name,
+                Path("/work/outputs"),
+                Path("/work/tmp"),
+                options,
+            ),
+        ]
+        return command
+
+    def _vina_panel_args(
+        self,
+        protein_path: Path,
+        ligand_path: Path,
+        output_dir: Path,
+        tmp_dir: Path,
+        options: dict,
+    ) -> list[str]:
+        command = [
             "--protein",
-            f"/work/inputs/{protein_path.name}",
+            str(protein_path),
             "--ligands",
-            f"/work/inputs/{ligand_path.name}",
+            str(ligand_path),
             "--out",
-            "/work/outputs",
+            str(output_dir),
             "--tmp-dir",
-            "/work/tmp",
+            str(tmp_dir),
             "--exhaustiveness",
             str(options.get("exhaustiveness") or 8),
             "--cpu",
@@ -525,6 +551,98 @@ class LocalJobManager:
             if value not in (None, ""):
                 command.extend([cli_key, str(value)])
         return command
+
+    def _run_vina_panel_openshift(
+        self,
+        run_root: Path,
+        protein_path: Path,
+        ligand_path: Path,
+        output_dir: Path,
+        tmp_dir: Path,
+        options: dict,
+        timeout: int,
+    ) -> dict:
+        mount = Path(os.environ.get("CONDITAR_OPENSHIFT_JOB_MOUNT", "/data/jobs"))
+        pod_root = mount / "preprocess_runs" / run_root.name
+        job_name = run_root.name
+        namespace = self._openshift_namespace()
+        if not namespace:
+            raise ValueError("OpenShift namespace could not be determined for Vina panel docking.")
+        manifest = {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+                "name": job_name,
+                "namespace": namespace,
+                "labels": {"app": "conditar", "component": "preprocess", "conditar-gui-job": job_name},
+            },
+            "spec": {
+                "backoffLimit": 0,
+                "activeDeadlineSeconds": timeout,
+                "template": {
+                    "metadata": {"labels": {"app": "conditar", "component": "preprocess", "conditar-gui-job": job_name}},
+                    "spec": {
+                        "restartPolicy": "Never",
+                        "affinity": {
+                            "podAffinity": {
+                                "requiredDuringSchedulingIgnoredDuringExecution": [{
+                                    "labelSelector": {"matchLabels": {"app": "conditar-gui"}},
+                                    "topologyKey": "kubernetes.io/hostname",
+                                }],
+                            },
+                        },
+                        "containers": [{
+                            "name": "conditar",
+                            "image": self.docker_image,
+                            "imagePullPolicy": os.environ.get("CONDITAR_OPENSHIFT_IMAGE_PULL_POLICY", "IfNotPresent"),
+                            "command": ["python", str(pod_root / "docking_panel_vina.py")],
+                            "args": self._vina_panel_args(
+                                pod_root / "inputs" / protein_path.name,
+                                pod_root / "inputs" / ligand_path.name,
+                                pod_root / "outputs",
+                                pod_root / "tmp",
+                                options,
+                            ),
+                            "workingDir": "/opt/conditar/app",
+                            "env": [{"name": "HOME", "value": "/tmp"}],
+                            "resources": {
+                                "requests": {"cpu": "1", "memory": "4Gi"},
+                                "limits": {"memory": "8Gi"},
+                            },
+                            "volumeMounts": [{"name": "jobs", "mountPath": "/data"}],
+                        }],
+                        "volumes": [{"name": "jobs", "persistentVolumeClaim": {
+                            "claimName": os.environ.get("CONDITAR_OPENSHIFT_PVC", "conditar-gui-jobs"),
+                        }}],
+                    },
+                },
+            },
+        }
+        (run_root / "vina-panel-job.yaml").write_text(self._yaml_dump(manifest))
+        self._submit_openshift_job(manifest)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            state = self._openshift_job_state(job_name)
+            if state and state.get("state") in {"succeeded", "failed"}:
+                logs = []
+                for pod_name in self._openshift_job_pod_names({"id": job_name}):
+                    try:
+                        logs.append(self._openshift_pod_log(pod_name, CONDITAR_ENGINE))
+                    except Exception:
+                        continue
+                (run_root / "vina-panel.log").write_text("\n".join(logs))
+                if state["state"] == "failed":
+                    raise ValueError(f"Vina panel OpenShift Job failed: {state.get('reason') or 'see saved pod log'}.")
+                result_path = output_dir / "vina_panel_poses.json"
+                if not result_path.is_file():
+                    raise ValueError("Vina panel OpenShift Job completed without pose results; see saved pod log.")
+                raw = json.loads(result_path.read_text())
+                if not raw.get("poses"):
+                    raise ValueError("Vina panel OpenShift Job returned no docked poses; see saved pod log.")
+                return raw
+            time.sleep(2)
+        self._delete_openshift_job(job_name)
+        raise ValueError(f"Vina panel OpenShift Job timed out after {timeout} seconds.")
 
     def _parse_vina_panel_output(self, result: subprocess.CompletedProcess) -> dict:
         for stream in (result.stdout, result.stderr):

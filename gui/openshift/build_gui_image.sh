@@ -6,7 +6,7 @@ usage() {
 Build the conDitar GUI container image for OpenShift.
 
 Usage:
-  ./openshift/build_gui_image.sh --image IMAGE [options]
+  ./gui/openshift/build_gui_image.sh --image IMAGE [options]
 
 Options:
   --image IMAGE       GUI image tag to build, such as docker.io/org/conditar-gui:tag.
@@ -16,8 +16,8 @@ Options:
   --help              Show this help.
 
 Examples:
-  ./openshift/build_gui_image.sh --image docker.io/osuninglab/conditar-gui:2026-09-03
-  ./openshift/build_gui_image.sh --image docker.io/osuninglab/conditar-gui:2026-09-03 --push
+  ./gui/openshift/build_gui_image.sh --image docker.io/osuninglab/conditar-gui:<site-version>
+  ./gui/openshift/build_gui_image.sh --image docker.io/osuninglab/conditar-gui:<site-version> --push
 EOF
 }
 
