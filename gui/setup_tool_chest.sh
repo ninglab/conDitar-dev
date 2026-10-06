@@ -11,7 +11,7 @@ fi
 
 echo "Installing GUI Tool Chest dependencies"
 conda env update -f environment.yml
-conda run -n conditar-gui-dev medchem install-lilly
+conda run -n conditar-gui-dev medchem install-lilly --jobs 1
 
 if ! command -v make >/dev/null 2>&1; then
   echo "ERROR: make was not found." >&2

@@ -35,7 +35,7 @@ RUN micromamba create -y -f /tmp/environment.yml \
 ENV CONDA_DEFAULT_ENV=conditar-gui-dev \
     PATH=/opt/conda/envs/conditar-gui-dev/bin:$PATH
 
-RUN medchem install-lilly
+RUN medchem install-lilly --jobs 1
 
 USER root
 COPY vendor/Lilly-Medchem-Rules /opt/conditar-gui/.tool_chest/Lilly-Medchem-Rules
