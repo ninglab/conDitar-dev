@@ -3,6 +3,6 @@
 # Published as gui-dev-20261005 and pinned by digest so later tag changes
 # cannot silently change a deployment. The cluster must be able to pull Docker Hub.
 
-GUI=docker.io/osuninglab/conditar-dev-gui@sha256:47716583382876a501141f3748db37f2a9b1ed3e892e8e956cb8ee4ce7c00e36
+GUI=docker.io/osuninglab/conditar-dev-gui@sha256:26fd24a96881a4cde51d55fff3dfcfa4f4f42fcf69c96edbfb2a706fc521a8d8
 CONDITAR=docker.io/osuninglab/conditar-dev@sha256:c09c251a6e4c751b79eb0b455d9f89d9509224ddb66d734a99b220d896ff8033
 DIFFSMOL=docker.io/osuninglab/diffsmol@sha256:6e66d686944a0a963d8d11da3d3008423cfc5ac1098059eea9bd592e0f3fed01
