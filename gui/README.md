@@ -145,48 +145,33 @@ close the old terminal, or rerun the launcher and follow the newly printed URL.
 
 Fresh Slurm/GPU setup:
 
-1. Copy or clone this repository onto the cluster and enter the GUI folder.
-2. Make the refreshed image available to compute nodes. Pull a pushed copy
-   with Podman and set `CONDITAR_DOCKER_IMAGE` to that registry tag, or export
-   the local image on the build machine and load the archive:
+1. Clone the `gui-dev` branch onto the cluster and enter `gui/`.
+2. Run setup with an absolute directory on storage visible from both login and
+   compute nodes, then start the GUI:
 
    ```bash
-   docker save conditar-dev:standalone-20261001 -o /shared/path/conditar-standalone-image.tar
-   podman load -i /shared/path/conditar-standalone-image.tar
-   ```
-
-   The archive must be on a filesystem visible from compute nodes.
-3. Configure the scheduler account in a local `.conditar-slurm.env` file when
-   your cluster requires one (this file is ignored and should not be committed):
-
-   ```bash
-   CONDITAR_SLURM_ACCOUNT=your_account
-   # CONDITAR_SLURM_PARTITION=your_gpu_partition   # if required by your site
-   ```
-
-   If compute nodes cannot pull from Docker Hub, also set
-   `CONDITAR_DOCKER_TAR=/shared/path/conditar-image.tar.gz`. The archive path
-   must resolve from the compute node, not only from the login host. If
-   `CONDITAR_DOCKER_TAR` is unset, the launcher checks common nearby
-   `conditar*.tar`/`.tar.gz` locations such as the GUI folder, `../containers/`,
-   and `$HOME/containers/`.
-4. Confirm the cluster tools are available (`python3` or `conda`, `podman`, and `sbatch`),
-   then run the GPU setup check and start the GUI:
-
-   ```bash
-   ./setup_slurm_gui.sh
+   ./setup_slurm_gui.sh --shared-dir /shared/path/conditar-gui --account YOUR_ACCOUNT
    ./start_slurm_gui.sh
    ```
 
-   If no image or archive is detected, `setup_slurm_gui.sh` prompts for the
-   compute-node-visible archive path and saves it in `.conditar-slurm.env`.
+   Setup pulls the published conDitar and DiffSMol images with Podman, saves
+   both archives under `images/`, creates `jobs/`, and writes the configuration
+   to the ignored `.conditar-slurm.env` file. Rerunning setup refreshes both
+   archives. Never use node-local `/tmp` for these paths. The script can prompt
+   for the directory and account when run interactively without arguments.
+3. Verify the shared directory is visible from a compute node. Open the printed
+   GUI URL, choose **Slurm GPU · Podman**, and check Launch readiness before
+   submitting. If your cluster requires a GPU partition, set
+   `CONDITAR_SLURM_PARTITION` in `.conditar-slurm.env`.
 
-5. Open the printed GUI URL, choose **Slurm GPU · Podman**, enter/confirm the
-   Slurm account, and click **Check again** in Launch readiness before submitting.
+For full preprocessing and Tool Chest support, run `./setup_tool_chest.sh` once
+if Conda and build tools are available on the login host. The GUI runs Python
+on that host; the generator jobs run in Podman on compute nodes.
 
 The launcher normally opens `http://127.0.0.1:4173`; if that port is busy, it
-prints the next available local URL. It validates the image/archive and required
-commands before starting.
+prints the next available local URL. Forward that port from your workstation
+if the GUI is running on a remote login node. It validates the archives and
+required commands before starting.
 Each submitted GPU batch is sent to Slurm as an array job; scheduler delays or
 account/GPU limits are reported in the Jobs panel with the scheduler reason.
 
@@ -220,14 +205,16 @@ Requirements:
   archive that can be loaded by the Slurm job
 - Any site-specific setup required for remote desktop or web access
 
-The Slurm launcher defaults to:
+The Slurm setup script records these settings in `.conditar-slurm.env`:
 
 ```bash
 CONDITAR_RUNTIME=podman
-CONDITAR_DOCKER_IMAGE=conditar-dev:standalone-20261001
-CONDITAR_DOCKER_TAR=                  # optional archive to load inside the job
-DIFFSMOL_DOCKER_TAR=                  # optional separate DiffSMol archive
-CONDITAR_SLURM_ACCOUNT=               # required by many Slurm sites
+CONDITAR_DOCKER_IMAGE=docker.io/osuninglab/conditar-dev:gui-dev-20261005
+DIFFSMOL_DOCKER_IMAGE=docker.io/osuninglab/diffsmol:gui-dev-20261005
+CONDITAR_DOCKER_TAR=/shared/path/conditar-gui/images/conditar.tar
+DIFFSMOL_DOCKER_TAR=/shared/path/conditar-gui/images/diffsmol.tar
+CONDITAR_JOB_ROOT=/shared/path/conditar-gui/jobs
+CONDITAR_SLURM_ACCOUNT=YOUR_ACCOUNT
 CONDITAR_SLURM_TIME=04:00:00
 CONDITAR_SLURM_MEM=32G
 CONDITAR_SLURM_CPUS=4
